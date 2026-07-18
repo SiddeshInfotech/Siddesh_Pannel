@@ -3,7 +3,7 @@ import { getAdminSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import DataTabs from './DataTabs';
 import MetricCard from '@/components/MetricCard';
-import { School, Building2 } from 'lucide-react';
+import { School, Building2, Users } from 'lucide-react';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +36,6 @@ async function getSchoolsData() {
 }
 
 async function getVendorsData() {
-  
   const { data: vendors, error } = await supabaseAdmin
     .from('vendors')
     .select('*')
@@ -64,22 +63,51 @@ async function getVendorsData() {
       : 'N/A',
   }));
 }
+
+async function getParentsData() {
+  const { data: parents, error } = await supabaseAdmin
+    .from('parents')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) {
+    console.error('getParentsData error:', error.message);
+    return [];
+  }
+
+  return (parents ?? []).map((parent: any) => ({
+    id: parent.parent_id,          
+    dbId: parent.id,        
+    parentId: parent.parent_id,
+    parentName: parent.parent_name,
+    kidName: parent.kid_name,
+    email: parent.email,
+    mobile: parent.phone_number,
+    city: parent.city,
+    grade: parent.grade,
+    status: parent.status,
+    dateAdded: parent.created_at
+      ? new Date(parent.created_at).toLocaleDateString()
+      : 'N/A',
+  }));
+}
+
 export default async function SchoolsPage() {
   const session = await getAdminSession();
 
   if (!session) return null;
 
   const schoolsData = await getSchoolsData();
-
   const vendorsData = await getVendorsData();
-  console.log(vendorsData);
+  const parentsData = await getParentsData();
+
   const totalSchools = schoolsData.length;
   const totalVendors = vendorsData.length;
+  const totalParents = parentsData.length;
 
   return (
     <div className="space-y-6">
   
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <MetricCard
           title="Total Schools"
           value={totalSchools.toString()}
@@ -95,12 +123,21 @@ export default async function SchoolsPage() {
           badgeType="stable"
           icon={Building2}
         />
+
+        <MetricCard
+          title="Total Parents"
+          value={totalParents.toString()}
+          badgeText="Registered"
+          badgeType="neutral"
+          icon={Users}
+        />
       </div>
   
       <DataTabs
-  initialSchools={schoolsData}
-  initialVendors={vendorsData}
-/>
+        initialSchools={schoolsData}
+        initialVendors={vendorsData}
+        initialParents={parentsData}
+      />
   
     </div>
   );

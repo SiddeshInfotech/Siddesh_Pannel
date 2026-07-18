@@ -34,7 +34,7 @@ export default function MetricCard({
   };
 
   return (
-    <GlassCard className="relative overflow-hidden flex flex-col justify-between p-5 border border-black/5 dark:border-white/5 bg-black/5 dark:bg-zinc-900/40 backdrop-blur-xl">
+    <GlassCard className="relative overflow-hidden flex flex-col justify-between p-5 border border-black/5 dark:border-white/5 backdrop-blur-xl">
       {/* Header Info */}
       <div className="flex justify-between items-start">
         <div>

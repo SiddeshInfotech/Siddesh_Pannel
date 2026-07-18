@@ -7,6 +7,7 @@ import type { NextConfig } from "next";
 // proxy.ts is the single source of truth for CSP.
 
 const nextConfig: NextConfig = {
+  basePath: '/lms-admin',
   // Remove X-Powered-By: Next.js header — prevents tech stack fingerprinting
   poweredByHeader: false,
   async headers() {

@@ -356,7 +356,7 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
       </div>
 
       {/* Main card matching layout */}
-      <GlassCard className="bg-[#121216]/40 border border-white/5 p-8 relative overflow-visible">
+      <GlassCard className="/40 border border-white/5 p-8 relative overflow-visible">
         <div className="absolute top-0 right-0 w-[200px] h-[200px] bg-accent-violet/5 rounded-full blur-[80px] pointer-events-none"></div>
 
         <form onSubmit={handleGenerate} className="space-y-8">
@@ -676,7 +676,7 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
             const isBatchActive = activeCount > 0;
             
             return (
-              <GlassCard key={batch.id} className="bg-[#121216]/30 border border-white/5 p-6 space-y-4 hover:border-white/10 transition-all">
+              <GlassCard key={batch.id} className="/30 border border-white/5 p-6 space-y-4 hover:border-white/10 transition-all">
                 {/* Batch Header */}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/5">
                   <div className="space-y-1">
@@ -849,7 +849,7 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
             );
           })
         ) : (
-          <GlassCard className="bg-[#121216]/40 border border-white/5 p-12 text-center text-zinc-500">
+          <GlassCard className="/40 border border-white/5 p-12 text-center text-zinc-500">
             <AlertCircle className="w-5 h-5 mx-auto mb-2 text-zinc-600" />
             No activation keys provisioned yet.
           </GlassCard>
@@ -859,7 +859,7 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
       {/* Deletion Confirmation Modal */}
       {showConfirmModal && keyToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-md bg-[#121216] border border-white/10 p-6 space-y-6 shadow-2xl relative">
+          <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
             <button 
               onClick={() => {
                 setShowConfirmModal(false);
@@ -912,7 +912,7 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
 
       {showResetModal && keyToReset && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-md bg-[#121216] border border-white/10 p-6 space-y-6 shadow-2xl relative">
+          <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
             <button
               onClick={() => {
                 setShowResetModal(false);

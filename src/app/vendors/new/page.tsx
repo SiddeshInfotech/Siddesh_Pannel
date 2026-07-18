@@ -21,6 +21,7 @@ import Link from 'next/link';
 import { useToast } from '@/components/Toast';
 import { createVendor } from './actions';
 import CustomSelect from '@/components/CustomSelect';
+import { MAHARASHTRA_DISTRICTS, MAHARASHTRA_STATE } from '@/lib/constants';
 
 type FormStep = 'basic' | 'contact' | 'tax';
 
@@ -51,7 +52,7 @@ export default function NewVendorPage() {
   const [addressLine2, setAddressLine2] = useState('');
   const [city, setCity] = useState('');
   const [district, setDistrict] = useState('');
-  const [state, setState] = useState('');
+  const [state, setState] = useState('Maharashtra');
   const [country, setCountry] = useState('India');
   const [pincode, setPincode] = useState('');
 
@@ -452,36 +453,33 @@ export default function NewVendorPage() {
                     {/* City */}
                     <div className="space-y-2">
                       <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">City <span className="text-rose-500">*</span></label>
-                      <input 
-                        type="text" 
-                        placeholder="City" 
-                        value={city} 
-                        onChange={e => setCity(e.target.value)}
-                        className="w-full px-4 py-3 bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/10 text-xs rounded-xl focus:border-accent-violet outline-none transition-all text-white light:text-black"
+                      <CustomSelect 
+                        value={city}
+                        onChange={setCity}
+                        options={MAHARASHTRA_DISTRICTS}
+                        placeholder="Select City"
                       />
                     </div>
 
                     {/* District */}
                     <div className="space-y-2">
-                      <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700">District</label>
-                      <input 
-                        type="text" 
-                        placeholder="District" 
-                        value={district} 
-                        onChange={e => setDistrict(e.target.value)}
-                        className="w-full px-4 py-3 bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/10 text-xs rounded-xl focus:border-accent-violet outline-none transition-all text-white light:text-black"
+                      <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">District</label>
+                      <CustomSelect 
+                        value={district}
+                        onChange={setDistrict}
+                        options={MAHARASHTRA_DISTRICTS}
+                        placeholder="Select District"
                       />
                     </div>
 
                     {/* State */}
                     <div className="space-y-2">
                       <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">State <span className="text-rose-500">*</span></label>
-                      <input 
-                        type="text" 
-                        placeholder="State" 
-                        value={state} 
-                        onChange={e => setState(e.target.value)}
-                        className="w-full px-4 py-3 bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/10 text-xs rounded-xl focus:border-accent-violet outline-none transition-all text-white light:text-black"
+                      <CustomSelect 
+                        value={state}
+                        onChange={setState}
+                        options={MAHARASHTRA_STATE}
+                        placeholder="Select State"
                       />
                     </div>
 

@@ -134,7 +134,7 @@ export default function AuthWrapper({
         payload.password = password;
       }
 
-      const response = await fetch('/api/auth/login', {
+      const response = await fetch('/lms-admin/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -188,7 +188,7 @@ export default function AuthWrapper({
   // ── Logout ────────────────────────────────────────────────────────────────
   const handleLogout = async () => {
     try {
-      await fetch('/api/auth/logout', {
+      await fetch('/lms-admin/api/auth/logout', {
         method: 'POST',
         credentials: 'same-origin',
       });
@@ -216,7 +216,7 @@ export default function AuthWrapper({
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-fade-in">
         <div className="w-full max-w-md relative z-10 animate-slide-up">
-          <GlassCard className="bg-[#121216]/75 border border-white/10 p-8 rounded-3xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.8)] relative overflow-hidden">
+          <GlassCard className="/75 border border-white/10 p-8 rounded-3xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.8)] relative overflow-hidden">
             <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-emerald-500 via-teal-500 to-accent-blue" />
             <div className="mb-6 text-center">
               <div className="w-12 h-12 rounded-full bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center mx-auto mb-3">

@@ -77,21 +77,59 @@ body {
   -ms-overflow-style: none; /* IE and Edge */
 }
 
-/* Light Theme High-Contrast Black Text Overrides */
+/* Light Theme Intelligent Text Color Mapping */
 .light {
-  color: #000000;
+  color: #0f172a;
 }
-.light h1, .light h2, .light h3, .light h4, .light h5, .light h6, .light p, .light td, .light th, .light code, .light label {
-  color: #000000 !important;
+.light [class*="text-zinc-200"],
+.light [class*="text-zinc-300"],
+.light [class*="text-gray-200"],
+.light [class*="text-gray-300"],
+.light [class*="text-white"],
+.light h1, .light h2, .light h3, .light h4, .light h5, .light h6, .light label {
+  color: #1e293b !important;
 }
-.light [class*="text-zinc"], .light [class*="text-zinc-"] {
-  color: #000000 !important;
+
+.light [class*="text-zinc-400"],
+.light [class*="text-zinc-500"],
+.light [class*="text-gray-400"],
+.light [class*="text-gray-500"],
+.light p, .light td, .light th, .light code {
+  color: #64748b !important;
 }
-.light span:not([class*="text-emerald"]):not([class*="text-rose"]):not([class*="text-amber"]):not([class*="text-accent"]):not([class*="text-sky"]):not([class*="text-indigo"]) {
-  color: #000000 !important;
-}
+
 .light .activation-token {
-  color: #000000 !important;
+  color: #1e293b !important;
+}
+
+.light [class*="border-white/"],
+.light [class*="border-white\\["] {
+  border-color: rgba(0,0,0,0.1) !important;
+}
+
+.light [class*="bg-white/"],
+.light [class*="bg-white\\["] {
+  background-color: rgba(0,0,0,0.04) !important;
+}
+
+.light .glass {
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04), inset 0 0 0 1px rgba(255, 255, 255, 1);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.light .glass-interactive {
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04), inset 0 0 0 1px rgba(255, 255, 255, 1);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.light .glass-interactive:hover {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 8px 32px rgba(139, 92, 246, 0.15), inset 0 0 0 1px rgba(255, 255, 255, 1);
+  transform: translateY(-2px);
 }
 
 /* Pulse animation for node topology */
@@ -158,13 +196,13 @@ body {
 }
 
 .light .active-tab-text {
-  color: #000000 !important;
+  color: #0f172a !important;
 }
 .light .inactive-tab-text {
   color: #64748b !important;
 }
 .light .active-tab-line {
-  background-color: #000000 !important;
+  background-color: #0f172a !important;
 }
 
 
@@ -222,27 +260,26 @@ body {
 
 /* Light theme overrides matching the user's specific request */
 .light .sidebar-nav-item {
-  color: #9ca3af !important; /* gray-400 */
+  color: #64748b !important; /* slate-500 */
 }
 .light .sidebar-nav-item:hover {
-  color: #6b7280 !important; /* gray-500 */
+  color: #334155 !important; /* slate-700 */
   background-color: rgba(0, 0, 0, 0.03) !important;
 }
 .light .sidebar-nav-item-active {
-  color: #000000 !important; /* active: black */
+  color: #0f172a !important; /* slate-900 */
   background-color: rgba(0, 0, 0, 0.04) !important;
-  /* border: 1px solid rgba(0, 0, 0, 0.06) !important; */
 }
 
 /* Light Theme Sidebar Icon Overrides */
 .light .sidebar-nav-icon {
-  color: #9ca3af !important; /* gray-400 */
+  color: #94a3b8 !important; /* slate-400 */
 }
 .light .sidebar-nav-item:hover .sidebar-nav-icon {
-  color: #6b7280 !important; /* gray-500 */
+  color: #64748b !important; /* slate-500 */
 }
 .light .sidebar-nav-item-active .sidebar-nav-icon {
-  color: #000000 !important; /* active: black */
+  color: var(--accent-violet) !important; /* restored vibrant branding */
 }
 
 /* Light Theme Form Control Styling Overrides */
@@ -250,8 +287,8 @@ body {
 .light select,
 .light textarea {
   background-color: #ffffff !important;
-  color: #000000 !important;
-  border: 1.5px solid rgba(0, 0, 0, 0.18) !important;
+  color: #1e293b !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
 }
 
 .light input::placeholder,
@@ -274,17 +311,7 @@ body {
   box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15) !important;
 }
 
-/* Force borders to stand out in light theme just like dark theme */
-.light .glass,
-.light .glass-interactive,
-.light [class*="border-white/"],
-.light [class*="border-white/5"],
-.light [class*="border-white/10"],
-.light [class*="border-white/15"],
-.light [class*="border-white/20"],
-.light [class*="hover:border-white/"] {
-  border-color: rgba(0, 0, 0, 0.12) !important;
-}
+
 
 .light .tab-header-border {
   border-bottom-color: rgba(0, 0, 0, 0.12) !important;

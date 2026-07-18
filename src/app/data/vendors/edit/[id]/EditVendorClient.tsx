@@ -13,8 +13,10 @@ import {
 import Link from 'next/link';
 
 import GlassCard from '@/components/GlassCard';
-import CustomSelect from '@/components/CustomSelect';
+import StatusBadge from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
+import CustomSelect from '@/components/CustomSelect';
+import { MAHARASHTRA_DISTRICTS, MAHARASHTRA_STATE } from '@/lib/constants';
 import { updateVendorAction } from '@/app/data/actions';
 
 type FormStep = 'basic' | 'contact' | 'tax';
@@ -553,35 +555,38 @@ export default function EditVendorClient({
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-xs font-semibold text-zinc-300">
-                        City *
+                      <label className="text-xs font-semibold text-zinc-300 font-bold">
+                        City / District *
                       </label>
-                      <input
+                      <CustomSelect 
                         value={city}
-                        onChange={(e) => setCity(e.target.value)}
-                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none focus:border-accent-violet"
+                        onChange={setCity}
+                        options={MAHARASHTRA_DISTRICTS}
+                        placeholder="Select City / District"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-xs font-semibold text-zinc-300">
+                      <label className="text-xs font-semibold text-zinc-300 font-bold">
                         District
                       </label>
-                      <input
+                      <CustomSelect 
                         value={district}
-                        onChange={(e) => setDistrict(e.target.value)}
-                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none focus:border-accent-violet"
+                        onChange={setDistrict}
+                        options={MAHARASHTRA_DISTRICTS}
+                        placeholder="Select District"
                       />
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-xs font-semibold text-zinc-300">
+                      <label className="text-xs font-semibold text-zinc-300 font-bold">
                         State *
                       </label>
-                      <input
+                      <CustomSelect 
                         value={state}
-                        onChange={(e) => setState(e.target.value)}
-                        className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none focus:border-accent-violet"
+                        onChange={setState}
+                        options={MAHARASHTRA_STATE}
+                        placeholder="Select State"
                       />
                     </div>
 

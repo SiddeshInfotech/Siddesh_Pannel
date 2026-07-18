@@ -213,7 +213,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
         </div>
 
         {/* Form Inputs Grid */}
-        <GlassCard className="bg-[#121216]/40 border border-white/5 p-6 space-y-6">
+        <GlassCard className="/40 border border-white/5 p-6 space-y-6">
           <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
             <CreditCard className="w-4 h-4 text-accent-violet" />
             Payment info
@@ -326,7 +326,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
       </div>
 
       {/* Payment Table Records */}
-      <GlassCard className="bg-[#121216]/40 border border-white/5 overflow-hidden p-0">
+      <GlassCard className="/40 border border-white/5 overflow-hidden p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead>
@@ -400,7 +400,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
       {/* Confirmation Modal */}
       {showConfirmModal && paymentToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-md bg-[#121216] border border-white/10 p-6 space-y-6 shadow-2xl relative">
+          <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
             <button 
               onClick={() => {
                 setShowConfirmModal(false);

@@ -93,7 +93,7 @@ export default function DashboardTabs() {
       {/* Tab Content */}
       <div className="transition-all duration-300">
         {activeTab === 'logs' ? (
-          <GlassCard className="bg-black/5 dark:bg-[#121216]/40 !border-0 shadow-none space-y-4">
+          <GlassCard className="/40 !border-0 shadow-none space-y-4">
             <div className="flex justify-between items-center mb-2">
               <h3 className="text-lg font-bold text-black dark:text-white tracking-tight flex items-center gap-2">
                 <Terminal className="w-5 h-5 text-[#8b5cf6]" />
@@ -141,7 +141,7 @@ export default function DashboardTabs() {
             )}
           </GlassCard>
         ) : (
-          <GlassCard className="bg-black/5 dark:bg-[#121216]/40 !border-0 shadow-none">
+          <GlassCard className="/40 !border-0 shadow-none">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-bold text-black dark:text-white tracking-tight flex items-center gap-2">
                 <School className="w-5 h-5 text-gray-500 dark:text-zinc-400" />

@@ -102,7 +102,7 @@ const [vendorToDelete, setVendorToDelete] =
     };
     return (
         <div className="space-y-8 max-w-6xl mx-auto relative">
-            <GlassCard className="bg-[#121216]/40 border border-white/5 overflow-hidden p-0">
+            <GlassCard className="/40 border border-white/5 overflow-hidden p-0">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
                     <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-accent-violet/10 flex items-center justify-center">
@@ -213,7 +213,7 @@ const [vendorToDelete, setVendorToDelete] =
 {/* Confirmation Modal */}
 {showConfirmModal && vendorToDelete && (
   <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-    <GlassCard className="w-full max-w-md bg-[#121216] border border-white/10 p-6 space-y-6 shadow-2xl relative">
+    <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
 
       <button
         onClick={() => {

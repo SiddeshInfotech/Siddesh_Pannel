@@ -291,3 +291,28 @@ export async function updateVendorAction(
     return fail(GENERIC_ERROR);
   }
 }
+
+export async function deleteParentAction(id: string): Promise<ActionResult> {
+  const session = await getAdminSession();
+  if (!session) return fail('Unauthorized. Please sign in again.');
+  if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
+
+  try {
+    const { error } = await supabaseAdmin
+      .from('parents')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      logger.error({ event: 'DELETE_PARENT_ERROR', parentDbId: id }, error);
+      return fail(GENERIC_ERROR);
+    }
+
+    logger.info({ event: 'PARENT_DELETED', parentDbId: id, adminEmail: session.email });
+    revalidatePath('/data');
+    return ok(undefined);
+  } catch (err: unknown) {
+    logger.error({ event: 'DELETE_PARENT_CRITICAL_ERROR', parentDbId: id }, err);
+    return fail(GENERIC_ERROR);
+  }
+}

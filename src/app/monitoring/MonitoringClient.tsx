@@ -221,7 +221,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
       </div>
 
       {/* Main Table list */}
-      <GlassCard className="bg-[#121216]/40 border border-card-border overflow-hidden">
+      <GlassCard className="/40 border border-card-border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[1200px] text-left border-collapse">
             <thead>

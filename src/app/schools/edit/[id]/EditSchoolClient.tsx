@@ -13,9 +13,11 @@ import {
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
 import Link from 'next/link';
+import StatusBadge from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
 import { updateSchoolAction } from '@/app/data/actions';
 import CustomSelect from '@/components/CustomSelect';
+import { MAHARASHTRA_DISTRICTS, MAHARASHTRA_STATE } from '@/lib/constants';
 
 interface EditSchoolClientProps {
   school: {
@@ -139,7 +141,7 @@ export default function EditSchoolClient({ school }: EditSchoolClientProps) {
         <div className="lg:col-span-8 space-y-8">
           
           {/* Card 1: School Profile */}
-          <GlassCard className="bg-[#121216]/40 border border-white/5 space-y-6">
+          <GlassCard className="/40 border border-white/5 space-y-6">
             <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
               <School className="w-4.5 h-4.5 text-accent-violet" />
               School Profile
@@ -208,7 +210,7 @@ export default function EditSchoolClient({ school }: EditSchoolClientProps) {
           </GlassCard>
 
           {/* Card 2: Location Details */}
-          <GlassCard className="bg-[#121216]/40 border border-white/5 space-y-6">
+          <GlassCard className="/40 border border-white/5 space-y-6">
             <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
               <MapPin className="w-4.5 h-4.5 text-accent-violet" />
               Location Details
@@ -227,29 +229,27 @@ export default function EditSchoolClient({ school }: EditSchoolClientProps) {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-400">City *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="City"
-                  value={city}
-                  onChange={e => setCity(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
-                />
-              </div>
+                  {/* City */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">City / District <span className="text-rose-500">*</span></label>
+                    <CustomSelect 
+                      value={city}
+                      onChange={setCity}
+                      options={MAHARASHTRA_DISTRICTS}
+                      placeholder="Select City / District"
+                    />
+                  </div>
 
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-400">State *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="State"
-                  value={state}
-                  onChange={e => setState(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
-                />
-              </div>
+                  {/* State */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">State <span className="text-rose-500">*</span></label>
+                    <CustomSelect 
+                      value={state}
+                      onChange={setState}
+                      options={MAHARASHTRA_STATE}
+                      placeholder="Select State"
+                    />
+                  </div>
 
               <div className="space-y-2">
                 <label className="text-xs font-bold text-zinc-400">PIN Code *</label>
@@ -266,7 +266,7 @@ export default function EditSchoolClient({ school }: EditSchoolClientProps) {
           </GlassCard>
 
           {/* Card 3: Infrastructure */}
-          <GlassCard className="bg-[#121216]/40 border border-white/5 space-y-6">
+          <GlassCard className="/40 border border-white/5 space-y-6">
             <h3 className="text-sm font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
               <Layers className="w-4.5 h-4.5 text-accent-violet" />
               Infrastructure
@@ -302,7 +302,7 @@ export default function EditSchoolClient({ school }: EditSchoolClientProps) {
         <div className="lg:col-span-4 space-y-8">
           
           {/* Point of Contact */}
-          <GlassCard className="bg-[#121216]/40 border border-white/5 space-y-4">
+          <GlassCard className="/40 border border-white/5 space-y-4">
             <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-2">
               <User className="w-4 h-4 text-accent-violet" />
               Point of Contact

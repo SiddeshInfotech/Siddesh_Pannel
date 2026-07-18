@@ -19,10 +19,11 @@ import {
   GraduationCap
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
-import Link from 'next/link';
+import CustomSelect from '@/components/CustomSelect';
 import { useToast } from '@/components/Toast';
 import { createSchool } from './actions';
-import CustomSelect from '@/components/CustomSelect';
+import { MAHARASHTRA_DISTRICTS, MAHARASHTRA_STATE } from '@/lib/constants';
+import Link from 'next/link';
 
 type FormStep = 'identity' | 'location' | 'admin';
 
@@ -38,7 +39,7 @@ export default function NewSchoolPage() {
   const [mediums, setMediums] = useState<string[]>(['Marathi', 'Semi-English']);
   const [street, setStreet] = useState('');
   const [city, setCity] = useState('');
-  const [state, setState] = useState('');
+  const [state, setState] = useState('Maharashtra');
   const [pinCode, setPinCode] = useState('');
   const [coordinatorName, setCoordinatorName] = useState('');
   const [email, setEmail] = useState('');
@@ -206,7 +207,7 @@ export default function NewSchoolPage() {
 
         {/* Right active step form panel */}
         <div className="lg:col-span-9">
-          <GlassCard className="bg-[#121216]/40 dark:bg-[#121216]/40 light:bg-white border border-white/5 dark:border-white/5 light:border-black/15 p-8 rounded-3xl relative overflow-hidden shadow-xl">
+          <GlassCard className="/40 /40 border border-white/5 dark:border-white/5 light:border-black/15 p-8 rounded-3xl relative overflow-hidden shadow-xl">
             <div className="absolute top-0 right-0 w-[300px] h-[300px] bg-accent-violet/5 rounded-full blur-[100px] pointer-events-none"></div>
 
             {/* STEP 1: IDENTITY */}
@@ -418,27 +419,23 @@ export default function NewSchoolPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {/* City */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 block">City *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Pune"
+                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">City / District <span className="text-rose-500">*</span></label>
+                    <CustomSelect 
                       value={city}
-                      onChange={e => setCity(e.target.value)}
-                      className="w-full px-4 py-3 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
+                      onChange={setCity}
+                      options={MAHARASHTRA_DISTRICTS}
+                      placeholder="Select City / District"
                     />
                   </div>
 
                   {/* State */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 block">State *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Maharashtra"
+                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">State <span className="text-rose-500">*</span></label>
+                    <CustomSelect 
                       value={state}
-                      onChange={e => setState(e.target.value)}
-                      className="w-full px-4 py-3 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
+                      onChange={setState}
+                      options={MAHARASHTRA_STATE}
+                      placeholder="Select State"
                     />
                   </div>
 

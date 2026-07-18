@@ -21,15 +21,36 @@ import {
   LogOut
 } from 'lucide-react';
 
-const MENU_ITEMS = [
-  { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
-  { label: 'Add School', icon: PlusCircle, path: '/schools/new' },
-  { label: 'Add Vendor', icon: PlusCircle, path: '/vendors/new' },
-  { label: 'Payments', icon: CreditCard, path: '/payments' },
-  { label: 'Keys', icon: Key, path: '/keys' },
-  { label: 'Data', icon: School, path: '/data' },
-  { label: 'Monitoring', icon: Activity, path: '/monitoring' },
-  { label: 'Update', icon: DownloadCloud, path: '/update' },
+const MENU_GROUPS = [
+  {
+    title: 'Overview',
+    items: [
+      { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
+      { label: 'Data', icon: School, path: '/data' },
+    ]
+  },
+  {
+    title: 'Accounts',
+    items: [
+      { label: 'Schools', icon: PlusCircle, path: '/schools/new' },
+      { label: 'Vendors', icon: PlusCircle, path: '/vendors/new' },
+      { label: 'Parents', icon: PlusCircle, path: '/parents/new' },
+    ]
+  },
+  {
+    title: 'Management',
+    items: [
+      { label: 'Payments', icon: CreditCard, path: '/payments' },
+      { label: 'Keys', icon: Key, path: '/keys' },
+    ]
+  },
+  {
+    title: 'System',
+    items: [
+      { label: 'Monitoring', icon: Activity, path: '/monitoring' },
+      { label: 'Update', icon: DownloadCloud, path: '/update' },
+    ]
+  }
 ];
 
 export default function Sidebar() {
@@ -75,7 +96,7 @@ export default function Sidebar() {
     <aside className="w-52 bg-sidebar-custom sidebar-dashed-border mt-24 flex flex-col h-screen fixed left-0 top-0 z-40 transition-colors duration-300">
       {/* Brand Header */}
       <div className="p-6 pb-2 flex items-center gap-3 mt-[-100px]">
-        <img src="/siddesh_logo.png" alt="Siddesh Logo" className="w-10 h-10 object-contain rounded-xl" />
+        <img src="/lms-admin/siddesh_logo.png" alt="Siddesh Logo" className="w-10 h-10 object-contain rounded-xl" />
         <div>
           <h1 className="text-lg font-bold tracking-tight text-foreground transition-colors">
             Siddesh Tech
@@ -86,23 +107,30 @@ export default function Sidebar() {
       <div className="fading-line"></div>
 
       {/* Navigation Links */}
-      <nav className="flex-1 px-4 py-6 space-y-0.5 overflow-y-auto">
-        {MENU_ITEMS.map((item) => {
-          const isActive = pathname === item.path;
-          const Icon = item.icon;
-          return (
-            <Link
-              key={item.path}
-              href={item.path}
-              className={`flex items-center gap-3.5 px-4 py-3 rounded-xl text-xs font-medium group ${
-                isActive ? 'sidebar-nav-item-active' : 'sidebar-nav-item'
-              }`}
-            >
-              <Icon className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 sidebar-nav-icon`} />
-              {item.label} 
-            </Link>
-          );
-        })}
+      <nav className="flex-1 px-4 py-6 space-y-4 overflow-y-auto pb-32">
+        {MENU_GROUPS.map((group) => (
+          <div key={group.title} className="space-y-1">
+            <h3 className="px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">
+              {group.title}
+            </h3>
+            {group.items.map((item) => {
+              const isActive = pathname === item.path;
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.path}
+                  href={item.path}
+                  className={`flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-[11px] font-medium group ${
+                    isActive ? 'sidebar-nav-item-active' : 'sidebar-nav-item'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 sidebar-nav-icon`} />
+                  {item.label} 
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       {/* Theme Toggle, MFA, & Logout Buttons */}

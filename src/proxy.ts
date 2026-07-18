@@ -245,7 +245,7 @@ export async function proxy(req: NextRequest) {
       console.error('[proxy] Access blocked: token is not a valid admin session.');
       const response = pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
-        : NextResponse.redirect(new URL('/', req.url));
+        : NextResponse.redirect(new URL('/lms-admin/', req.url));
       response.cookies.set(COOKIE_NAME, '', {
         maxAge: 0, path: '/', secure: isProd, httpOnly: true, sameSite: 'strict',
       });
@@ -269,7 +269,7 @@ export async function proxy(req: NextRequest) {
 
       const response = pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Unauthorized email.' }, { status: 401 })
-        : NextResponse.redirect(new URL('/', req.url));
+        : NextResponse.redirect(new URL('/lms-admin/', req.url));
       
       response.cookies.set(COOKIE_NAME, '', {
         maxAge: 0,
@@ -295,7 +295,7 @@ export async function proxy(req: NextRequest) {
 
         const response = pathname.startsWith('/api/')
           ? NextResponse.json({ error: 'Session revoked or expired.' }, { status: 401 })
-          : NextResponse.redirect(new URL('/', req.url));
+          : NextResponse.redirect(new URL('/lms-admin/', req.url));
 
         response.cookies.set(COOKIE_NAME, '', {
           maxAge: 0,
