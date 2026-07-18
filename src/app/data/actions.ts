@@ -65,6 +65,10 @@ export async function deleteSchoolAction(id: string): Promise<ActionResult> {
   if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
 
   try {
+    // Manually cascade delete dependent records
+    await supabaseAdmin.from('activation_keys').delete().eq('school_id', id);
+    await supabaseAdmin.from('payments').delete().eq('school_id', id);
+
     const { error } = await supabaseAdmin
       .from('schools')
       .delete()
@@ -72,7 +76,7 @@ export async function deleteSchoolAction(id: string): Promise<ActionResult> {
 
     if (error) {
       logger.error({ event: 'DELETE_SCHOOL_ERROR', schoolId: id }, error);
-      return fail(GENERIC_ERROR);
+      return fail(error.message || GENERIC_ERROR);
     }
 
     logger.info({ event: 'SCHOOL_DELETED', schoolId: id, adminEmail: session.email });
@@ -90,6 +94,10 @@ export async function deleteVendorAction(id: string): Promise<ActionResult> {
   if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
 
   try {
+    // Manually cascade delete dependent records
+    await supabaseAdmin.from('activation_keys').delete().eq('vendor_id', id);
+    await supabaseAdmin.from('payments').delete().eq('vendor_id', id);
+
     const { error } = await supabaseAdmin
       .from('vendors')
       .delete()
@@ -97,7 +105,7 @@ export async function deleteVendorAction(id: string): Promise<ActionResult> {
 
     if (error) {
       logger.error({ event: 'DELETE_VENDOR_ERROR', vendorId: id }, error);
-      return fail(GENERIC_ERROR);
+      return fail(error.message || GENERIC_ERROR);
     }
 
     logger.info({
@@ -298,6 +306,10 @@ export async function deleteParentAction(id: string): Promise<ActionResult> {
   if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
 
   try {
+    // Manually cascade delete dependent records
+    await supabaseAdmin.from('activation_keys').delete().eq('parent_id', id);
+    await supabaseAdmin.from('payments').delete().eq('parent_id', id);
+
     const { error } = await supabaseAdmin
       .from('parents')
       .delete()
@@ -305,7 +317,7 @@ export async function deleteParentAction(id: string): Promise<ActionResult> {
 
     if (error) {
       logger.error({ event: 'DELETE_PARENT_ERROR', parentDbId: id }, error);
-      return fail(GENERIC_ERROR);
+      return fail(error.message || GENERIC_ERROR);
     }
 
     logger.info({ event: 'PARENT_DELETED', parentDbId: id, adminEmail: session.email });

@@ -44,6 +44,7 @@ async function getVendorsData() {
     console.error('getVendorsData error:', error.message);
     return [];
   }
+  console.log("VENDORS DB RESULT:", vendors[0]);
 
   return (vendors ?? []).map((vendor: any) => ({
     id: vendor.vendor_id,          

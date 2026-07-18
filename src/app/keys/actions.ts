@@ -12,13 +12,21 @@ import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 const KEY_FORMAT = /^LMS-[A-Z0-9]{2,12}-[A-Z0-9]{10}$/;
 
 const ActivationKeySchema = z.object({
-  schoolId: z.string().min(1, 'Select a school.'),
+  entityType: z.enum(['School', 'Vendor', 'Individual']),
+  schoolId: z.string().optional(),
+  vendorId: z.string().optional(),
+  parentId: z.string().optional(),
   keys: z.array(z.string().trim().regex(KEY_FORMAT, 'Invalid activation key format.'))
     .min(1, 'Provide at least one key.')
     .max(10000, 'Too many keys requested.'),
   durationDays: z.number({ message: 'Duration must be a number.' }).int('Duration must be a whole number.').min(1, 'Duration must be at least 1 day.').max(36500, 'Duration is too large.'),
   expiresAt: z.string().optional(),
-});
+}).refine(data => {
+  if (data.entityType === 'School' && !data.schoolId) return false;
+  if (data.entityType === 'Vendor' && !data.vendorId) return false;
+  if (data.entityType === 'Individual' && !data.parentId) return false;
+  return true;
+}, { message: 'Select an entity.' });
 
 type CreatedKey = {
   id: string;
@@ -43,23 +51,29 @@ export async function createActivationKeys(formData: any): Promise<ActionResult<
   const validData = parsed.data;
 
   try {
-    // Business rule: a school must have an approved (Paid) payment before keys issue.
-    const { data: payment } = await supabaseAdmin
-      .from('payments')
-      .select('id')
-      .eq('school_id', validData.schoolId)
-      .eq('status', 'Paid')
-      .limit(1)
-      .single();
+    // Business rule: the entity must have an approved (Paid) payment before keys issue.
+    const paymentQuery = supabaseAdmin.from('payments').select('id').eq('status', 'Paid').limit(1);
+    
+    if (validData.entityType === 'School') {
+      paymentQuery.eq('school_id', validData.schoolId);
+    } else if (validData.entityType === 'Vendor') {
+      paymentQuery.eq('vendor_id', validData.vendorId);
+    } else if (validData.entityType === 'Individual') {
+      paymentQuery.eq('parent_id', validData.parentId);
+    }
+
+    const { data: payment } = await paymentQuery.single();
 
     if (!payment) {
-      return fail("No approved payment for this school. Register and approve a 'Paid' payment first.");
+      return fail(`No approved payment for this ${validData.entityType}. Register and approve a 'Paid' payment first.`);
     }
 
     const batchId = `BATCH-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
     const insertRows = validData.keys.map(keyVal => ({
-      school_id: validData.schoolId,
+      school_id: validData.entityType === 'School' ? validData.schoolId : null,
+      vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
+      parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
       key: keyVal,
       duration_days: validData.durationDays,
       expires_at: validData.expiresAt ? new Date(validData.expiresAt).toISOString() : null,
@@ -78,7 +92,13 @@ export async function createActivationKeys(formData: any): Promise<ActionResult<
       return fail(GENERIC_ERROR);
     }
 
-    await supabaseAdmin.from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
+    if (validData.entityType === 'School') {
+      await supabaseAdmin.from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
+    } else if (validData.entityType === 'Vendor') {
+      await supabaseAdmin.from('vendors').update({ status: 'Active' }).eq('vendor_id', validData.vendorId);
+    } else if (validData.entityType === 'Individual') {
+      await supabaseAdmin.from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
+    }
 
     logger.info({ event: 'ACTIVATION_KEYS_CREATED', batchId, keysCount: validData.keys.length, adminEmail: session.email });
     revalidatePath('/keys');

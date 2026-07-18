@@ -31,7 +31,7 @@ interface SchoolOption {
 interface KeyRow {
   id: string;
   key: string;
-  schoolName: string;
+  entityName: string;
   status: 'Unpaid' | 'Paid' | 'Active' | 'Revoked';
   durationDays: number;
   expiresAt?: string | null;
@@ -50,9 +50,10 @@ interface KeysClientProps {
   schools: SchoolOption[];
   keys: KeyRow[];
   vendors: SchoolOption[];
+  parents: SchoolOption[];
 }
 
-export default function KeysClient({ schools, keys, vendors }: KeysClientProps) {
+export default function KeysClient({ schools, keys, vendors, parents }: KeysClientProps) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [keyList, setKeyList] = useState<KeyRow[]>(keys);
@@ -60,7 +61,7 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
   const [entityType, setEntityType] = useState<'School' | 'Vendor' | 'Individual'>('School');
   const [selectedSchoolId, setSelectedSchoolId] = useState('');
   const [selectedVendorId, setSelectedVendorId] = useState('');
-  const [individualName, setIndividualName] = useState('');
+  const [selectedParentId, setSelectedParentId] = useState('');
   
   const [durationMode, setDurationMode] = useState<'1year' | 'custom'>('1year');
   const [customDate, setCustomDate] = useState('');
@@ -112,6 +113,8 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
   });
 
   const selectedSchool = schools.find(s => s.id === selectedSchoolId);
+  const selectedVendor = vendors.find(v => v.id === selectedVendorId);
+  const selectedParent = parents.find(p => p.id === selectedParentId);
 
   // Confirmation Modal State
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -119,8 +122,8 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
   const [showResetModal, setShowResetModal] = useState(false);
   const [keyToReset, setKeyToReset] = useState<{ id: string; keyToken: string } | null>(null);
 
-  const generateRandomKey = (schoolName: string) => {
-    const schoolPrefix = schoolName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 8) || 'SCHOOL';
+  const generateRandomKey = (entityName: string) => {
+    const entityPrefix = entityName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 8) || 'ENTITY';
     // Activation keys are credentials — use the Web Crypto CSPRNG, not Math.random()
     // (predictable). The 32-symbol alphabet divides 256 evenly, so `byte % 32` is
     // unbiased. Server-side generation (payments/actions.ts) uses the same scheme.
@@ -131,23 +134,26 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
     for (let i = 0; i < bytes.length; i++) {
       randCode += chars[bytes[i] % chars.length];
     }
-    return `LMS-${schoolPrefix}-${randCode}`;
+    return `LMS-${entityPrefix}-${randCode}`;
   };
 
   const handleAutoSuggest = () => {
-    const school = schools.find(s => s.id === selectedSchoolId);
-    setKeyInput(generateRandomKey(school?.name || 'SCHOOL'));
+    let currentName = 'ENTITY';
+    if (entityType === 'School') currentName = selectedSchool?.name || 'SCHOOL';
+    else if (entityType === 'Vendor') currentName = selectedVendor?.name || 'VENDOR';
+    else if (entityType === 'Individual') currentName = selectedParent?.name || 'INDIVIDUAL';
+    
+    setKeyInput(generateRandomKey(currentName));
   };
 
   const handleGenerate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (entityType !== 'School') {
-      toast('Key provisioning for this entity type is a frontend preview only and not yet supported in the database.', 'error');
-      return;
-    }
-
-    if (!selectedSchoolId) {
-      toast('Please select a School first.', 'error');
+    if (
+      (entityType === 'School' && !selectedSchoolId) ||
+      (entityType === 'Vendor' && !selectedVendorId) ||
+      (entityType === 'Individual' && !selectedParentId)
+    ) {
+      toast('Please select an entity first.', 'error');
       return;
     }
     if (keyCount === 1 && !keyInput) {
@@ -167,21 +173,28 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
       expiresAtParam = new Date(customDate).toISOString();
     }
 
-    const schoolName = selectedSchool?.name || 'SCHOOL';
+    let entityName = 'ENTITY';
+    if (entityType === 'School') entityName = selectedSchool?.name || 'SCHOOL';
+    else if (entityType === 'Vendor') entityName = selectedVendor?.name || 'VENDOR';
+    else if (entityType === 'Individual') entityName = selectedParent?.name || 'INDIVIDUAL';
+
     const keysToCreate: string[] = [];
 
     if (keyCount === 1) {
       keysToCreate.push(keyInput);
     } else {
       for (let i = 0; i < keyCount; i++) {
-        keysToCreate.push(generateRandomKey(schoolName));
+        keysToCreate.push(generateRandomKey(entityName));
       }
     }
 
     startTransition(async () => {
       try {
         const res = await createActivationKeys({
+          entityType,
           schoolId: selectedSchoolId,
+          vendorId: selectedVendorId,
+          parentId: selectedParentId,
           keys: keysToCreate,
           durationDays: calculatedDays,
           expiresAt: expiresAtParam
@@ -195,7 +208,7 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
         const newKeyRows: KeyRow[] = res.data.map(result => ({
           id: result.id,
           key: result.key,
-          schoolName: schoolName,
+          entityName: entityName,
           status: result.status as any,
           durationDays: result.durationDays,
           expiresAt: result.expiresAt,
@@ -298,20 +311,20 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
   const keySchools = React.useMemo(() => {
     const unique = new Map<string, string>();
     keyList.forEach(k => {
-      unique.set(k.schoolName, k.schoolName);
+      unique.set(k.entityName, k.entityName);
     });
     return Array.from(unique.keys()).sort();
   }, [keyList]);
 
   const filterOptions = React.useMemo(() => {
     return [
-      { value: 'all', label: 'All Schools' },
+      { value: 'all', label: 'All Entities' },
       ...keySchools.map(name => ({ value: name, label: name }))
     ];
   }, [keySchools]);
 
   const filteredKeyList = React.useMemo(() => {
-    let list = filterSchoolId === 'all' ? keyList : keyList.filter(k => k.schoolName === filterSchoolId);
+    let list = filterSchoolId === 'all' ? keyList : keyList.filter(k => k.entityName === filterSchoolId);
     const q = searchQuery.trim().toUpperCase();
     if (q) {
       list = list.filter(k =>
@@ -323,13 +336,13 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
   }, [keyList, filterSchoolId, searchQuery]);
 
   const batches = React.useMemo(() => {
-    const map: { [key: string]: { id: string; schoolName: string; createdAt: string; keys: KeyRow[] } } = {};
+    const map: { [key: string]: { id: string; entityName: string; createdAt: string; keys: KeyRow[] } } = {};
     filteredKeyList.forEach(k => {
-      const batchKey = k.batchId || `legacy-${k.schoolName}-${k.createdAt}`;
+      const batchKey = k.batchId || `legacy-${k.entityName}-${k.createdAt}`;
       if (!map[batchKey]) {
         map[batchKey] = {
           id: batchKey,
-          schoolName: k.schoolName,
+          entityName: k.entityName,
           createdAt: k.createdAt,
           keys: []
         };
@@ -370,7 +383,7 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
                 setEntityType(val as any);
                 setSelectedSchoolId('');
                 setSelectedVendorId('');
-                setIndividualName('');
+                setSelectedParentId('');
               }}
               options={[
                 { value: 'School', label: 'School' },
@@ -421,15 +434,14 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
               <div className="space-y-2">
                 <label className="text-xs font-bold text-zinc-400 flex items-center gap-2">
                   <SchoolIcon className="w-3.5 h-3.5 text-zinc-500" />
-                  Individual Name *
+                  Select Individual *
                 </label>
-                <input
-                  type="text"
+                <CustomSelect
                   required
-                  placeholder="e.g. John Doe"
-                  value={individualName}
-                  onChange={e => setIndividualName(e.target.value)}
-                  className="w-full px-4 py-3 bg-[#121216]/60 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
+                  value={selectedParentId}
+                  onChange={val => setSelectedParentId(val)}
+                  options={parents.map(p => ({ value: p.id, label: p.name }))}
+                  placeholder="Select Individual"
                 />
               </div>
             )}
@@ -685,7 +697,7 @@ export default function KeysClient({ schools, keys, vendors }: KeysClientProps) 
                     </span>
                     <h4 className="text-base font-bold text-white dark:text-white light:text-black flex items-center gap-2">
                       <SchoolIcon className="w-4 h-4 text-zinc-400 light:text-black" />
-                      {batch.schoolName}
+                      {batch.entityName}
                     </h4>
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-zinc-400">

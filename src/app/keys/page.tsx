@@ -24,46 +24,66 @@ async function getVendorsList() {
   return (vendors ?? []).map(v => ({ id: v.vendor_id, name: v.vendor_name }));
 }
 
+async function getParentsList() {
+  const { data: parents } = await supabaseAdmin
+    .from('parents')
+    .select('id, parent_name')
+    .order('parent_name', { ascending: true });
+
+  return (parents ?? []).map(p => ({ id: p.id, name: p.parent_name }));
+}
+
 async function getKeysList() {
   const { data: keys } = await supabaseAdmin
     .from('activation_keys')
     .select(`
-      id, key, status, duration_days, expires_at, created_at, batch_id,
+      id, school_id, vendor_id, parent_id, key, status, duration_days, expires_at, created_at, batch_id,
       device_fingerprint, device_model, device_os, device_brand, device_android_id, activated_at,
       watermark_code,
-      schools ( name )
+      schools ( name ),
+      vendors ( vendor_name ),
+      parents ( parent_name )
     `)
     .order('created_at', { ascending: false });
 
-  return (keys ?? []).map((k: any) => ({
-    id: k.id,
-    key: k.key,
-    schoolName: k.schools?.name || 'Unknown School',
-    status: k.status || 'Unpaid',
-    durationDays: k.duration_days || 365,
-    expiresAt: k.expires_at ?? null,
-    createdAt: k.created_at ? new Date(k.created_at).toLocaleDateString('en-IN') : 'N/A',
-    batchId: k.batch_id ?? null,
-    deviceFingerprint: k.device_fingerprint ?? null,
-    deviceModel: k.device_model ?? null,
-    deviceOS: k.device_os ?? null,
-    deviceBrand: k.device_brand ?? null,
-    deviceAndroidId: k.device_android_id ?? null,
-    activatedAt: k.activated_at ? new Date(k.activated_at).toLocaleDateString('en-IN') : null,
-    watermarkCode: k.watermark_code ?? null,
-  }));
+  return (keys ?? []).map((k: any) => {
+    let entityName = 'Unknown Entity';
+    if (k.schools?.name) entityName = k.schools.name;
+    if (k.vendors?.vendor_name) entityName = k.vendors.vendor_name;
+    if (k.parents?.parent_name) entityName = k.parents.parent_name;
+
+    return {
+      id: k.id,
+      key: k.key,
+      schoolId: k.school_id || '',
+      vendorId: k.vendor_id || '',
+      parentId: k.parent_id || '',
+      entityName: entityName,
+      status: k.status || 'Unpaid',
+      durationDays: k.duration_days || 365,
+      expiresAt: k.expires_at ?? null,
+      createdAt: k.created_at ? new Date(k.created_at).toLocaleDateString('en-IN') : 'N/A',
+      batchId: k.batch_id ?? null,
+      deviceFingerprint: k.device_fingerprint ?? null,
+      deviceModel: k.device_model ?? null,
+      deviceOS: k.device_os ?? null,
+      deviceBrand: k.device_brand ?? null,
+      deviceAndroidId: k.device_android_id ?? null,
+      activatedAt: k.activated_at ? new Date(k.activated_at).toLocaleDateString('en-IN') : null,
+      watermarkCode: k.watermark_code ?? null,
+    };
+  });
 }
 
 export default async function KeysPage() {
   const session = await getAdminSession();
   if (!session) return null;
 
-  // Direct fetch (page is force-dynamic): avoids the Next 16 unstable_cache
-  // failure that 500'd this page in production.
-  const [schools, keys, vendors] = await Promise.all([
+  const [schools, keys, vendors, parents] = await Promise.all([
     getSchoolsList(),
     getKeysList(),
     getVendorsList(),
+    getParentsList(),
   ]);
-  return <KeysClient schools={schools} keys={keys} vendors={vendors} />;
+  return <KeysClient schools={schools} keys={keys} vendors={vendors} parents={parents} />;
 }

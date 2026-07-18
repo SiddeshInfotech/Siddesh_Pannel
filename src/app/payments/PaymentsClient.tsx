@@ -15,8 +15,10 @@ interface SchoolOption {
 
 interface PaymentRow {
   id: string;
-  schoolId: string;
-  schoolName: string;
+  schoolId?: string;
+  vendorId?: string;
+  parentId?: string;
+  entityName: string;
   amount: number;
   keysCount: number;
   bankName: string;
@@ -29,11 +31,12 @@ interface PaymentsClientProps {
   initialPayments: PaymentRow[];
   schools: SchoolOption[];
   vendors: SchoolOption[];
+  parents: SchoolOption[];
 }
 
 import { useSearchParams } from 'next/navigation';
 
-export default function PaymentsClient({ initialPayments, schools, vendors }: PaymentsClientProps) {
+export default function PaymentsClient({ initialPayments, schools, vendors, parents }: PaymentsClientProps) {
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
@@ -50,7 +53,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
   const [entityType, setEntityType] = useState<'School' | 'Vendor' | 'Individual'>('School');
   const [selectedSchoolId, setSelectedSchoolId] = useState(searchParams.get('schoolId') || '');
   const [selectedVendorId, setSelectedVendorId] = useState('');
-  const [individualName, setIndividualName] = useState('');
+  const [selectedParentId, setSelectedParentId] = useState('');
   const [keysCount, setKeysCount] = useState('');
   const [paymentDate, setPaymentDate] = useState('');
   const [status, setStatus] = useState<'Unpaid' | 'Pending Approval' | 'Paid'>('Unpaid');
@@ -70,7 +73,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
     setEditingId(null);
     setSelectedSchoolId('');
     setSelectedVendorId('');
-    setIndividualName('');
+    setSelectedParentId('');
     setKeysCount('');
     setPaymentDate('');
     setStatus('Unpaid');
@@ -81,7 +84,10 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
 
   const handleEdit = (payment: PaymentRow) => {
     setEditingId(payment.id);
-    setSelectedSchoolId(payment.schoolId);
+    setEntityType(payment.schoolId ? 'School' : payment.vendorId ? 'Vendor' : payment.parentId ? 'Individual' : 'School');
+    setSelectedSchoolId(payment.schoolId || '');
+    setSelectedVendorId(payment.vendorId || '');
+    setSelectedParentId(payment.parentId || '');
     setKeysCount(payment.keysCount.toString());
     
     setAmount(payment.amount.toString());
@@ -100,12 +106,13 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (entityType !== 'School') {
-      toast('Payment submission for this entity type is a frontend preview only and not yet supported in the database.', 'error');
-      return;
-    }
-
-    if (!selectedSchoolId || !keysCount || !paymentDate) {
+    if (
+      (entityType === 'School' && !selectedSchoolId) ||
+      (entityType === 'Vendor' && !selectedVendorId) ||
+      (entityType === 'Individual' && !selectedParentId) ||
+      !keysCount || 
+      !paymentDate
+    ) {
       toast('Please fill in all the payment details.', 'error');
       return;
     }
@@ -113,7 +120,10 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
     startTransition(async () => {
       try {
         const formData = {
+          entityType,
           schoolId: selectedSchoolId,
+          vendorId: selectedVendorId,
+          parentId: selectedParentId,
           keysCount: parseInt(keysCount),
           paymentDate,
           status,
@@ -138,14 +148,14 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
     });
   };
 
-  const confirmDelete = (id: string, schoolName: string) => {
-    setPaymentToDelete({ id, schoolName });
+  const confirmDelete = (id: string, entityName: string) => {
+    setPaymentToDelete({ id, schoolName: entityName });
     setShowConfirmModal(true);
-    toast(`⚠️ Warning: Deleting the payment record for "${schoolName}" will permanently erase all connected activation key bindings!`, 'error');
+    toast(`⚠️ Warning: Deleting the payment record for "${entityName}" will permanently erase all connected activation key bindings!`, 'error');
   };
 
-  const handleCancelPayment = (id: string, schoolName: string) => {
-    if (confirm(`Are you sure you want to revoke/cancel the payment status to "Unpaid" for ${schoolName}?`)) {
+  const handleCancelPayment = (id: string, entityName: string) => {
+    if (confirm(`Are you sure you want to revoke/cancel the payment status to "Unpaid" for ${entityName}?`)) {
       startTransition(async () => {
         const res = await cancelPayment(id);
         if (!res.ok) {
@@ -201,7 +211,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
               // Reset specific selections when changing type
               setSelectedSchoolId('');
               setSelectedVendorId('');
-              setIndividualName('');
+              setSelectedParentId('');
             }}
             options={[
               { value: 'School', label: 'School' },
@@ -248,14 +258,13 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
 
             {entityType === 'Individual' && (
               <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-400 block">Individual Name *</label>
-                <input
-                  type="text"
+                <label className="text-xs font-bold text-zinc-400 block">Select Individual *</label>
+                <CustomSelect
                   required
-                  placeholder="e.g. John Doe"
-                  value={individualName}
-                  onChange={e => setIndividualName(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
+                  value={selectedParentId}
+                  onChange={val => setSelectedParentId(val)}
+                  options={parents.map(p => ({ value: p.id, label: p.name }))}
+                  placeholder="Select Individual"
                 />
               </div>
             )}
@@ -332,7 +341,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
             <thead>
               <tr className="border-b border-white/10 bg-white/[0.02]">
                 <th className="py-4 px-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Transaction ID</th>
-                <th className="py-4 px-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">School Name</th>
+                <th className="py-4 px-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Entity Name</th>
                 <th className="py-4 px-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Date</th>
                 <th className="py-4 px-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Status</th>
                 <th className="py-4 px-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Actions</th>
@@ -346,7 +355,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
                       <span className="text-sm font-medium text-white">{payment.transactionId}</span>
                     </td>
                     <td className="py-4 px-6">
-                      <span className="text-sm text-zinc-300">{payment.schoolName}</span>
+                      <span className="text-sm text-zinc-300">{payment.entityName}</span>
                     </td>
                     <td className="py-4 px-6">
                       <span className="text-sm text-zinc-400">
@@ -374,7 +383,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors }: Pa
                         </button>
                         <button
                           type="button"
-                          onClick={() => confirmDelete(payment.id, payment.schoolName)}
+                          onClick={() => confirmDelete(payment.id, payment.entityName)}
                           className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-red-400 transition-colors cursor-pointer"
                           title="Delete"
                         >

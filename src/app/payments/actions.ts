@@ -21,14 +21,22 @@ function generateActivationCode(len = 10): string {
 }
 
 const PaymentSchema = z.object({
-  schoolId: z.string().min(1, 'Select a school.'),
+  entityType: z.enum(['School', 'Vendor', 'Individual']),
+  schoolId: z.string().optional(),
+  vendorId: z.string().optional(),
+  parentId: z.string().optional(),
   amount: z.number({ message: 'Amount must be a number.' }).min(0, 'Amount cannot be negative.').max(100000000, 'Amount is too large.').optional(),
   keysCount: z.number({ message: 'Keys count must be a number.' }).int('Keys count must be a whole number.').min(1, 'Generate at least 1 key.').max(10000, 'Keys count is too large.'),
   bankName: z.string().trim().max(120, 'Bank name is too long.').optional(),
   transactionId: z.string().trim().max(120, 'Transaction ID is too long.').optional(),
   paymentDate: z.string().min(1, 'Select a payment date.'),
   status: z.enum(['Unpaid', 'Pending Approval', 'Paid'], { message: 'Select a valid status.' }),
-});
+}).refine(data => {
+  if (data.entityType === 'School' && !data.schoolId) return false;
+  if (data.entityType === 'Vendor' && !data.vendorId) return false;
+  if (data.entityType === 'Individual' && !data.parentId) return false;
+  return true;
+}, { message: 'Select an entity.' });
 
 export async function createPayment(formData: any): Promise<ActionResult> {
   const session = await getAdminSession();
@@ -50,7 +58,9 @@ export async function createPayment(formData: any): Promise<ActionResult> {
     const { data: payment, error: paymentError } = await supabaseAdmin
       .from('payments')
       .insert({
-        school_id: validData.schoolId,
+        school_id: validData.entityType === 'School' ? validData.schoolId : null,
+        vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
+        parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
         amount: validData.amount || 0,
         keys_count: validData.keysCount,
         bank_name: sanitize(validData.bankName || '') || 'Bank Transfer',
@@ -66,24 +76,29 @@ export async function createPayment(formData: any): Promise<ActionResult> {
       return fail(GENERIC_ERROR);
     }
 
-    // Fetch school name for key generation
-    const { data: school } = await supabaseAdmin
-      .from('schools')
-      .select('name')
-      .eq('id', validData.schoolId)
-      .single();
+    let entityName = 'ENTITY';
+    if (validData.entityType === 'School') {
+      const { data: school } = await supabaseAdmin.from('schools').select('name').eq('id', validData.schoolId).single();
+      if (school) entityName = school.name;
+    } else if (validData.entityType === 'Vendor') {
+      const { data: vendor } = await supabaseAdmin.from('vendors').select('vendor_name').eq('vendor_id', validData.vendorId).single();
+      if (vendor) entityName = vendor.vendor_name;
+    } else if (validData.entityType === 'Individual') {
+      const { data: parent } = await supabaseAdmin.from('parents').select('parent_name').eq('id', validData.parentId).single();
+      if (parent) entityName = parent.parent_name;
+    }
 
-    const sanitizedSchoolName = school
-      ? school.name.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 8)
-      : 'SCHOOL';
+    const sanitizedEntityName = entityName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 8);
 
     // Auto-provision activation keys linked to this payment
     const keyStatus = validData.status === 'Paid' ? 'Paid' : 'Unpaid';
     const keyRows = Array.from({ length: validData.keysCount }, () => {
       return {
-        school_id: validData.schoolId,
+        school_id: validData.entityType === 'School' ? validData.schoolId : null,
+        vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
+        parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
         payment_id: payment.id,
-        key: `LMS-${sanitizedSchoolName}-${generateActivationCode()}`,
+        key: `LMS-${sanitizedEntityName}-${generateActivationCode()}`,
         status: keyStatus as 'Unpaid' | 'Paid',
         duration_days: 365,
       };
@@ -94,10 +109,13 @@ export async function createPayment(formData: any): Promise<ActionResult> {
     }
 
     if (keyStatus === 'Paid') {
-      await supabaseAdmin
-        .from('schools')
-        .update({ status: 'Active' })
-        .eq('id', validData.schoolId);
+      if (validData.entityType === 'School') {
+        await supabaseAdmin.from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
+      } else if (validData.entityType === 'Vendor') {
+        await supabaseAdmin.from('vendors').update({ status: 'Active' }).eq('vendor_id', validData.vendorId);
+      } else if (validData.entityType === 'Individual') {
+        await supabaseAdmin.from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
+      }
     }
 
     logger.info({ event: 'PAYMENT_CREATED', paymentId: payment.id, adminEmail: session.email });
@@ -128,7 +146,9 @@ export async function updatePayment(id: string, formData: any): Promise<ActionRe
     const { error } = await supabaseAdmin
       .from('payments')
       .update({
-        school_id: validData.schoolId,
+        school_id: validData.entityType === 'School' ? validData.schoolId : null,
+        vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
+        parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
         amount: validData.amount || 0,
         keys_count: validData.keysCount,
         bank_name: sanitize(validData.bankName || '') || 'Bank Transfer',
@@ -149,14 +169,22 @@ export async function updatePayment(id: string, formData: any): Promise<ActionRe
     const keyStatus = validData.status === 'Paid' ? 'Paid' : 'Unpaid';
     await supabaseAdmin
       .from('activation_keys')
-      .update({ school_id: validData.schoolId, status: keyStatus })
+      .update({
+        school_id: validData.entityType === 'School' ? validData.schoolId : null,
+        vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
+        parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
+        status: keyStatus 
+      })
       .eq('payment_id', id);
 
     if (keyStatus === 'Paid') {
-      await supabaseAdmin
-        .from('schools')
-        .update({ status: 'Active' })
-        .eq('id', validData.schoolId);
+      if (validData.entityType === 'School') {
+        await supabaseAdmin.from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
+      } else if (validData.entityType === 'Vendor') {
+        await supabaseAdmin.from('vendors').update({ status: 'Active' }).eq('vendor_id', validData.vendorId);
+      } else if (validData.entityType === 'Individual') {
+        await supabaseAdmin.from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
+      }
     }
 
     logger.info({ event: 'PAYMENT_UPDATED', paymentId: id, adminEmail: session.email });
