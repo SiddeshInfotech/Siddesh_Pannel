@@ -1,0 +1,385 @@
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
+@import "tailwindcss";
+
+:root {
+  --background: #09090b;
+  --foreground: #f4f4f5;
+  --card: rgba(18, 18, 22, 0.7);
+  --card-border: rgba(255, 255, 255, 0.16);
+  --sidebar: #09090b;
+  --sidebar-border: rgba(255, 255, 255, 0.15);
+  --accent-violet: #8b5cf6;
+  --accent-blue: #3b82f6;
+}
+
+:root.light {
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card: rgba(255, 255, 255, 0.85);
+  --card-border: rgba(0, 0, 0, 0.14);
+  --sidebar: #f8fafc;
+  --sidebar-border: rgba(0, 0, 0, 0.12);
+  --accent-violet: #7c3aed;
+  --accent-blue: #2563eb;
+}
+
+@theme {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card-custom: var(--card);
+  --color-card-border: var(--card-border);
+  --color-sidebar-custom: var(--sidebar);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-accent-violet: var(--accent-violet);
+  --color-accent-blue: var(--accent-blue);
+  
+  --font-sans: 'Roboto', 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+/* Base Body Style */
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Glassmorphism utility */
+.glass {
+  background: var(--card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--card-border);
+}
+
+.glass-interactive {
+  background: var(--card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--card-border);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-interactive:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(139, 92, 246, 0.3);
+  box-shadow: 0 0 20px rgba(139, 92, 246, 0.15);
+  transform: translateY(-2px);
+}
+
+/* Hide all vertical and horizontal scrollbars globally while keeping scrolling functional */
+::-webkit-scrollbar {
+  display: none;
+}
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+/* Light Theme High-Contrast Black Text Overrides */
+.light {
+  color: #000000;
+}
+.light h1, .light h2, .light h3, .light h4, .light h5, .light h6, .light p, .light td, .light th, .light code, .light label {
+  color: #000000 !important;
+}
+.light [class*="text-zinc"], .light [class*="text-zinc-"] {
+  color: #000000 !important;
+}
+.light span:not([class*="text-emerald"]):not([class*="text-rose"]):not([class*="text-amber"]):not([class*="text-accent"]):not([class*="text-sky"]):not([class*="text-indigo"]) {
+  color: #000000 !important;
+}
+.light .activation-token {
+  color: #000000 !important;
+}
+
+/* Pulse animation for node topology */
+@keyframes ping-slow {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  70% {
+    transform: scale(2);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+.ping-slow {
+  animation: ping-slow 3s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Shimmer animation for loading skeleton */
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.shimmer::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.03) 20%,
+    rgba(255, 255, 255, 0.08) 60%,
+    rgba(255, 255, 255, 0) 100%
+  );
+  animation: shimmer 2s infinite;
+  content: '';
+}
+
+.sidebar-dashed-border {
+  background-image: linear-gradient(to bottom, var(--sidebar-border) 60%, transparent 60%);
+  background-position: right;
+  background-size: 1px 22px; /* 3px wide, 22px repeating segment (13.2px dash, 8.8px gap) */
+  background-repeat: repeat-y;
+}
+
+/* Custom tab overrides for precise light/dark theme color management */
+.active-tab-text {
+  color: #ffffff !important;
+}
+.inactive-tab-text {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+.active-tab-line {
+  background-color: #ffffff !important;
+}
+
+.light .active-tab-text {
+  color: #000000 !important;
+}
+.light .inactive-tab-text {
+  color: #64748b !important;
+}
+.light .active-tab-line {
+  background-color: #000000 !important;
+}
+
+
+.fading-line {
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--sidebar-border), transparent);
+  margin: 0 1.5rem;
+}
+
+/* Custom tab header border to handle light/dark mode line visibility */
+.tab-header-border {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+.light .tab-header-border {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1) !important;
+}
+
+/* Faint background color on tab button hover */
+.tab-button-hover {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+.tab-button-hover:hover {
+  background-color: rgba(255, 255, 255, 0.04) !important;
+}
+.light .tab-button-hover:hover {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+/* Sidebar Nav Item Styling */
+.sidebar-nav-item {
+  color: rgba(255, 255, 255, 0.4) !important;
+  /* transition: all 0.2s ease; */
+}
+.sidebar-nav-item:hover {
+  color: rgba(255, 255, 255, 0.8) !important;
+  background-color: rgba(255, 255, 255, 0.02) !important;
+}
+.sidebar-nav-item-active {
+  color: #ffffff !important;
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  /* border: 1px solid rgba(255, 255, 255, 0.05) !important; */
+}
+
+/* Sidebar Nav Item Icon */
+.sidebar-nav-icon {
+  color: rgba(255, 255, 255, 0.4) !important;
+  transition: color 0.2s ease;
+}
+.sidebar-nav-item-active .sidebar-nav-icon {
+  color: var(--accent-violet) !important;
+}
+.sidebar-nav-item:hover .sidebar-nav-icon {
+  color: rgba(255, 255, 255, 0.8) !important;
+}
+
+/* Light theme overrides matching the user's specific request */
+.light .sidebar-nav-item {
+  color: #9ca3af !important; /* gray-400 */
+}
+.light .sidebar-nav-item:hover {
+  color: #6b7280 !important; /* gray-500 */
+  background-color: rgba(0, 0, 0, 0.03) !important;
+}
+.light .sidebar-nav-item-active {
+  color: #000000 !important; /* active: black */
+  background-color: rgba(0, 0, 0, 0.04) !important;
+  /* border: 1px solid rgba(0, 0, 0, 0.06) !important; */
+}
+
+/* Light Theme Sidebar Icon Overrides */
+.light .sidebar-nav-icon {
+  color: #9ca3af !important; /* gray-400 */
+}
+.light .sidebar-nav-item:hover .sidebar-nav-icon {
+  color: #6b7280 !important; /* gray-500 */
+}
+.light .sidebar-nav-item-active .sidebar-nav-icon {
+  color: #000000 !important; /* active: black */
+}
+
+/* Light Theme Form Control Styling Overrides */
+.light input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.light select,
+.light textarea {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+  border: 1.5px solid rgba(0, 0, 0, 0.18) !important;
+}
+
+.light input::placeholder,
+.light input::-webkit-input-placeholder,
+.light input::-moz-placeholder,
+.light input:-ms-input-placeholder {
+  color: #6b7280 !important; /* Placeholders to gray */
+  opacity: 1 !important;
+}
+
+.light option {
+  background-color: #ffffff !important;
+  color: #000000 !important;
+}
+
+.light select:focus,
+.light input:focus,
+.light textarea:focus {
+  border-color: var(--accent-violet) !important;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15) !important;
+}
+
+/* Force borders to stand out in light theme just like dark theme */
+.light .glass,
+.light .glass-interactive,
+.light [class*="border-white/"],
+.light [class*="border-white/5"],
+.light [class*="border-white/10"],
+.light [class*="border-white/15"],
+.light [class*="border-white/20"],
+.light [class*="hover:border-white/"] {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+.light .tab-header-border {
+  border-bottom-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Premium Custom Select Dropdown Styling */
+select {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  -moz-appearance: none !important;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23a1a1aa'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 1rem center !important;
+  background-size: 1rem !important;
+  padding-right: 2.75rem !important; /* spacing for chevron */
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* Light theme select dropdown arrow (darker gray) */
+.light select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23374151'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E") !important;
+}
+
+/* Dropdown select options styling */
+select option {
+  padding: 0.75rem 1rem !important;
+  font-size: 0.875rem !important;
+}
+
+/* Light Theme Modal Styling Overrides */
+.light [class*="bg-[#0e0e12]"],
+.light [class*="bg-[#0c0c0e]"],
+.light [class*="bg-[#121216]"] {
+  background-color: #ffffff !important;
+}
+
+.light [class*="bg-white/5"],
+.light [class*="bg-white/10"],
+.light [class*="bg-white/20"],
+.light [class*="bg-white/[0.01]"],
+.light [class*="bg-white/[0.02]"],
+.light [class*="bg-white/[0.05]"] {
+  background-color: rgba(0, 0, 0, 0.04) !important;
+}
+
+.light [class*="border-white/5"],
+.light [class*="border-white/10"],
+.light [class*="border-white/15"],
+.light [class*="border-white/20"] {
+  border-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Premium micro-animations */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-6px); }
+  75% { transform: translateX(6px); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(16px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 15px rgba(139, 92, 246, 0.2); border-color: rgba(139, 92, 246, 0.3); }
+  50% { box-shadow: 0 0 25px rgba(139, 92, 246, 0.45); border-color: rgba(139, 92, 246, 0.6); }
+}
+
+.animate-shake {
+  animation: shake 0.2s ease-in-out 2;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slide-up {
+  animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2.5s infinite ease-in-out;
+}
+
+
+
+
+
+
+
+
