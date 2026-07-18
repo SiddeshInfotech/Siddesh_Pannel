@@ -13,7 +13,7 @@ const ActivationRequestSchema = z.object({
   hardware_fingerprint: z.string().min(1),
   device_model: z.string().optional(),
   device_os: z.string().optional(),
-  // F6: device_android_id (DPDP-regulated identifier) removed.
+  // F6: device_android_id (DPDP-regulated identifier) removed. jhhgkhjb
   // NC-1: base64 SPKI of the device's hardware-backed (TEE/StrongBox) RSA key. CEKs are
   // ALWAYS wrapped to this key, and its hardware key-attestation chain (below) proves the
   // request is from genuine hardware — replacing the old extractable-HMAC request signature.
