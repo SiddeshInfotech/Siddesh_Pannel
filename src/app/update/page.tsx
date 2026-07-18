@@ -34,7 +34,7 @@ function agoFrom(iso: string | null): string {
 async function getTelemetry() {
   const { data: statuses } = await supabaseAdmin
     .from('device_status')
-    .select('device_fingerprint, app_version, first_seen, last_seen, total_online_seconds, last_ip, schools(id, name, school_id)')
+    .select('device_fingerprint, app_version, first_seen, last_seen, total_online_seconds, last_ip, security_tier, schools(id, name, school_id)')
     .order('last_seen', { ascending: false });
 
   const { data: timeline } = await supabaseAdmin
@@ -57,6 +57,7 @@ async function getTelemetry() {
       firstSeenExact: s.first_seen ? new Date(s.first_seen).toLocaleString('en-IN', { dateStyle: 'medium' }) : '—',
       totalOnline: humanDuration(Number(s.total_online_seconds) || 0),
       lastIp: s.last_ip ?? '—',
+      securityTier: s.security_tier ?? 'UNREPORTED',
     };
   });
 

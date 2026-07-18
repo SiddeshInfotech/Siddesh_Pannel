@@ -14,7 +14,31 @@ type Device = {
   firstSeenExact: string;
   totalOnline: string;
   lastIp: string;
+  securityTier: string;
 };
+
+// Short label + badge colour per device security tier (KeystoreCrypto taxonomy).
+function tierStyle(tier: string): { label: string; cls: string } {
+  switch (tier) {
+    case 'ATTESTED_STRONGBOX':
+      return { label: 'StrongBox', cls: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' };
+    case 'ATTESTED_TEE':
+      return { label: 'TEE', cls: 'bg-green-500/10 border-green-500/30 text-green-400' };
+    case 'KEYSTORE_PLAIN':
+      return { label: 'No chain', cls: 'bg-amber-500/10 border-amber-500/30 text-amber-400' };
+    case 'TEE_LEGACY_NOATTEST':
+      return { label: 'TEE legacy', cls: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' };
+    case 'MODEL_SKIP':
+      return { label: 'Model skip', cls: 'bg-sky-500/10 border-sky-500/30 text-sky-400' };
+    case 'SW_ONLY':
+      return { label: 'Software', cls: 'bg-orange-500/10 border-orange-500/30 text-orange-400' };
+    case 'PROVISION_FAILED':
+    case 'CEK_DECRYPT_FAILED':
+      return { label: tier === 'CEK_DECRYPT_FAILED' ? 'CEK failed' : 'Failed', cls: 'bg-rose-500/10 border-rose-500/30 text-rose-400' };
+    default:
+      return { label: '—', cls: 'bg-white/5 border-white/10 text-zinc-500' };
+  }
+}
 type Ev = {
   id: string;
   type: string;
@@ -92,6 +116,7 @@ export default function UpdateClient({
                 <tr>
                   <th className="text-left px-4 py-3">School</th>
                   <th className="text-left px-4 py-3">Status</th>
+                  <th className="text-left px-4 py-3">Tier</th>
                   <th className="text-left px-4 py-3">Last seen</th>
                   <th className="text-left px-4 py-3">Online time</th>
                   <th className="text-left px-4 py-3">App</th>
@@ -99,7 +124,7 @@ export default function UpdateClient({
               </thead>
               <tbody>
                 {filtered.length === 0 && (
-                  <tr><td colSpan={5} className="px-4 py-8 text-center text-zinc-500">
+                  <tr><td colSpan={6} className="px-4 py-8 text-center text-zinc-500">
                     No devices have reported in yet.
                   </td></tr>
                 )}
@@ -119,6 +144,19 @@ export default function UpdateClient({
                           <Circle className="w-2.5 h-2.5 fill-zinc-600" /> Offline
                         </span>
                       )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const t = tierStyle(d.securityTier);
+                        return (
+                          <span
+                            title={d.securityTier}
+                            className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${t.cls}`}
+                          >
+                            {t.label}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3" title={d.lastSeenExact}>{d.lastSeenAgo}</td>
                     <td className="px-4 py-3">{d.totalOnline}</td>

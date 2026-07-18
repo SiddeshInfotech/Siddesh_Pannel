@@ -61,6 +61,33 @@ interface DeviceRow {
   licenseKey: string;
   durationDays: number;
   expiresAt?: string | null;
+  securityTier: string;
+}
+
+// Maps the device security tier (KeystoreCrypto taxonomy) to a short label + badge
+// colour. Strong hardware attestation → green; can't-attest tiers → amber/blue;
+// failure tiers → red; devices activated before the field existed → neutral.
+function tierStyle(tier: string): { label: string; cls: string } {
+  switch (tier) {
+    case 'ATTESTED_STRONGBOX':
+      return { label: 'StrongBox', cls: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' };
+    case 'ATTESTED_TEE':
+      return { label: 'TEE (attested)', cls: 'bg-green-500/10 border-green-500/25 text-green-400' };
+    case 'KEYSTORE_PLAIN':
+      return { label: 'Keystore (no chain)', cls: 'bg-amber-500/10 border-amber-500/25 text-amber-400' };
+    case 'TEE_LEGACY_NOATTEST':
+      return { label: 'TEE legacy', cls: 'bg-yellow-500/10 border-yellow-500/25 text-yellow-400' };
+    case 'MODEL_SKIP':
+      return { label: 'Model skip', cls: 'bg-sky-500/10 border-sky-500/25 text-sky-400' };
+    case 'SW_ONLY':
+      return { label: 'Software only', cls: 'bg-orange-500/10 border-orange-500/25 text-orange-400' };
+    case 'PROVISION_FAILED':
+      return { label: 'Provision failed', cls: 'bg-rose-500/10 border-rose-500/25 text-rose-400' };
+    case 'CEK_DECRYPT_FAILED':
+      return { label: 'CEK failed', cls: 'bg-rose-500/10 border-rose-500/25 text-rose-400' };
+    default:
+      return { label: 'Unreported', cls: 'bg-white/5 border-white/10 text-zinc-400' };
+  }
 }
 
 interface MonitoringClientProps {
@@ -229,6 +256,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                 <th className="py-4 px-3">Device (Model + OS)</th>
                 <th className="py-4 px-3">Hardware Fingerprint</th>
                 <th className="py-4 px-3">School Name</th>
+                <th className="py-4 px-3">Security Tier</th>
                 <th className="py-4 px-3">Activation</th>
                 <th className="py-4 px-3">Last Sync</th>
                 <th className="py-4 px-3">Remaining Time</th>
@@ -263,6 +291,19 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                         </code>
                       </td>
                       <td className="py-4 px-3 text-sm font-bold text-zinc-300 group-hover:text-white transition-colors">{dev.schoolName}</td>
+                      <td className="py-4 px-3">
+                        {(() => {
+                          const t = tierStyle(dev.securityTier);
+                          return (
+                            <span
+                              title={dev.securityTier}
+                              className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-[10px] font-semibold whitespace-nowrap ${t.cls}`}
+                            >
+                              {t.label}
+                            </span>
+                          );
+                        })()}
+                      </td>
                       <td className="py-4 px-3 text-sm text-zinc-300 font-medium">{dev.activationDate}</td>
                       <td className="py-4 px-3 text-sm text-zinc-400">{dev.lastSync}</td>
                       <td className="py-4 px-3 text-sm text-zinc-400 font-medium font-mono">{dev.remainingTime}</td>
@@ -294,6 +335,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
               ) : (
                 <tr>
                   <td colSpan={9} className="py-12 text-center text-zinc-500 text-sm">
+                    {/* colSpan spans all columns incl. the Security Tier column */}
                     <AlertCircle className="w-5 h-5 mx-auto mb-2 text-zinc-600" />
                     No registered devices matching search filters found in the database.
                   </td>
@@ -415,6 +457,20 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                         <Clock className="w-3 h-3 text-zinc-500" /> Time Remaining
                       </span>
                       <span className="text-zinc-300 font-medium font-mono text-xs">{selectedDevice.remainingTime}</span>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-zinc-500 uppercase font-bold flex items-center gap-1 mt-1">
+                        <Shield className="w-3 h-3 text-zinc-500" /> Security Tier
+                      </span>
+                      {(() => {
+                        const t = tierStyle(selectedDevice.securityTier);
+                        return (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg border text-[10px] font-semibold mt-0.5 ${t.cls}`}>
+                            {t.label}
+                          </span>
+                        );
+                      })()}
+                      <code className="block text-[10px] text-zinc-500 font-mono mt-1">{selectedDevice.securityTier}</code>
                     </div>
                   </div>
                 </div>

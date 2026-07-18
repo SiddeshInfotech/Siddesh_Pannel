@@ -12,7 +12,7 @@ async function getDevicesData() {
     .select(`
       id, key, status, duration_days, expires_at, activated_at, last_known_monotonic_time,
       device_fingerprint, device_model, device_os, device_board, device_brand,
-      device_device, device_manufacturer, device_android_id,
+      device_device, device_manufacturer, device_android_id, security_tier,
       schools (
         id, name, school_id, board, mediums, academic_year, section, standard,
         full_class_name, coordinator_name, email, phone
@@ -55,6 +55,7 @@ async function getDevicesData() {
       device: k.device_device || 'N/A',
       manufacturer: k.device_manufacturer || 'N/A',
       androidId: k.device_android_id || 'N/A',
+      securityTier: k.security_tier || 'UNREPORTED',
       activationDate: k.activated_at
         ? new Date(k.activated_at).toLocaleDateString('en-IN')
         : 'N/A',
