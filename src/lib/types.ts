@@ -50,6 +50,10 @@ export interface ActivationKey {
   device_device?: string | null;
   device_manufacturer?: string | null;
   device_android_id?: string | null;
+  // Device security posture reached at activation (mirrors the app's KeystoreCrypto
+  // tier taxonomy: SW_ONLY | TEE_LEGACY_NOATTEST | MODEL_SKIP | ATTESTED_STRONGBOX |
+  // ATTESTED_TEE | KEYSTORE_PLAIN). Null for devices activated before this field.
+  security_tier?: string | null;
   activated_at?: string | null;
   expires_at?: string | null;
   last_known_monotonic_time?: string | null;

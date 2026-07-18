@@ -30,6 +30,13 @@ const PingSchema = z.object({
   app_version: z.string().min(1).max(40),
   nonce: z.string().min(8).max(128),
   timestamp: z.string().min(1).max(40), // epoch millis as string
+  // Persisted device security tier, re-sent every heartbeat (may be "" for devices
+  // activated before the field existed). Kept as a loose string (bounded length) so a
+  // future tier value from a newer app can't 400 an otherwise-valid heartbeat.
+  security_tier: z.string().max(40).optional(),
+  // Tier 8: set to "DECRYPT_FAILED" when a wrapped CEK failed to unwrap on-device since
+  // the last heartbeat (previously swallowed to "" inside KeystoreCrypto.unwrap()).
+  cek_status: z.enum(['DECRYPT_FAILED']).optional(),
 });
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -73,7 +80,8 @@ export async function POST(req: NextRequest) {
   } catch {
     return generic(400, 'Invalid request.');
   }
-  const { activation_key, device_fingerprint, app_version, nonce, timestamp } = body;
+  const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status } = body;
+  const reportedTier = (security_tier ?? '').trim();
 
   // Gate 1 — per-device rate limit.
   if (isProd && !(await bump(`ping_fp:${device_fingerprint}`, RL_FP_WIN.win, RL_FP_WIN.max))) {
@@ -151,6 +159,36 @@ export async function POST(req: NextRequest) {
     updated_at: new Date(now).toISOString(),
   }, { onConflict: 'device_fingerprint' });
   if (upErr) logger.error({ event: 'PING_STATUS_UPSERT_ERROR', error: upErr.message });
+
+  // Persist the reported security tier onto device_status (best-effort, SEPARATE from
+  // the upsert above so a not-yet-migrated `security_tier` column can't blackout the
+  // whole heartbeat write). Run scripts/add_security_tier.sql to add the column.
+  if (reportedTier) {
+    const { error: stErr } = await supabaseAdmin
+      .from('device_status')
+      .update({ security_tier: reportedTier })
+      .eq('device_fingerprint', device_fingerprint);
+    if (stErr) logger.warn({ event: 'PING_SECURITY_TIER_PERSIST_FAILED', error: stErr.message });
+  }
+
+  // Tier 8 — CEK decrypt failure. Previously the app swallowed unwrap() failures to ""
+  // and the panel stayed blind ("why is video black on device X?"). Now record it loudly
+  // AND on the timeline so an admin can see exactly which device/session it happened on.
+  if (cek_status === 'DECRYPT_FAILED') {
+    logger.warn({
+      event: 'PING_CEK_DECRYPT_FAILED',
+      device_fingerprint,
+      school_id: key.school_id,
+      security_tier: reportedTier || null,
+      app_version,
+    });
+    await supabaseAdmin.from('device_timeline').insert({
+      device_fingerprint,
+      school_id: key.school_id,
+      event_type: 'CEK_DECRYPT_FAILED',
+      detail: { app_version, ip, security_tier: reportedTier || null },
+    });
+  }
 
   if (newSession) {
     await supabaseAdmin.from('device_timeline').insert({

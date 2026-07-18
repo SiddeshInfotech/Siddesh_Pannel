@@ -21,7 +21,33 @@ const ActivationRequestSchema = z.object({
   attestation_nonce: z.string().optional(),
   attestation_timestamp: z.string().optional(),
   attestation_chain: z.array(z.string()).optional(),
+  // NC-1/telemetry: the concrete security posture the device reached while provisioning
+  // its wrap key. Advisory (client-supplied, so a downgrade-lie is possible) — it drives
+  // LOGGING and per-tier enforcement STAGING, not the cryptographic gate (which remains
+  // attestation-chain verification + CEKs RSA-wrapped to device_wrap_pubkey). Bounded to
+  // the known enum so a rogue client can't inject arbitrary strings into our logs/DB.
+  security_tier: z
+    .enum([
+      'SW_ONLY',
+      'TEE_LEGACY_NOATTEST',
+      'MODEL_SKIP',
+      'ATTESTED_STRONGBOX',
+      'ATTESTED_TEE',
+      'KEYSTORE_PLAIN',
+      'PROVISION_FAILED',
+    ])
+    .optional(),
 });
+
+// ── security_tier staging (must mirror the app's KeystoreCrypto taxonomy) ─────
+// Enforce (fail-closed on a bad chain) ONLY for devices that reported a hardware-
+// attested tier — those CAN attest, so a failed/absent chain is a genuine red flag.
+// Devices reporting a genuinely non-attestable tier are allowed even with the master
+// switch on. Alert tiers are logged loudly (they should not normally reach /activate).
+const ATTEST_CAPABLE_TIERS = new Set(['ATTESTED_STRONGBOX', 'ATTESTED_TEE']); // Tier 4/5 → ENFORCE
+const ALERT_TIERS = new Set(['PROVISION_FAILED', 'CEK_DECRYPT_FAILED']);       // Tier 7/8 → ALERT
+// Everything else — SW_ONLY / TEE_LEGACY_NOATTEST / MODEL_SKIP / KEYSTORE_PLAIN
+// (Tier 1/2/3/6) — is ALLOW: audit-logged but never blocked (can't produce a chain).
 
 // Setup key storage inside the workspace keys directory
 const KEYS_DIR = path.join(process.cwd(), 'keys');
@@ -306,7 +332,9 @@ export async function POST(req: NextRequest) {
       attestation_nonce,
       attestation_timestamp,
       attestation_chain,
+      security_tier,
     } = validationResult.data;
+    const reportedTier = security_tier ?? 'UNREPORTED';
     
 
     // Populate the audit/context vars from the validated request. (Bug fix:
@@ -341,12 +369,29 @@ export async function POST(req: NextRequest) {
         .map((m) => m.trim().toLowerCase())
         .filter((m) => m.length > 0);
       const modelExempt = exemptModels.includes((requestModel ?? '').trim().toLowerCase());
+      // Staged per tier: with the master switch on we FAIL CLOSED only for devices that
+      // reported an attestation-capable tier (Tier 4/5). Tiers 1/2/3/6 stay audit-only
+      // (they genuinely cannot produce a chain, so blocking them would brick real fleets),
+      // and model-exempt panels are always audit-only. This replaces the old "any chain
+      // failure enforced unless model-exempt", which couldn't tell "can't attest" from
+      // "attestation stripped". NOTE: security_tier is client-supplied and advisory — the
+      // real protection is that every CEK is RSA-wrapped to device_wrap_pubkey regardless.
+      // A device is "attestation-capable" if it reported a hardware-attested tier, OR
+      // it actually presented a chain (≥2 certs) — the latter keeps older app builds
+      // that send a chain but no security_tier under enforcement, so this staging never
+      // weakens the prior posture for chain-senders. Genuinely chain-less low tiers
+      // (SW_ONLY / *_NOATTEST / MODEL_SKIP / KEYSTORE_PLAIN) stay audit-only.
+      const tierCapable =
+        ATTEST_CAPABLE_TIERS.has(reportedTier) || (attestation_chain?.length ?? 0) >= 2;
       const enforceAttest =
-        process.env.LMS_ENFORCE_ATTESTATION === 'true' && !modelExempt;
+        process.env.LMS_ENFORCE_ATTESTATION === 'true' && tierCapable && !modelExempt;
+      if (ALERT_TIERS.has(reportedTier)) {
+        console.warn('[ATTEST_TIER_ALERT]', JSON.stringify({ tier: reportedTier, model: requestModel, ipAddress }));
+      }
       if (modelExempt) {
         console.warn(
           '[ATTEST_MODEL_EXEMPT]',
-          JSON.stringify({ model: requestModel, ipAddress })
+          JSON.stringify({ tier: reportedTier, model: requestModel, ipAddress })
         );
       }
       const tsNum = Number(attestation_timestamp);
@@ -383,23 +428,23 @@ export async function POST(req: NextRequest) {
           ? rev.reason
           : att.reason;
         if (enforceAttest) {
-          console.warn('[ATTEST_FAILED_ENFORCED]', JSON.stringify({ reason, ipAddress }));
+          console.warn('[ATTEST_FAILED_ENFORCED]', JSON.stringify({ tier: reportedTier, reason, ipAddress }));
           await logHandshake({
             activationKey: requestKey,
             deviceFingerprint: requestFingerprint,
             deviceModel: requestModel,
             deviceOS: requestOS,
             status: 'FAILED',
-            errorMessage: 'Device attestation verification failed.',
+            errorMessage: `Device attestation verification failed (tier=${reportedTier}).`,
             ipAddress,
           });
           return NextResponse.json({ error: 'Request signature verification failed.' }, { status: 401 });
         }
-        console.warn('[ATTEST_FAILED_AUDIT]', JSON.stringify({ reason, ipAddress }));
+        console.warn('[ATTEST_FAILED_AUDIT]', JSON.stringify({ tier: reportedTier, reason, ipAddress }));
       } else {
         // Positive confirmation that attestation PASSED — safe to flip
         // LMS_ENFORCE_ATTESTATION=true once you see this for your real devices.
-        console.log('[ATTEST_OK]', JSON.stringify({ chainLen: (attestation_chain ?? []).length, ipAddress }));
+        console.log('[ATTEST_OK]', JSON.stringify({ tier: reportedTier, chainLen: (attestation_chain ?? []).length, ipAddress }));
       }
     }
 
@@ -532,6 +577,21 @@ export async function POST(req: NextRequest) {
         .eq('id', keyRecord.id);
       if (wmError) {
         logger.warn({ event: 'WATERMARK_CODE_PERSIST_FAILED', keyId: keyRecord.id, error: wmError.message });
+      }
+    }
+
+    // ── 3c. Persist device security tier (best-effort) ─────────────────────
+    // Kept as a SEPARATE, non-blocking update (independent of the watermark one) so a
+    // not-yet-migrated `security_tier` column cannot break activation OR drop the
+    // watermark write. Run scripts/add_security_tier.sql to add the column. Once present
+    // an admin can filter the fleet by posture (e.g. all TEE_LEGACY_NOATTEST panels).
+    if (security_tier) {
+      const { error: stError } = await supabaseAdmin
+        .from('activation_keys')
+        .update({ security_tier })
+        .eq('id', keyRecord.id);
+      if (stError) {
+        logger.warn({ event: 'SECURITY_TIER_PERSIST_FAILED', keyId: keyRecord.id, error: stError.message });
       }
     }
 
