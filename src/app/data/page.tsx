@@ -128,7 +128,7 @@ export default async function SchoolsPage() {
           title="Total Parents"
           value={totalParents.toString()}
           badgeText="Registered"
-          badgeType="neutral"
+          badgeType="stable"
           icon={Users}
         />
       </div>

@@ -5,7 +5,7 @@ interface MetricCardProps {
   title: string;
   value: string;
   badgeText: string;
-  badgeType: 'positive' | 'stable' | 'warning';
+  badgeType: 'positive' | 'stable' | 'warning' | 'neutral';
   icon: React.ComponentType<{ className?: string }>;
   sparklineType?: 'bars' | 'wave' | 'progress' | 'none';
   progress?: number; // 0 to 100

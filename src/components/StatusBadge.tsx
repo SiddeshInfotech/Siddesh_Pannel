@@ -1,6 +1,6 @@
 import React from 'react';
 
-type StatusType = 
+export type StatusType = 
   | 'Active' | 'Inactive' | 'OPERATIONAL' | 'SUCCESS' | 'Paid'
   | 'Pending' | 'Pending Approval' | 'Awaiting Upload' | 'LOW DENSITY' | 'IN PROGRESS'
   | 'Unpaid' | 'Revoked' | 'COMPLETED' | 'VERIFIED'

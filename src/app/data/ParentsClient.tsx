@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 import GlassCard from '@/components/GlassCard';
-import StatusBadge from '@/components/StatusBadge';
+import StatusBadge, { StatusType } from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
 import { deleteParentAction } from './actions';
 
@@ -25,7 +25,7 @@ interface Parent {
     mobile: string;
     city: string;
     grade: string;
-    status: string;
+    status: StatusType;
     dateAdded: string;
 }
 
@@ -137,7 +137,7 @@ export default function ParentsClient({
                                         <div className="text-xs text-zinc-500">{parent.email}</div>
                                     </td>
                                     <td className="p-4">
-                                        <StatusBadge status={parent.status} />
+                                        <StatusBadge status={parent.status as StatusType} />
                                     </td>
                                     <td className="p-4">
                                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
