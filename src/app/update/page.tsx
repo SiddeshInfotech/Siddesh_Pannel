@@ -32,10 +32,22 @@ function agoFrom(iso: string | null): string {
 }
 
 async function getTelemetry() {
-  const { data: statuses } = await supabaseAdmin
+  // security_tier is a NEW column (scripts/add_security_tier.sql). If it isn't migrated
+  // yet, selecting it 400s the whole query and blanks the device list — so retry without
+  // it on error. Tiers then show "—" until the migration runs. Push order-independent.
+  const BASE = 'device_fingerprint, app_version, first_seen, last_seen, total_online_seconds, last_ip';
+  const withTier = await supabaseAdmin
     .from('device_status')
-    .select('device_fingerprint, app_version, first_seen, last_seen, total_online_seconds, last_ip, security_tier, schools(id, name, school_id)')
+    .select(`${BASE}, security_tier, schools(id, name, school_id)`)
     .order('last_seen', { ascending: false });
+  let statuses: any[] | null = withTier.data;
+  if (withTier.error) {
+    const noTier = await supabaseAdmin
+      .from('device_status')
+      .select(`${BASE}, schools(id, name, school_id)`)
+      .order('last_seen', { ascending: false });
+    statuses = noTier.data;
+  }
 
   const { data: timeline } = await supabaseAdmin
     .from('device_timeline')

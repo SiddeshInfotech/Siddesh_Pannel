@@ -6,21 +6,36 @@ import MonitoringClient from './MonitoringClient';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
-async function getDevicesData() {
-  const { data: keys } = await supabaseAdmin
-    .from('activation_keys')
-    .select(`
-      id, key, status, duration_days, expires_at, activated_at, last_known_monotonic_time,
-      device_fingerprint, device_model, device_os, device_board, device_brand,
-      device_device, device_manufacturer, device_android_id, security_tier,
-      schools (
+// security_tier is a NEW column (scripts/add_security_tier.sql). Select it, but if the
+// migration hasn't run yet, PostgREST 400s the whole query — which would blank the entire
+// device list. So on error we retry WITHOUT the column: the dashboard keeps working and
+// tiers just render as "Unreported" until the migration is applied. Push order-independent.
+const SCHOOL_COLS = `schools (
         id, name, school_id, board, mediums, academic_year, section, standard,
         full_class_name, coordinator_name, email, phone
-      )
-    `)
+      )`;
+const KEY_COLS_BASE = `id, key, status, duration_days, expires_at, activated_at, last_known_monotonic_time,
+      device_fingerprint, device_model, device_os, device_board, device_brand,
+      device_device, device_manufacturer, device_android_id`;
+
+async function fetchActivatedKeys(includeTier: boolean) {
+  const sel = includeTier
+    ? `${KEY_COLS_BASE}, security_tier, ${SCHOOL_COLS}`
+    : `${KEY_COLS_BASE}, ${SCHOOL_COLS}`;
+  return supabaseAdmin
+    .from('activation_keys')
+    .select(sel)
     .not('device_fingerprint', 'is', null)
     .neq('device_fingerprint', '')
     .order('activated_at', { ascending: false });
+}
+
+async function getDevicesData() {
+  let { data: keys, error } = await fetchActivatedKeys(true);
+  if (error) {
+    // Most likely the security_tier column isn't migrated yet — fall back gracefully.
+    ({ data: keys } = await fetchActivatedKeys(false));
+  }
 
   return (keys ?? []).map((k: any) => {
     // Calculate remaining time
