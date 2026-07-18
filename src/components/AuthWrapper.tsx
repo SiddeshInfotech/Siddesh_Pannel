@@ -297,7 +297,7 @@ export default function AuthWrapper({
             {/* Logo header */}
             <div className="flex items-center gap-4 mb-6 px-1">
               <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-lg backdrop-blur-xl relative overflow-hidden flex-shrink-0">
-                <img src="/siddesh_logo.png" alt="Siddesh Logo" className="w-8 h-8 object-contain rounded-lg" />
+                <img src="/lms-admin/siddesh_logo.png" alt="Siddesh Logo" className="w-8 h-8 object-contain rounded-lg" />
               </div>
               <div className="text-left">
                 <h1 className="text-2xl font-black tracking-tight text-white leading-none">

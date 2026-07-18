@@ -18,7 +18,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 // Optional canonical origin (e.g. a production custom domain). Accepted IN
 // ADDITION to the origin the request was actually served on, so a single pinned
 // value can never lock out localhost / Vercel preview / custom-domain logins.
-const CONFIGURED_ORIGIN = process.env.APP_URL?.replace(/\/$/, '');
+const CONFIGURED_ORIGIN = process.env.APP_URL ? new URL(process.env.APP_URL).origin : undefined;
 
 // Same-origin CSRF check that works across localhost, Vercel previews and custom
 // domains. Accept the request when its Origin matches the origin the request was
