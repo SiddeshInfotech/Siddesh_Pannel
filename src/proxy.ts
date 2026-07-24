@@ -14,7 +14,15 @@
  * - POST /api/auth/login  (credential verification)
  * - POST /api/auth/logout (cookie clearing)
  * - POST /api/activate    (Android tablet handshake — no admin token)
+ * - POST /api/device/terms-accept (Android pre-activation consent — hardware-attested)
+ * - POST /api/device/ping (Android telemetry heartbeat — device-fingerprint bound)
  * - Static assets, Next.js internals
+ *
+ * NOTE: the /api/device/* endpoints are DEVICE-authenticated, not admin-authenticated
+ * — each carries its own device-level auth (hardware key-attestation for terms-accept,
+ * device-fingerprint binding + single-use nonce + rate limits for ping). They must be
+ * exempt from the admin-JWT gate; putting them behind it (a tablet never has an admin
+ * cookie) is what made them 401 "Unauthorized. Please log in."
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -101,6 +109,10 @@ const PUBLIC_ROUTES = [
   '/api/auth/login',
   '/api/auth/logout',
   '/api/activate',
+  // Device-authenticated endpoints (no admin cookie). Each enforces its own device
+  // auth downstream; the admin-JWT gate here must not apply to them.
+  '/api/device/terms-accept', // pre-activation consent (hardware key-attestation)
+  '/api/device/ping',         // telemetry heartbeat (device-fingerprint bound)
   '/api/seed', // Self-guarded: returns 403 in production, requires SEED_SECRET in dev
 ];
 
