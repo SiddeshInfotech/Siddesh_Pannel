@@ -36,10 +36,14 @@ async function getParentsList() {
 async function getKeysList() {
   const { data: keys } = await supabaseAdmin
     .from('activation_keys')
+    // NOTE: platform / security_tier are intentionally NOT selected here — they may
+    // not exist until add_platform.sql / add_security_tier.sql run, and Supabase errors
+    // the whole query on an unknown column. The Windows/Android badge falls back to
+    // device_os (Windows OS string), so the keys page stays safe on an un-migrated DB.
     .select(`
       id, school_id, vendor_id, parent_id, key, status, duration_days, expires_at, created_at, batch_id,
       device_fingerprint, device_model, device_os, device_brand, device_android_id, activated_at,
-      watermark_code, platform, security_tier,
+      watermark_code,
       schools ( name ),
       vendors ( vendor_name ),
       parents ( parent_name )
