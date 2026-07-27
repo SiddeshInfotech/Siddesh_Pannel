@@ -39,7 +39,7 @@ async function getKeysList() {
     .select(`
       id, school_id, vendor_id, parent_id, key, status, duration_days, expires_at, created_at, batch_id,
       device_fingerprint, device_model, device_os, device_brand, device_android_id, activated_at,
-      watermark_code,
+      watermark_code, platform, security_tier,
       schools ( name ),
       vendors ( vendor_name ),
       parents ( parent_name )
@@ -71,6 +71,8 @@ async function getKeysList() {
       deviceAndroidId: k.device_android_id ?? null,
       activatedAt: k.activated_at ? new Date(k.activated_at).toLocaleDateString('en-IN') : null,
       watermarkCode: k.watermark_code ?? null,
+      platform: k.platform ?? null,
+      securityTier: k.security_tier ?? null,
     };
   });
 }
