@@ -10,6 +10,9 @@ export const dynamic = 'force-dynamic';
 // (must be >= the app's heartbeat interval + the endpoint's SESSION_GAP_MS).
 const ONLINE_WINDOW_MS = 6 * 60 * 1000;
 
+// Render all timestamps in India Standard Time (Vercel runs in UTC). India-only deployment.
+const IST = 'Asia/Kolkata';
+
 function humanDuration(totalSeconds: number): string {
   const s = Math.max(0, Math.floor(totalSeconds));
   const d = Math.floor(s / 86400);
@@ -66,8 +69,8 @@ async function getTelemetry() {
       appVersion: s.app_version ?? '—',
       online,
       lastSeenAgo: agoFrom(s.last_seen),
-      lastSeenExact: s.last_seen ? new Date(s.last_seen).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium' }) : '—',
-      firstSeenExact: s.first_seen ? new Date(s.first_seen).toLocaleString('en-IN', { dateStyle: 'medium' }) : '—',
+      lastSeenExact: s.last_seen ? new Date(s.last_seen).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium', timeZone: IST }) : '—',
+      firstSeenExact: s.first_seen ? new Date(s.first_seen).toLocaleString('en-IN', { dateStyle: 'medium', timeZone: IST }) : '—',
       totalOnline: humanDuration(Number(s.total_online_seconds) || 0),
       lastIp: s.last_ip ?? '—',
       securityTier: s.security_tier ?? 'UNREPORTED',
@@ -80,7 +83,7 @@ async function getTelemetry() {
     schoolName: e.schools?.name ?? 'Unknown School',
     fingerprint: e.device_fingerprint,
     detail: e.detail ?? {},
-    when: e.created_at ? new Date(e.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—',
+    when: e.created_at ? new Date(e.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: IST }) : '—',
     whenAgo: agoFrom(e.created_at),
   }));
 
@@ -88,7 +91,7 @@ async function getTelemetry() {
     devices,
     events,
     onlineCount: devices.filter((d) => d.online).length,
-    serverTime: new Date(now).toLocaleString('en-IN', { dateStyle: 'full', timeStyle: 'medium' }),
+    serverTime: new Date(now).toLocaleString('en-IN', { dateStyle: 'full', timeStyle: 'medium', timeZone: IST }),
   };
 }
 

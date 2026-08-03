@@ -6,6 +6,11 @@ import MonitoringClient from './MonitoringClient';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
+// All device/consent timestamps are rendered in India Standard Time. The server
+// (Vercel) runs in UTC, so toLocale* WITHOUT this option would show times 5h30m
+// behind the wall clock of an Indian admin. This is an India-only deployment.
+const IST = 'Asia/Kolkata';
+
 // security_tier is a NEW column (scripts/add_security_tier.sql). Select it, but if the
 // migration hasn't run yet, PostgREST 400s the whole query — which would blank the entire
 // device list. So on error we retry WITHOUT the column: the dashboard keeps working and
@@ -30,6 +35,21 @@ async function fetchActivatedKeys(includeTier: boolean) {
     .order('activated_at', { ascending: false });
 }
 
+// Pre-activation consent records, keyed by device fingerprint. Best-effort: if the
+// terms_acceptances table isn't migrated yet (scripts/add_terms_acceptances.sql),
+// PostgREST 400s — we swallow it and every device just shows "Not recorded".
+async function fetchTermsAcceptances(fingerprints: string[]): Promise<Map<string, any>> {
+  const map = new Map<string, any>();
+  if (fingerprints.length === 0) return map;
+  const { data, error } = await supabaseAdmin
+    .from('terms_acceptances')
+    .select('device_fingerprint, terms_version, accepted_at')
+    .in('device_fingerprint', fingerprints);
+  if (error) return map;
+  for (const row of data ?? []) map.set(row.device_fingerprint, row);
+  return map;
+}
+
 async function getDevicesData() {
   let { data: keys, error } = await fetchActivatedKeys(true);
   if (error) {
@@ -37,7 +57,15 @@ async function getDevicesData() {
     ({ data: keys } = await fetchActivatedKeys(false));
   }
 
+
   return (keys ?? []).map((k: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
+  const fingerprints = (keys ?? [])
+    .map((k: any) => k.device_fingerprint)
+    .filter((f: any): f is string => !!f);
+  const termsByFp = await fetchTermsAcceptances(fingerprints);
+
+  return (keys ?? []).map((k: any) => {
+    const terms = k.device_fingerprint ? termsByFp.get(k.device_fingerprint) : undefined;
     // Calculate remaining time
     let remainingTime = 'N/A';
     if (k.expires_at) {
@@ -72,24 +100,27 @@ async function getDevicesData() {
       androidId: k.device_android_id || 'N/A',
       securityTier: k.security_tier || 'UNREPORTED',
       activationDate: k.activated_at
-        ? new Date(k.activated_at).toLocaleDateString('en-IN')
+        ? new Date(k.activated_at).toLocaleDateString('en-IN', { timeZone: IST })
         : 'N/A',
       exactActivationDate: k.activated_at
         ? new Date(k.activated_at).toLocaleString('en-IN', {
             dateStyle: 'long',
             timeStyle: 'medium',
+            timeZone: IST,
           })
         : 'N/A',
       lastSync: k.last_known_monotonic_time
         ? new Date(k.last_known_monotonic_time).toLocaleTimeString('en-IN', {
             hour: '2-digit',
             minute: '2-digit',
+            timeZone: IST,
           })
         : 'Just now',
       exactLastSync: k.last_known_monotonic_time
         ? new Date(k.last_known_monotonic_time).toLocaleString('en-IN', {
             dateStyle: 'long',
             timeStyle: 'medium',
+            timeZone: IST,
           })
         : 'Just now',
       remainingTime,
@@ -108,6 +139,16 @@ async function getDevicesData() {
       schoolPhone: school?.phone || 'N/A',
       licenseKey: k.key,
       durationDays: k.duration_days || 365,
+      // Pre-activation consent (Privacy Policy + Terms & Conditions).
+      termsAccepted: !!terms,
+      termsVersion: terms?.terms_version || null,
+      termsAcceptedAt: terms?.accepted_at
+        ? new Date(terms.accepted_at).toLocaleString('en-IN', {
+            dateStyle: 'long',
+            timeStyle: 'short',
+            timeZone: IST,
+          })
+        : null,
     };
   });
 }

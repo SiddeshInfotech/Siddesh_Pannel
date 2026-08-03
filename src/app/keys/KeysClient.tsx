@@ -45,6 +45,8 @@ interface KeyRow {
   deviceAndroidId?: string | null;
   activatedAt?: string | null;
   watermarkCode?: string | null;
+  platform?: string | null;        // 'android' | 'windows'
+  securityTier?: string | null;
 }
 
 interface KeysClientProps {
@@ -802,15 +804,30 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                         <div className="flex-1 min-w-[220px]">
                           {hasDevice ? (
                             <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-2.5 w-full max-w-[320px]">
-                              <div className="p-1.5 rounded bg-accent-violet/10 text-accent-violet flex-shrink-0 text-xs">
-                                📱
-                              </div>
+                              {(() => {
+                                const isWin = (k.platform || '').toLowerCase() === 'windows'
+                                  || (k.deviceOS || '').toLowerCase().includes('windows');
+                                return (
+                                  <div className={`p-1.5 rounded flex-shrink-0 text-xs ${isWin ? 'bg-sky-500/10 text-sky-400' : 'bg-accent-violet/10 text-accent-violet'}`}>
+                                    {isWin ? '💻' : '📱'}
+                                  </div>
+                                );
+                              })()}
                               <div className="space-y-0.5 min-w-0">
-                                <div className="font-bold text-white text-xs truncate">
-                                  {k.deviceBrand || ''} {k.deviceModel || 'Unknown Device'}
+                                <div className="font-bold text-white text-xs truncate flex items-center gap-1.5">
+                                  <span className="truncate">{k.deviceBrand || ''} {k.deviceModel || 'Unknown Device'}</span>
+                                  {(() => {
+                                    const isWin = (k.platform || '').toLowerCase() === 'windows'
+                                      || (k.deviceOS || '').toLowerCase().includes('windows');
+                                    return (
+                                      <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wide flex-shrink-0 ${isWin ? 'bg-sky-500/20 text-sky-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                                        {isWin ? 'Windows' : 'Android'}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                                 <div className="text-[10px] text-zinc-500 font-mono truncate">
-                                  OS: {k.deviceOS || 'Android'} • ID: {k.deviceAndroidId || 'N/A'}
+                                  OS: {k.deviceOS || 'Android'}{k.securityTier ? ` • ${k.securityTier}` : ''}
                                 </div>
                                 {k.activatedAt && (
                                   <div className="text-[9px] text-emerald-400 font-bold">

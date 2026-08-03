@@ -23,7 +23,9 @@ import {
   Clock,
   Key,
   BookOpen,
-  Lock
+  Lock,
+  CheckCircle2,
+  FileCheck
 } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import StatusBadge from '@/components/StatusBadge';
@@ -63,6 +65,9 @@ interface DeviceRow {
   durationDays: number;
   expiresAt?: string | null;
   securityTier: string;
+  termsAccepted: boolean;
+  termsVersion: string | null;
+  termsAcceptedAt: string | null;
 }
 
 // Maps the device security tier (KeystoreCrypto taxonomy) to a short label + badge
@@ -259,6 +264,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                 <th className="py-4 px-3">Hardware Fingerprint</th>
                 <th className="py-4 px-3">School Name</th>
                 <th className="py-4 px-3">Security Tier</th>
+                <th className="py-4 px-3">Consent</th>
                 <th className="py-4 px-3">Activation</th>
                 <th className="py-4 px-3">Last Sync</th>
                 <th className="py-4 px-3">Remaining Time</th>
@@ -306,6 +312,23 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                           );
                         })()}
                       </td>
+                      <td className="py-4 px-3">
+                        {dev.termsAccepted ? (
+                          <span
+                            title={`Privacy Policy + Terms accepted${dev.termsVersion ? ` (v${dev.termsVersion})` : ''}${dev.termsAcceptedAt ? ` on ${dev.termsAcceptedAt}` : ''}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[10px] font-semibold whitespace-nowrap bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
+                          >
+                            <CheckCircle2 className="w-3 h-3" /> Accepted
+                          </span>
+                        ) : (
+                          <span
+                            title="No pre-activation consent recorded for this device"
+                            className="inline-flex items-center px-2.5 py-1 rounded-lg border text-[10px] font-semibold whitespace-nowrap bg-zinc-500/10 border-zinc-500/25 text-zinc-400"
+                          >
+                            Not recorded
+                          </span>
+                        )}
+                      </td>
                       <td className="py-4 px-3 text-sm text-zinc-300 font-medium">{dev.activationDate}</td>
                       <td className="py-4 px-3 text-sm text-zinc-400">{dev.lastSync}</td>
                       <td className="py-4 px-3 text-sm text-zinc-400 font-medium font-mono">{dev.remainingTime}</td>
@@ -336,8 +359,8 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                 })
               ) : (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-zinc-500 text-sm">
-                    {/* colSpan spans all columns incl. the Security Tier column */}
+                  <td colSpan={10} className="py-12 text-center text-zinc-500 text-sm">
+                    {/* colSpan spans all columns incl. the Security Tier + Consent columns */}
                     <AlertCircle className="w-5 h-5 mx-auto mb-2 text-zinc-600" />
                     No registered devices matching search filters found in the database.
                   </td>
@@ -473,6 +496,26 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                         );
                       })()}
                       <code className="block text-[10px] text-zinc-500 font-mono mt-1">{selectedDevice.securityTier}</code>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-zinc-500 uppercase font-bold flex items-center gap-1 mt-1">
+                        <FileCheck className="w-3 h-3 text-zinc-500" /> Terms &amp; Privacy Consent
+                      </span>
+                      {selectedDevice.termsAccepted ? (
+                        <>
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-semibold mt-0.5 bg-emerald-500/10 border-emerald-500/25 text-emerald-400">
+                            <CheckCircle2 className="w-3 h-3" /> Accepted
+                            {selectedDevice.termsVersion ? ` · v${selectedDevice.termsVersion}` : ''}
+                          </span>
+                          {selectedDevice.termsAcceptedAt && (
+                            <code className="block text-[10px] text-zinc-500 font-mono mt-1">{selectedDevice.termsAcceptedAt}</code>
+                          )}
+                        </>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-lg border text-[10px] font-semibold mt-0.5 bg-zinc-500/10 border-zinc-500/25 text-zinc-400">
+                          Not recorded
+                        </span>
+                      )}
                     </div>
                   </div>
                 </div>
