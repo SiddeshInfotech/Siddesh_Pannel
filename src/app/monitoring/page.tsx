@@ -64,7 +64,6 @@ async function getDevicesData() {
 
   return (keys ?? []).map((k: any ) => {
     const terms = k.device_fingerprint ? termsByFp.get(k.device_fingerprint) : undefined;
-
     // Calculate remaining time
     let remainingTime = 'N/A';
     if (k.expires_at) {
