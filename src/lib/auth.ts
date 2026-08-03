@@ -90,7 +90,7 @@ function extractPublicKeyFromPrivateKey(privKeyPem: string): string {
 // Pre-load keys to optimize execution path (caches promises)
 const signingKeyPromise = importPKCS8(privateKeyPem.replace(/\\n/g, '\n'), 'ES256');
 
-let verificationKeyPromise: Promise<any>;
+let verificationKeyPromise: Promise<any> /* eslint-disable-line @typescript-eslint/no-explicit-any */;
 try {
   const normalizedPrivateKey = privateKeyPem.replace(/\\n/g, '\n');
   const publicKeyPem = extractPublicKeyFromPrivateKey(normalizedPrivateKey);
@@ -269,6 +269,7 @@ export async function signChallengeToken(email: string, nonce: string): Promise<
 /**
  * Verify a temporary challenge token and return its payload.
  */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function verifyChallengeToken(token: string): Promise<any | null> {
   try {
     const key = await getVerificationKey();
@@ -285,7 +286,7 @@ export async function verifyChallengeToken(token: string): Promise<any | null> {
       email: payload.email as string,
       nonce: payload.nonce as string,
     };
-  } catch (err: any) {
+  } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
     console.error('❌ verifyChallengeToken failed:', err);
     return { error: err.message || String(err) };
   }

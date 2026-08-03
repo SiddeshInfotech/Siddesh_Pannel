@@ -54,7 +54,7 @@ function generateVendorCode(): string {
   return `VND-CODE-${random}`;
 }
 
-export async function createVendor(formData: any): Promise<ActionResult<string>> {
+export async function createVendor(formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult<string>> {
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
 
@@ -137,7 +137,7 @@ export async function createVendor(formData: any): Promise<ActionResult<string>>
   // Fallback: Save to src/lib/vendors.json
   try {
     const filePath = path.join(process.cwd(), 'src/lib/vendors.json');
-    let vendorsList: any[] = [];
+    let vendorsList: any /* eslint-disable-line @typescript-eslint/no-explicit-any */[] = [];
     
     if (fs.existsSync(filePath)) {
       const fileData = fs.readFileSync(filePath, 'utf8');

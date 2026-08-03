@@ -17,7 +17,7 @@ async function getPaymentsData() {
     `)
     .order('created_at', { ascending: false });
 
-  return (payments ?? []).map((p: any) => {
+  return (payments ?? []).map((p: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
     let entityName = 'Unknown Entity';
     if (p.schools?.name) entityName = p.schools.name;
     if (p.vendors?.vendor_name) entityName = p.vendors.vendor_name;

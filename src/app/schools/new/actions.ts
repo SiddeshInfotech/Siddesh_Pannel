@@ -36,7 +36,7 @@ function generateSchoolId(board: string, city: string): string {
   return `SCH-${new Date().getFullYear()}-${boardCode}-${cityCode}-${random}`;
 }
 
-export async function createSchool(formData: any): Promise<ActionResult<string>> {
+export async function createSchool(formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult<string>> {
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
 

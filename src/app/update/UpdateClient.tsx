@@ -5,6 +5,7 @@ import { DownloadCloud, Circle, Clock, Server, Search } from 'lucide-react';
 
 type Device = {
   fingerprint: string;
+  activationKey: string;
   schoolName: string;
   schoolId: string;
   appVersion: string;
@@ -55,6 +56,8 @@ export default function UpdateClient({
   devices: Device[]; events: Ev[]; onlineCount: number; serverTime: string;
 }) {
   const [q, setQ] = useState('');
+  const [selectedFingerprint, setSelectedFingerprint] = useState<string | null>(null);
+
   const filtered = useMemo(() => {
     const t = q.trim().toLowerCase();
     if (!t) return devices;
@@ -62,6 +65,11 @@ export default function UpdateClient({
       (d) => d.schoolName.toLowerCase().includes(t) || d.schoolId.toLowerCase().includes(t)
     );
   }, [q, devices]);
+
+  const filteredEvents = useMemo(() => {
+    if (!selectedFingerprint) return [];
+    return events.filter((e) => e.fingerprint === selectedFingerprint);
+  }, [events, selectedFingerprint]);
 
   return (
     <div className="p-8 max-w-[1200px] mx-auto text-foreground">
@@ -115,6 +123,7 @@ export default function UpdateClient({
               <thead className="bg-white/5 text-zinc-400 text-xs uppercase">
                 <tr>
                   <th className="text-left px-4 py-3">School</th>
+                  <th className="text-left px-4 py-3">Key</th>
                   <th className="text-left px-4 py-3">Status</th>
                   <th className="text-left px-4 py-3">Tier</th>
                   <th className="text-left px-4 py-3">Last seen</th>
@@ -128,41 +137,51 @@ export default function UpdateClient({
                     No devices have reported in yet.
                   </td></tr>
                 )}
-                {filtered.map((d) => (
-                  <tr key={d.fingerprint} className="border-t border-white/5 hover:bg-white/5">
-                    <td className="px-4 py-3">
-                      <div className="font-semibold">{d.schoolName}</div>
-                      <div className="text-xs text-zinc-500">{d.schoolId}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {d.online ? (
-                        <span className="inline-flex items-center gap-1.5 text-emerald-400 text-xs font-semibold">
-                          <Circle className="w-2.5 h-2.5 fill-emerald-400" /> Online
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5 text-zinc-500 text-xs font-semibold">
-                          <Circle className="w-2.5 h-2.5 fill-zinc-600" /> Offline
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {(() => {
-                        const t = tierStyle(d.securityTier);
-                        return (
-                          <span
-                            title={d.securityTier}
-                            className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${t.cls}`}
-                          >
-                            {t.label}
+                {filtered.map((d) => {
+                  const isSelected = d.fingerprint === selectedFingerprint;
+                  return (
+                    <tr 
+                      key={d.fingerprint} 
+                      onClick={() => setSelectedFingerprint(isSelected ? null : d.fingerprint)}
+                      className={`border-t border-white/5 hover:bg-white/10 cursor-pointer transition-colors ${isSelected ? 'bg-white/10' : ''}`}
+                    >
+                      <td className="px-4 py-3">
+                        <div className="font-semibold">{d.schoolName}</div>
+                        <div className="text-xs text-zinc-500">{d.schoolId}</div>
+                      </td>
+                      <td className="px-4 py-3 text-zinc-300 font-mono text-xs truncate max-w-[150px]" title={d.activationKey}>
+                        {d.activationKey}
+                      </td>
+                      <td className="px-4 py-3">
+                        {d.online ? (
+                          <span className="inline-flex items-center gap-1.5 text-emerald-400 text-xs font-semibold">
+                            <Circle className="w-2.5 h-2.5 fill-emerald-400" /> Online
                           </span>
-                        );
-                      })()}
-                    </td>
-                    <td className="px-4 py-3" title={d.lastSeenExact}>{d.lastSeenAgo}</td>
-                    <td className="px-4 py-3">{d.totalOnline}</td>
-                    <td className="px-4 py-3 text-zinc-400">{d.appVersion}</td>
-                  </tr>
-                ))}
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 text-zinc-500 text-xs font-semibold">
+                            <Circle className="w-2.5 h-2.5 fill-zinc-600" /> Offline
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        {(() => {
+                          const t = tierStyle(d.securityTier);
+                          return (
+                            <span
+                              title={d.securityTier}
+                              className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${t.cls}`}
+                            >
+                              {t.label}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="px-4 py-3" title={d.lastSeenExact}>{d.lastSeenAgo}</td>
+                      <td className="px-4 py-3">{d.totalOnline}</td>
+                      <td className="px-4 py-3 text-zinc-400">{d.appVersion}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -172,20 +191,40 @@ export default function UpdateClient({
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400 mb-3">Timeline</h2>
           <div className="rounded-2xl border border-white/10 bg-white/5 p-4 max-h-[560px] overflow-y-auto">
-            {events.length === 0 && <div className="text-zinc-500 text-sm">No events yet.</div>}
-            <ol className="relative border-l border-white/10 ml-2">
-              {events.map((e) => (
-                <li key={e.id} className="mb-5 ml-4">
-                  <span className="absolute -left-1.5 w-3 h-3 rounded-full bg-sky-400 border-2 border-black/40" />
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-sky-300">{e.type}</span>
-                    <span className="text-[10px] text-zinc-500">{e.whenAgo}</span>
-                  </div>
-                  <div className="text-sm font-medium">{e.schoolName}</div>
-                  <div className="text-[11px] text-zinc-500">{e.when}</div>
-                </li>
-              ))}
-            </ol>
+            {!selectedFingerprint ? (
+              <div className="text-zinc-500 text-sm">Select a device from the table to view its timeline.</div>
+            ) : filteredEvents.length === 0 ? (
+              <div className="text-zinc-500 text-sm">No events for this device yet.</div>
+            ) : (
+              <div className="relative mt-2">
+                {filteredEvents.map((e, index) => {
+                  const isLast = index === filteredEvents.length - 1;
+                  return (
+                    <div key={e.id} className="relative flex items-start mb-6 last:mb-0">
+                      {/* Time on the left */}
+                      <div className="w-[60px] text-right pt-2 shrink-0 text-xs font-semibold text-zinc-400">
+                        {e.whenAgo}
+                      </div>
+
+                      {/* Line and circle in the middle */}
+                      <div className="relative flex flex-col items-center w-10 shrink-0">
+                        <div className="w-3.5 h-3.5 rounded-full border-2 border-sky-400 bg-background z-10 mt-2" />
+                        {!isLast && (
+                          <div className="absolute top-5 bottom-[-32px] left-1/2 -translate-x-1/2 w-px bg-white/20" />
+                        )}
+                      </div>
+
+                      {/* Card on the right */}
+                      <div className="flex-1 bg-white/5 border border-white/10 rounded-xl p-4 shadow-sm hover:bg-white/10 transition-colors">
+                        <div className="font-bold text-sky-100 text-sm mb-1">{e.type}</div>
+                        <div className="text-sm text-zinc-300 mb-2">{e.schoolName}</div>
+                        <div className="text-xs font-semibold text-zinc-500 uppercase">{e.when}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

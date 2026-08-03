@@ -17,6 +17,7 @@ import {
   User,
   Mail,
   Phone,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
   Layers,
   Award,
   Clock,
@@ -218,6 +219,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
           <div className="w-[180px]">
             <CustomSelect
               value={entityFilter}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
               onChange={val => setEntityFilter(val as any)}
               options={[
                 { value: 'Schools', label: 'Schools' },

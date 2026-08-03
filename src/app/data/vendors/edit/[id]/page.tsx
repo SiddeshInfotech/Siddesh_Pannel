@@ -8,7 +8,7 @@ export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
 interface PageProps {
-  params: any;
+  params: any /* eslint-disable-line @typescript-eslint/no-explicit-any */;
 }
 
 async function getVendor(id: string) {

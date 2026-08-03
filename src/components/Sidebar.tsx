@@ -2,26 +2,43 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { 
   LayoutDashboard, 
   School, 
   PlusCircle, 
   CreditCard, 
-  CheckSquare, 
   Key,
   Activity,
-  ShieldAlert,
-  Shield,
   DownloadCloud,
   Sun,
   Moon,
-  LogOut
+  LogOut,
+  ChevronDown,
+  ChevronRight
 } from 'lucide-react';
 
-const MENU_GROUPS = [
+type SubItem = {
+  label: string;
+  path: string;
+};
+
+type MenuItem = {
+  label: string;
+  icon: React.ElementType;
+  path?: string;
+  subItems?: SubItem[];
+};
+
+type MenuGroup = {
+  title: string;
+  items: MenuItem[];
+};
+
+const MENU_GROUPS: MenuGroup[] = [
   {
     title: 'Overview',
     items: [
@@ -32,9 +49,30 @@ const MENU_GROUPS = [
   {
     title: 'Accounts',
     items: [
-      { label: 'Schools', icon: PlusCircle, path: '/schools/new' },
-      { label: 'Vendors', icon: PlusCircle, path: '/vendors/new' },
-      { label: 'Parents', icon: PlusCircle, path: '/parents/new' },
+      { 
+        label: 'Schools', 
+        icon: PlusCircle, 
+        subItems: [
+          { label: 'Add School', path: '/schools/new' },
+          { label: 'Manage Schools', path: '/data?tab=schools' },
+        ]
+      },
+      { 
+        label: 'Vendors', 
+        icon: PlusCircle, 
+        subItems: [
+          { label: 'Add Vendor', path: '/vendors/new' },
+          { label: 'Manage Vendors', path: '/data?tab=vendors' },
+        ]
+      },
+      { 
+        label: 'Parents', 
+        icon: PlusCircle, 
+        subItems: [
+          { label: 'Add Parent', path: '/parents/new' },
+          { label: 'Manage Parents', path: '/data?tab=parents' },
+        ]
+      },
     ]
   },
   {
@@ -55,7 +93,11 @@ const MENU_GROUPS = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentTab = searchParams.get('tab');
   const [isDark, setIsDark] = useState(true);
+  const [openDropdowns, setOpenDropdowns] = useState<string[]>([]);
+  const [openGroups, setOpenGroups] = useState<string[]>(MENU_GROUPS.map(g => g.title));
   // F-10 fix: get logout from React Context instead of window.__adminLogout
   const { logout } = useAuth();
 
@@ -64,6 +106,7 @@ export default function Sidebar() {
     if (typeof window !== 'undefined') {
       const savedTheme = localStorage.getItem('theme') || 'dark';
       const isDarkTheme = savedTheme === 'dark';
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsDark(isDarkTheme);
       if (isDarkTheme) {
         document.documentElement.classList.remove('light');
@@ -92,11 +135,27 @@ export default function Sidebar() {
     logout();
   };
 
+  const toggleDropdown = (label: string) => {
+    setOpenDropdowns((prev) => 
+      prev.includes(label) 
+        ? prev.filter(item => item !== label)
+        : [...prev, label]
+    );
+  };
+
+  const toggleGroup = (title: string) => {
+    setOpenGroups((prev) => 
+      prev.includes(title) 
+        ? prev.filter(t => t !== title)
+        : [...prev, title]
+    );
+  };
+
   return (
     <aside className="w-52 bg-sidebar-custom sidebar-dashed-border mt-24 flex flex-col h-screen fixed left-0 top-0 z-40 transition-colors duration-300">
       {/* Brand Header */}
       <div className="p-6 pb-2 flex items-center gap-3 mt-[-100px]">
-        <img src="/lms-admin/siddesh_logo.png" alt="Siddesh Logo" className="w-10 h-10 object-contain rounded-xl" />
+        <Image src="/lms-admin/siddesh_logo.png" alt="Siddesh Logo" width={40} height={40} className="w-10 h-10 object-contain rounded-xl" />
         <div>
           <h1 className="text-lg font-bold tracking-tight text-foreground transition-colors">
             Siddesh Tech
@@ -108,36 +167,113 @@ export default function Sidebar() {
 
       {/* Navigation Links */}
       <nav className="flex-1 px-4 py-6 space-y-4 overflow-y-auto pb-32">
-        {MENU_GROUPS.map((group) => (
-          <div key={group.title} className="space-y-1">
-            <h3 className="px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2">
-              {group.title}
-            </h3>
-            {group.items.map((item) => {
-              const isActive = pathname === item.path;
-              const Icon = item.icon;
-              return (
-                <Link
-                  key={item.path}
-                  href={item.path}
-                  className={`flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-[11px] font-medium group ${
-                    isActive ? 'sidebar-nav-item-active' : 'sidebar-nav-item'
-                  }`}
-                >
-                  <Icon className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 sidebar-nav-icon`} />
-                  {item.label} 
-                </Link>
-              );
-            })}
+        {MENU_GROUPS.map((group) => {
+          const isGroupOpen = openGroups.includes(group.title);
+          return (
+          <div key={group.title} className="space-y-1 mb-4">
+            <button
+              onClick={() => toggleGroup(group.title)}
+              className="w-full flex items-center justify-between px-4 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2 hover:text-foreground transition-colors cursor-pointer"
+            >
+              <span>{group.title}</span>
+              {isGroupOpen ? (
+                <ChevronDown className="w-3 h-3" />
+              ) : (
+                <ChevronRight className="w-3 h-3" />
+              )}
+            </button>
+            <div 
+              className={`grid transition-all duration-300 ease-in-out ${
+                isGroupOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+              }`}
+            >
+              <div className="overflow-hidden flex flex-col gap-1">
+                {group.items.map((item) => {
+                  const isActive = item.path 
+                    ? pathname === item.path 
+                    : item.subItems?.some(sub => {
+                        if (sub.path.includes('?tab=')) {
+                          return pathname === sub.path.split('?')[0] && currentTab === sub.path.split('?tab=')[1];
+                        }
+                        return pathname === sub.path;
+                      });
+                  const Icon = item.icon;
+                  const isDropdownOpen = openDropdowns.includes(item.label);
+
+                  if (item.subItems) {
+                    return (
+                      <div key={item.label} className="space-y-1">
+                        <button
+                          onClick={() => toggleDropdown(item.label)}
+                          className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-[11px] font-medium group ${
+                            isActive ? 'sidebar-nav-item-active' : 'sidebar-nav-item'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3.5">
+                            <Icon className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 sidebar-nav-icon`} />
+                            {item.label}
+                          </div>
+                          {isDropdownOpen ? (
+                            <ChevronDown className="w-3.5 h-3.5" />
+                          ) : (
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                        {/* Dropdown Content with Animation */}
+                        <div 
+                          className={`grid transition-all duration-300 ease-in-out ${
+                            isDropdownOpen ? 'grid-rows-[1fr] opacity-100 mt-1' : 'grid-rows-[0fr] opacity-0'
+                          }`}
+                        >
+                          <div className="overflow-hidden flex flex-col gap-1 pl-11 pr-2">
+                            {item.subItems.map(subItem => {
+                              const isSubActive = subItem.path.includes('?tab=')
+                                ? pathname === subItem.path.split('?')[0] && currentTab === subItem.path.split('?tab=')[1]
+                                : pathname === subItem.path;
+                              return (
+                                <Link
+                                  key={subItem.path}
+                                  href={subItem.path}
+                                  className={`flex items-center py-2 px-3 rounded-lg text-[11px] font-medium transition-colors ${
+                                    isSubActive 
+                                      ? 'bg-white/5 text-foreground' 
+                                      : 'text-zinc-500 hover:text-foreground hover:bg-white/5'
+                                  }`}
+                                >
+                                  {subItem.label}
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <Link
+                      key={item.path}
+                      href={item.path!}
+                      className={`flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-[11px] font-medium group ${
+                        isActive ? 'sidebar-nav-item-active' : 'sidebar-nav-item'
+                      }`}
+                    >
+                      <Icon className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 sidebar-nav-icon`} />
+                      {item.label} 
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-        ))}
+        )})}
       </nav>
 
       {/* Theme Toggle, MFA, & Logout Buttons */}
       <div className="px-6 py-4 mb-24 space-y-2">
         <button
           onClick={toggleTheme}
-          className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-full text-xs font-bold bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 border border-sidebar-border text-gray-600 dark:text-zinc-400 hover:text-black dark:hover:text-white transition-all cursor-pointer shadow-sm"
+          className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-full text-xs font-bold bg-white/5 hover:bg-white/10 border border-sidebar-border text-zinc-400 hover:text-white transition-all cursor-pointer shadow-sm"
         >
           {isDark ? <Moon className="w-4 h-4 text-white" /> : <Sun className="w-4 h-4 text-amber-500" />}
           {isDark ? 'Dark Theme' : 'Light Theme'}

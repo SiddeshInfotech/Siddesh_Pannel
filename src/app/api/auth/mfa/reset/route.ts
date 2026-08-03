@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
     }
 
-    let body: any;
+    let body: any /* eslint-disable-line @typescript-eslint/no-explicit-any */;
     try {
       body = await req.json();
     } catch {

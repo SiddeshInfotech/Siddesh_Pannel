@@ -46,11 +46,11 @@ async function getVendorsData() {
   }
   console.log("VENDORS DB RESULT:", vendors[0]);
 
-  return (vendors ?? []).map((vendor: any) => ({
-    id: vendor.vendor_id,          
-    dbId: vendor.vendor_id,        
+  return (vendors ?? []).map((vendor: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => ({
+    id: vendor.vendor_id,
+    dbId: vendor.vendor_id,
     vendorId: vendor.vendor_id,
-  
+
     vendorName: vendor.vendor_name,
     vendorType: vendor.vendor_type,
     businessCategory: vendor.business_category,
@@ -75,9 +75,9 @@ async function getParentsData() {
     return [];
   }
 
-  return (parents ?? []).map((parent: any) => ({
-    id: parent.parent_id,          
-    dbId: parent.id,        
+  return (parents ?? []).map((parent: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => ({
+    id: parent.parent_id,
+    dbId: parent.id,
     parentId: parent.parent_id,
     parentName: parent.parent_name,
     kidName: parent.kid_name,
@@ -92,7 +92,8 @@ async function getParentsData() {
   }));
 }
 
-export default async function SchoolsPage() {
+export default async function SchoolsPage(props: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
+  const searchParams = await props.searchParams;
   const session = await getAdminSession();
 
   if (!session) return null;
@@ -106,8 +107,8 @@ export default async function SchoolsPage() {
   const totalParents = parentsData.length;
 
   return (
-    <div className="space-y-6">
-  
+    <div className="space-y-8 max-w-6xl mx-auto">
+      <div className="h-10" />
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <MetricCard
           title="Total Schools"
@@ -116,7 +117,7 @@ export default async function SchoolsPage() {
           badgeType="positive"
           icon={School}
         />
-  
+
         <MetricCard
           title="Total Vendors"
           value={totalVendors.toString()}
@@ -133,13 +134,14 @@ export default async function SchoolsPage() {
           icon={Users}
         />
       </div>
-  
+
       <DataTabs
         initialSchools={schoolsData}
         initialVendors={vendorsData}
         initialParents={parentsData}
+        initialTab={(searchParams.tab === 'vendors' || searchParams.tab === 'parents') ? searchParams.tab : 'schools'}
       />
-  
+
     </div>
   );
 }

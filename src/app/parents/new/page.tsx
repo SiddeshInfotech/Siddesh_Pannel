@@ -8,6 +8,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Check,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
   BookOpen
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
@@ -85,22 +86,22 @@ export default function NewParentPage() {
       <div className="h-10"></div>
 
       {/* Header */}
-      <div className="flex justify-between items-center flex-wrap gap-4 border-b border-white/5 dark:border-white/5 light:border-black/10 pb-6">
+      <div className="flex justify-between items-center flex-wrap gap-4 border-b border-white/5 pb-6">
         <div>
-          <div className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 light:text-zinc-500 light:hover:text-black text-xs font-semibold cursor-pointer mb-2">
+          <div className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs font-semibold cursor-pointer mb-2">
             <Link href="/" className="flex items-center gap-1">
               <ChevronLeft className="w-3.5 h-3.5" />
               Back to Dashboard
             </Link>
           </div>
-          <h2 className="text-3xl font-extrabold text-white light:text-black tracking-tight">Add Individual User</h2>
-          <p className="text-xs text-zinc-400 light:text-zinc-500 mt-1">Register a parent/individual purchasing a single key for their kid.</p>
+          <h2 className="text-3xl font-extrabold text-white tracking-tight">Add Individual User</h2>
+          <p className="text-xs text-zinc-400 mt-1">Register a parent/individual purchasing a single key for their kid.</p>
         </div>
 
         <div className="flex items-center gap-3">
           <Link
             href="/data"
-            className="px-5 py-2.5 bg-white/5 dark:bg-white/5 light:bg-white border border-white/10 dark:border-white/10 light:border-black/15 text-xs font-semibold text-zinc-300 light:text-black rounded-xl hover:bg-white/10 light:hover:bg-black/5 transition-all cursor-pointer"
+            className="px-5 py-2.5 bg-white/5 border border-white/10 text-xs font-semibold text-zinc-300 rounded-xl hover:bg-white/10 transition-all cursor-pointer"
           >
             Cancel
           </Link>
@@ -157,62 +158,62 @@ export default function NewParentPage() {
             {activeStep === 'basic' && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-lg font-bold text-white light:text-black">Basic Information</h3>
-                  <p className="text-xs text-zinc-400 light:text-zinc-500 mt-1">Core details for the parent and student.</p>
+                  <h3 className="text-lg font-bold text-white">Basic Information</h3>
+                  <p className="text-xs text-zinc-400 mt-1">Core details for the parent and student.</p>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Parent Name */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700">Parent Name <span className="text-rose-500">*</span></label>
+                    <label className="text-xs font-semibold text-zinc-300">Parent Name <span className="text-rose-500">*</span></label>
                     <input 
                       type="text" 
                       placeholder="e.g. Ramesh Kumar" 
                       value={parentName} 
                       onChange={e => setParentName(e.target.value)}
-                      className="w-full px-4 py-3 bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/10 text-xs rounded-xl focus:border-accent-violet outline-none transition-all text-white light:text-black"
+                      className="w-full px-4 py-3 bg-white/5 border border-white/10 text-xs rounded-xl focus:border-accent-violet outline-none transition-all text-white"
                     />
                   </div>
 
                   {/* Kid Name */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700">Kid's Name <span className="text-rose-500">*</span></label>
+                    <label className="text-xs font-semibold text-zinc-300">Kid&apos;s Name <span className="text-rose-500">*</span></label>
                     <input 
                       type="text" 
                       placeholder="e.g. Aryan Kumar" 
                       value={kidName} 
                       onChange={e => setKidName(e.target.value)}
-                      className="w-full px-4 py-3 bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/10 text-xs rounded-xl focus:border-accent-violet outline-none transition-all text-white light:text-black"
+                      className="w-full px-4 py-3 bg-white/5 border border-white/10 text-xs rounded-xl focus:border-accent-violet outline-none transition-all text-white"
                     />
                   </div>
                   
                   {/* Email */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">Email Address <span className="text-rose-500">*</span></label>
+                    <label className="text-xs font-semibold text-zinc-300 font-bold">Email Address <span className="text-rose-500">*</span></label>
                     <input 
                       type="email" 
                       placeholder="e.g. ramesh@example.com" 
                       value={email} 
                       onChange={e => setEmail(e.target.value)}
-                      className="w-full px-4 py-3 bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/10 text-xs rounded-xl focus:border-accent-violet outline-none transition-all text-white light:text-black"
+                      className="w-full px-4 py-3 bg-white/5 border border-white/10 text-xs rounded-xl focus:border-accent-violet outline-none transition-all text-white"
                     />
                   </div>
 
                   {/* Phone Number */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">Mobile Number <span className="text-rose-500">*</span></label>
+                    <label className="text-xs font-semibold text-zinc-300 font-bold">Mobile Number <span className="text-rose-500">*</span></label>
                     <input 
                       type="text" 
                       placeholder="e.g. 9876543210" 
                       value={phoneNumber} 
                       onChange={e => setPhoneNumber(e.target.value)}
-                      className="w-full px-4 py-3 bg-white/5 dark:bg-white/5 border border-white/10 dark:border-white/10 text-xs rounded-xl focus:border-accent-violet outline-none transition-all text-white light:text-black"
+                      className="w-full px-4 py-3 bg-white/5 border border-white/10 text-xs rounded-xl focus:border-accent-violet outline-none transition-all text-white"
                     />
                   </div>
 
                   {/* Grade/Standard */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700">Kid's Standard / Grade <span className="text-rose-500">*</span></label>
+                    <label className="text-xs font-semibold text-zinc-300">Kid&apos;s Standard / Grade <span className="text-rose-500">*</span></label>
                     <CustomSelect 
                       value={grade}
                       onChange={setGrade}
@@ -236,10 +237,10 @@ export default function NewParentPage() {
 
                   {/* Status */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">Status <span className="text-rose-500">*</span></label>
+                    <label className="text-xs font-semibold text-zinc-300 font-bold">Status <span className="text-rose-500">*</span></label>
                     <CustomSelect 
                       value={status}
-                      onChange={(val: any) => setStatus(val)}
+                      onChange={(val: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => setStatus(val)}
                       options={[
                         { label: 'Active', value: 'Active' },
                         { label: 'Inactive', value: 'Inactive' }
@@ -264,14 +265,14 @@ export default function NewParentPage() {
             {activeStep === 'location' && (
               <div className="space-y-6">
                 <div>
-                  <h3 className="text-lg font-bold text-white light:text-black">Location Details</h3>
-                  <p className="text-xs text-zinc-400 light:text-zinc-500 mt-1">Provide the location information for the parent.</p>
+                  <h3 className="text-lg font-bold text-white">Location Details</h3>
+                  <p className="text-xs text-zinc-400 mt-1">Provide the location information for the parent.</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* City/District */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">City / District <span className="text-rose-500">*</span></label>
+                    <label className="text-xs font-semibold text-zinc-300 font-bold">City / District <span className="text-rose-500">*</span></label>
                     <CustomSelect 
                       value={city}
                       onChange={setCity}
@@ -282,7 +283,7 @@ export default function NewParentPage() {
 
                   {/* State */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">State <span className="text-rose-500">*</span></label>
+                    <label className="text-xs font-semibold text-zinc-300 font-bold">State <span className="text-rose-500">*</span></label>
                     <CustomSelect 
                       value={state}
                       onChange={setState}

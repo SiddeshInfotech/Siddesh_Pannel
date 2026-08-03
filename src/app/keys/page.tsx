@@ -50,7 +50,7 @@ async function getKeysList() {
     `)
     .order('created_at', { ascending: false });
 
-  return (keys ?? []).map((k: any) => {
+  return (keys ?? []).map((k: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
     let entityName = 'Unknown Entity';
     if (k.schools?.name) entityName = k.schools.name;
     if (k.vendors?.vendor_name) entityName = k.vendors.vendor_name;

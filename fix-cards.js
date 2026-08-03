@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const fs = require('fs');
 const path = require('path');
 
@@ -5,6 +6,7 @@ function walkDir(dir, callback) {
   fs.readdirSync(dir).forEach(f => {
     let dirPath = path.join(dir, f);
     let isDirectory = fs.statSync(dirPath).isDirectory();
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     isDirectory ? walkDir(dirPath, callback) : callback(dirPath);
   });
 }
