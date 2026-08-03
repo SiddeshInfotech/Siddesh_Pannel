@@ -78,6 +78,7 @@ export default function NewSchoolPage() {
     startTransition(async () => {
       const res = await createSchool({
         name,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
         board: board as any,
         mediums: mediums,
         street,
@@ -112,22 +113,22 @@ export default function NewSchoolPage() {
       <div className="h-10"></div>
 
       {/* Header Bar */}
-      <div className="flex justify-between items-center flex-wrap gap-4 border-b border-white/5 dark:border-white/5 light:border-black/10 pb-6">
+      <div className="flex justify-between items-center flex-wrap gap-4 border-b border-white/5 pb-6">
         <div>
-          <div className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 light:text-zinc-500 light:hover:text-black text-xs font-semibold cursor-pointer mb-2">
+          <div className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs font-semibold cursor-pointer mb-2">
             <Link href="/data" className="flex items-center gap-1">
               <ChevronLeft className="w-3.5 h-3.5" />
               Back to Directory
             </Link>
           </div>
-          <h2 className="text-3xl font-extrabold text-white light:text-black tracking-tight">Add New School</h2>
-          <p className="text-xs text-zinc-400 light:text-zinc-500 mt-1">Register a new educational institution into the enterprise ecosystem.</p>
+          <h2 className="text-3xl font-extrabold text-white tracking-tight">Add New School</h2>
+          <p className="text-xs text-zinc-400 mt-1">Register a new educational institution into the enterprise ecosystem.</p>
         </div>
 
         <div className="flex items-center gap-3">
           <Link
             href="/data"
-            className="px-5 py-2.5 bg-white/5 dark:bg-white/5 light:bg-white border border-white/10 dark:border-white/10 light:border-black/15 text-xs font-semibold text-zinc-300 light:text-black rounded-xl hover:bg-white/10 light:hover:bg-black/5 transition-all cursor-pointer"
+            className="px-5 py-2.5 bg-white/5 border border-white/10 text-xs font-semibold text-zinc-300 rounded-xl hover:bg-white/10 transition-all cursor-pointer"
           >
             Cancel
           </Link>
@@ -151,18 +152,18 @@ export default function NewSchoolPage() {
             onClick={() => setActiveStep('identity')}
             className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center gap-3 cursor-pointer ${
               activeStep === 'identity'
-                ? 'bg-accent-violet/10 dark:bg-accent-violet/10 light:bg-accent-violet/5 border-accent-violet/30 dark:border-accent-violet/30 light:border-accent-violet/30 shadow-[0_4px_20px_rgba(124,58,237,0.05)]'
-                : 'bg-[#121216]/20 dark:bg-[#121216]/20 light:bg-white border-white/5 dark:border-white/5 light:border-black/10 hover:bg-[#121216]/40 light:hover:bg-black/5'
+                ? 'bg-accent-violet/10 border-accent-violet/30 shadow-[0_4px_20px_rgba(124,58,237,0.05)]'
+                : 'bg-[#121216]/20 dark:bg-[#121216]/20 light:bg-white border-white/5 hover:bg-[#121216]/40 light:hover:bg-black/5'
             }`}
           >
             <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
-              activeStep === 'identity' ? 'bg-accent-violet text-white' : 'bg-white/5 dark:bg-white/5 light:bg-black/5 text-zinc-400 light:text-zinc-600'
+              activeStep === 'identity' ? 'bg-accent-violet text-white' : 'bg-white/5 text-zinc-400'
             }`}>
               1
             </div>
             <div>
-              <h4 className={`text-xs font-bold ${activeStep === 'identity' ? 'text-white light:text-accent-violet' : 'text-zinc-400 light:text-zinc-600'}`}>Identity</h4>
-              <p className="text-[10px] text-zinc-500 light:text-zinc-500 mt-0.5">Profile & Affiliations</p>
+              <h4 className={`text-xs font-bold ${activeStep === 'identity' ? 'text-white' : 'text-zinc-400'}`}>Identity</h4>
+              <p className="text-[10px] text-zinc-500 mt-0.5">Profile & Affiliations</p>
             </div>
           </button>
 
@@ -170,18 +171,18 @@ export default function NewSchoolPage() {
             onClick={() => setActiveStep('location')}
             className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center gap-3 cursor-pointer ${
               activeStep === 'location'
-                ? 'bg-accent-violet/10 dark:bg-accent-violet/10 light:bg-accent-violet/5 border-accent-violet/30 dark:border-accent-violet/30 light:border-accent-violet/30 shadow-[0_4px_20px_rgba(124,58,237,0.05)]'
-                : 'bg-[#121216]/20 dark:bg-[#121216]/20 light:bg-white border-white/5 dark:border-white/5 light:border-black/10 hover:bg-[#121216]/40 light:hover:bg-black/5'
+                ? 'bg-accent-violet/10 border-accent-violet/30 shadow-[0_4px_20px_rgba(124,58,237,0.05)]'
+                : 'bg-[#121216]/20 dark:bg-[#121216]/20 light:bg-white border-white/5 hover:bg-[#121216]/40 light:hover:bg-black/5'
             }`}
           >
             <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
-              activeStep === 'location' ? 'bg-accent-violet text-white' : 'bg-white/5 dark:bg-white/5 light:bg-black/5 text-zinc-400 light:text-zinc-600'
+              activeStep === 'location' ? 'bg-accent-violet text-white' : 'bg-white/5 text-zinc-400'
             }`}>
               2
             </div>
             <div>
-              <h4 className={`text-xs font-bold ${activeStep === 'location' ? 'text-white light:text-accent-violet' : 'text-zinc-400 light:text-zinc-600'}`}>Location</h4>
-              <p className="text-[10px] text-zinc-500 light:text-zinc-500 mt-0.5">Physical Address</p>
+              <h4 className={`text-xs font-bold ${activeStep === 'location' ? 'text-white' : 'text-zinc-400'}`}>Location</h4>
+              <p className="text-[10px] text-zinc-500 mt-0.5">Physical Address</p>
             </div>
           </button>
 
@@ -189,42 +190,42 @@ export default function NewSchoolPage() {
             onClick={() => setActiveStep('admin')}
             className={`w-full text-left p-4 rounded-2xl border transition-all flex items-center gap-3 cursor-pointer ${
               activeStep === 'admin'
-                ? 'bg-accent-violet/10 dark:bg-accent-violet/10 light:bg-accent-violet/5 border-accent-violet/30 dark:border-accent-violet/30 light:border-accent-violet/30 shadow-[0_4px_20px_rgba(124,58,237,0.05)]'
-                : 'bg-[#121216]/20 dark:bg-[#121216]/20 light:bg-white border-white/5 dark:border-white/5 light:border-black/10 hover:bg-[#121216]/40 light:hover:bg-black/5'
+                ? 'bg-accent-violet/10 border-accent-violet/30 shadow-[0_4px_20px_rgba(124,58,237,0.05)]'
+                : 'bg-[#121216]/20 dark:bg-[#121216]/20 light:bg-white border-white/5 hover:bg-[#121216]/40 light:hover:bg-black/5'
             }`}
           >
             <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
-              activeStep === 'admin' ? 'bg-accent-violet text-white' : 'bg-white/5 dark:bg-white/5 light:bg-black/5 text-zinc-400 light:text-zinc-600'
+              activeStep === 'admin' ? 'bg-accent-violet text-white' : 'bg-white/5 text-zinc-400'
             }`}>
               3
             </div>
             <div>
-              <h4 className={`text-xs font-bold ${activeStep === 'admin' ? 'text-white light:text-accent-violet' : 'text-zinc-400 light:text-zinc-600'}`}>Administration</h4>
-              <p className="text-[10px] text-zinc-500 light:text-zinc-500 mt-0.5">Contact & Facilities</p>
+              <h4 className={`text-xs font-bold ${activeStep === 'admin' ? 'text-white' : 'text-zinc-400'}`}>Administration</h4>
+              <p className="text-[10px] text-zinc-500 mt-0.5">Contact & Facilities</p>
             </div>
           </button>
         </div>
 
         {/* Right active step form panel */}
         <div className="lg:col-span-9">
-          <GlassCard className="/40 /40 border border-white/5 dark:border-white/5 light:border-black/15 p-8 rounded-3xl relative overflow-hidden shadow-xl">
+          <GlassCard className="border border-white/5 p-8 rounded-3xl relative overflow-hidden shadow-xl">
             <div className="absolute top-0 right-0 w-[300px] h-[300px] bg-accent-violet/5 rounded-full blur-[100px] pointer-events-none"></div>
 
             {/* STEP 1: IDENTITY */}
             {activeStep === 'identity' && (
               <div className="space-y-6 animate-fade-in">
-                <div className="border-b border-white/5 dark:border-white/5 light:border-black/10 pb-4">
-                  <h3 className="text-lg font-bold text-white light:text-black flex items-center gap-2.5">
+                <div className="border-b border-white/5 pb-4">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2.5">
                     <Building2 className="w-5 h-5 text-accent-violet" />
                     Institutional Identity
                   </h3>
-                  <p className="text-xs text-zinc-500 light:text-zinc-500 mt-1">Specify core branding information and education parameters.</p>
+                  <p className="text-xs text-zinc-500 mt-1">Specify core branding information and education parameters.</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Name */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
                       <SchoolIcon className="w-3.5 h-3.5 text-zinc-500" />
                       Institutional Name *
                     </label>
@@ -240,7 +241,7 @@ export default function NewSchoolPage() {
 
                   {/* Board */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
                       <GraduationCap className="w-3.5 h-3.5 text-zinc-500" />
                       Affiliation Board *
                     </label>
@@ -262,7 +263,7 @@ export default function NewSchoolPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Grade */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
                       <Layers2 className="w-3.5 h-3.5 text-zinc-500" />
                       Grade Scope *
                     </label>
@@ -294,7 +295,7 @@ export default function NewSchoolPage() {
 
                   {/* Section */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
                       <Layers2 className="w-3.5 h-3.5 text-zinc-500" />
                       Section
                     </label>
@@ -319,7 +320,7 @@ export default function NewSchoolPage() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Class Name */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
                       <BookOpen className="w-3.5 h-3.5 text-zinc-500" />
                       Full Class Name
                     </label>
@@ -334,7 +335,7 @@ export default function NewSchoolPage() {
 
                   {/* Year */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
                       <Calendar className="w-3.5 h-3.5 text-zinc-500" />
                       Academic Year
                     </label>
@@ -350,7 +351,7 @@ export default function NewSchoolPage() {
 
                 {/* Mediums */}
                 <div className="space-y-3 pt-2">
-                  <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 block">Instruction Mediums *</label>
+                  <label className="text-xs font-bold text-zinc-400 block">Instruction Mediums *</label>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {['Marathi', 'Semi-English'].map(med => {
                       const isSelected = mediums.includes(med);
@@ -361,15 +362,15 @@ export default function NewSchoolPage() {
                           onClick={() => handleMediumChange(med)}
                           className={`p-4 rounded-2xl flex items-center justify-between border cursor-pointer select-none transition-all w-full text-left bg-transparent ${
                             isSelected
-                              ? 'bg-accent-violet/10! border-accent-violet/30! text-white light:text-black shadow-sm'
-                              : 'bg-white/5 border-white/5 dark:border-white/5 light:border-black/10 text-zinc-400 hover:bg-[#121216]/40 light:hover:bg-black/5 hover:text-zinc-200'
+                              ? 'bg-accent-violet/10! border-accent-violet/30! text-white shadow-sm'
+                              : 'bg-white/5 border-white/5 text-zinc-400 hover:bg-[#121216]/40 light:hover:bg-black/5 hover:text-zinc-200'
                           }`}
                         >
                           <span className="text-xs font-semibold">{med}</span>
                           <div className={`w-5 h-5 rounded-full flex items-center justify-center border transition-all ${
                             isSelected 
                               ? 'border-accent-violet text-accent-violet bg-accent-violet/5' 
-                              : 'border-white/20 light:border-black/20 text-transparent'
+                              : 'border-white/20 text-transparent'
                           }`}>
                             {isSelected && <Check className="w-3 h-3" />}
                           </div>
@@ -396,16 +397,16 @@ export default function NewSchoolPage() {
             {/* STEP 2: LOCATION */}
             {activeStep === 'location' && (
               <div className="space-y-6 animate-fade-in">
-                <div className="border-b border-white/5 dark:border-white/5 light:border-black/10 pb-4">
-                  <h3 className="text-lg font-bold text-white light:text-black flex items-center gap-2.5">
+                <div className="border-b border-white/5 pb-4">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2.5">
                     <MapPin className="w-5 h-5 text-accent-violet" />
                     Location Parameters
                   </h3>
-                  <p className="text-xs text-zinc-500 light:text-zinc-500 mt-1">Specify institutional geo-coordinates and address attributes.</p>
+                  <p className="text-xs text-zinc-500 mt-1">Specify institutional geo-coordinates and address attributes.</p>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 block">Street Address *</label>
+                  <label className="text-xs font-bold text-zinc-400 block">Street Address *</label>
                   <input
                     type="text"
                     required
@@ -419,7 +420,7 @@ export default function NewSchoolPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {/* City */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">City / District <span className="text-rose-500">*</span></label>
+                    <label className="text-xs font-semibold text-zinc-300 font-bold">City / District <span className="text-rose-500">*</span></label>
                     <CustomSelect 
                       value={city}
                       onChange={setCity}
@@ -430,7 +431,7 @@ export default function NewSchoolPage() {
 
                   {/* State */}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-zinc-300 light:text-zinc-700 font-bold">State <span className="text-rose-500">*</span></label>
+                    <label className="text-xs font-semibold text-zinc-300 font-bold">State <span className="text-rose-500">*</span></label>
                     <CustomSelect 
                       value={state}
                       onChange={setState}
@@ -441,7 +442,7 @@ export default function NewSchoolPage() {
 
                   {/* PIN */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 block">PIN Code *</label>
+                    <label className="text-xs font-bold text-zinc-400 block">PIN Code *</label>
                     <input
                       type="text"
                       required
@@ -458,7 +459,7 @@ export default function NewSchoolPage() {
                   <button
                     type="button"
                     onClick={() => setActiveStep('identity')}
-                    className="flex items-center gap-1.5 px-4 py-2 border border-white/10 dark:border-white/10 light:border-black/15 text-xs font-bold text-zinc-400 hover:text-white light:hover:text-black rounded-xl transition-all cursor-pointer"
+                    className="flex items-center gap-1.5 px-4 py-2 border border-white/10 text-xs font-bold text-zinc-400 hover:text-white rounded-xl transition-all cursor-pointer"
                   >
                     <ChevronLeft className="w-4 h-4" />
                     Back
@@ -478,18 +479,18 @@ export default function NewSchoolPage() {
             {/* STEP 3: ADMINISTRATION */}
             {activeStep === 'admin' && (
               <div className="space-y-6 animate-fade-in">
-                <div className="border-b border-white/5 dark:border-white/5 light:border-black/10 pb-4">
-                  <h3 className="text-lg font-bold text-white light:text-black flex items-center gap-2.5">
+                <div className="border-b border-white/5 pb-4">
+                  <h3 className="text-lg font-bold text-white flex items-center gap-2.5">
                     <User className="w-5 h-5 text-accent-violet" />
                     Administration & Infrastructure
                   </h3>
-                  <p className="text-xs text-zinc-500 light:text-zinc-500 mt-1">Specify coordination contacts and classroom capabilities.</p>
+                  <p className="text-xs text-zinc-500 mt-1">Specify coordination contacts and classroom capabilities.</p>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {/* Coordinator */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
                       <User className="w-3.5 h-3.5 text-zinc-500" />
                       Coordinator Name
                     </label>
@@ -504,7 +505,7 @@ export default function NewSchoolPage() {
 
                   {/* Email */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
                       <Mail className="w-3.5 h-3.5 text-zinc-500" />
                       Coordinator Email
                     </label>
@@ -519,7 +520,7 @@ export default function NewSchoolPage() {
 
                   {/* Phone */}
                   <div className="space-y-2">
-                    <label className="text-xs font-bold text-zinc-400 light:text-zinc-600 flex items-center gap-1.5">
+                    <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
                       <Phone className="w-3.5 h-3.5 text-zinc-500" />
                       Phone Number
                     </label>
@@ -535,7 +536,7 @@ export default function NewSchoolPage() {
 
                 {/* Classrooms count */}
                 <div className="space-y-4 pt-2">
-                  <div className="flex justify-between items-center text-xs font-bold text-zinc-400 light:text-zinc-600">
+                  <div className="flex justify-between items-center text-xs font-bold text-zinc-400">
                     <span className="flex items-center gap-1.5">
                       <Layers className="w-3.5 h-3.5 text-zinc-500" />
                       Classrooms Limit
@@ -546,7 +547,7 @@ export default function NewSchoolPage() {
                       max="100"
                       value={classrooms}
                       onChange={e => setClassrooms(Number(e.target.value))}
-                      className="px-2.5 py-1 bg-white/5 border border-white/10 text-white light:text-black rounded-lg font-mono w-16 text-center focus:outline-none focus:border-accent-violet"
+                      className="px-2.5 py-1 bg-white/5 border border-white/10 text-white rounded-lg font-mono w-16 text-center focus:outline-none focus:border-accent-violet"
                     />
                   </div>
                   <input
@@ -565,7 +566,7 @@ export default function NewSchoolPage() {
                   <button
                     type="button"
                     onClick={() => setActiveStep('location')}
-                    className="flex items-center gap-1.5 px-4 py-2 border border-white/10 dark:border-white/10 light:border-black/15 text-xs font-bold text-zinc-400 hover:text-white light:hover:text-black rounded-xl transition-all cursor-pointer"
+                    className="flex items-center gap-1.5 px-4 py-2 border border-white/10 text-xs font-bold text-zinc-400 hover:text-white rounded-xl transition-all cursor-pointer"
                   >
                     <ChevronLeft className="w-4 h-4" />
                     Back

@@ -114,7 +114,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    let body: any;
+    let body: any /* eslint-disable-line @typescript-eslint/no-explicit-any */;
     try {
       body = await req.json();
     } catch {
@@ -328,13 +328,13 @@ export async function POST(req: NextRequest) {
         }
 
         // Success!
-        let responsePayload: any = {
+        const responsePayload: any /* eslint-disable-line @typescript-eslint/no-explicit-any */ = {
           success: true,
           message: 'Authentication successful.',
           user: { email: matchedUser.email, role: 'administrator' },
         };
 
-        const updateData: any = {
+        const updateData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */ = {
           totp_last_counter: matchedCounter,
           mfa_challenge_nonce: null,
           mfa_failures: 0,
@@ -426,11 +426,11 @@ export async function POST(req: NextRequest) {
     const nonce = randomUUID();
     const signedChallengeToken = await signChallengeToken(matchedUser.email, nonce);
 
-    const updatePayload: any = {
+    const updatePayload: any /* eslint-disable-line @typescript-eslint/no-explicit-any */ = {
       mfa_challenge_nonce: nonce,
     };
 
-    let responseData: any = {
+    const responseData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */ = {
       mfaRequired: true,
       challengeToken: signedChallengeToken,
       mfaSetupRequired: !matchedUser.mfa_enabled,

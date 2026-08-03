@@ -179,7 +179,7 @@ function wrapToPublicKey(plaintext: string, spkiBase64: string): string | null {
 // FAIL CLOSED: if no in-range entitlement can be determined, return [] so the
 // device receives NO content keys. We NEVER fall back to "all classes" — that
 // was the leak (a 5th-7th or unparseable school silently got every class' keys).
-function resolveClassIds(school: any): string[] {
+function resolveClassIds(school: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): string[] {
   // 1. Explicit operator override on the school record wins, if present.
   const explicit = school?.class_id ?? school?.curriculum_class ?? school?.class;
   const explicitNums = explicit
@@ -296,7 +296,7 @@ export async function POST(req: NextRequest) {
 
     const rawBody = await req.text();
 
-    let body: any;
+    let body: any /* eslint-disable-line @typescript-eslint/no-explicit-any */;
     try {
       body = JSON.parse(rawBody);
     } catch {

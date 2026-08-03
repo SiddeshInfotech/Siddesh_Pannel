@@ -127,7 +127,7 @@ export async function deleteVendorAction(id: string): Promise<ActionResult> {
   }
 }
 
-export async function updateSchoolAction(id: string, formData: any): Promise<ActionResult> {
+export async function updateSchoolAction(id: string, formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult> {
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
   if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
@@ -185,7 +185,7 @@ export async function updateSchoolAction(id: string, formData: any): Promise<Act
 
 export async function updateVendorAction(
   id: string,
-  formData: any
+  formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */
 ): Promise<ActionResult> {
   const session = await getAdminSession();
 

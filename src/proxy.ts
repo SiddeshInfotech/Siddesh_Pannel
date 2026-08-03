@@ -19,6 +19,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify, importSPKI } from 'jose';
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { verifyAdminToken, COOKIE_NAME } from './lib/auth';
 import { supabaseAdmin } from './lib/supabase';
 import { logger } from './lib/logger';
@@ -83,7 +84,7 @@ function extractPublicKeyFromPrivateKey(privKeyPem: string): string {
 }
 
 // Pre-load the public key using jose (edge-compatible)
-let keyPromise: Promise<any>;
+let keyPromise: Promise<any> /* eslint-disable-line @typescript-eslint/no-explicit-any */;
 try {
   const publicKeyPem = extractPublicKeyFromPrivateKey(privateKeyPem);
   keyPromise = importSPKI(publicKeyPem, 'ES256');

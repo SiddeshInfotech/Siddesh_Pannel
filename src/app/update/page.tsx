@@ -35,12 +35,12 @@ async function getTelemetry() {
   // security_tier is a NEW column (scripts/add_security_tier.sql). If it isn't migrated
   // yet, selecting it 400s the whole query and blanks the device list — so retry without
   // it on error. Tiers then show "—" until the migration runs. Push order-independent.
-  const BASE = 'device_fingerprint, app_version, first_seen, last_seen, total_online_seconds, last_ip';
+  const BASE = 'device_fingerprint, activation_key, app_version, first_seen, last_seen, total_online_seconds, last_ip';
   const withTier = await supabaseAdmin
     .from('device_status')
     .select(`${BASE}, security_tier, schools(id, name, school_id)`)
     .order('last_seen', { ascending: false });
-  let statuses: any[] | null = withTier.data;
+  let statuses: any /* eslint-disable-line @typescript-eslint/no-explicit-any */[] | null = withTier.data;
   if (withTier.error) {
     const noTier = await supabaseAdmin
       .from('device_status')
@@ -56,10 +56,11 @@ async function getTelemetry() {
     .limit(150);
 
   const now = Date.now();
-  const devices = (statuses ?? []).map((s: any) => {
+  const devices = (statuses ?? []).map((s: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
     const online = s.last_seen ? now - new Date(s.last_seen).getTime() <= ONLINE_WINDOW_MS : false;
     return {
       fingerprint: s.device_fingerprint,
+      activationKey: s.activation_key ?? '—',
       schoolName: s.schools?.name ?? 'Unknown School',
       schoolId: s.schools?.school_id ?? '—',
       appVersion: s.app_version ?? '—',
@@ -73,7 +74,7 @@ async function getTelemetry() {
     };
   });
 
-  const events = (timeline ?? []).map((e: any) => ({
+  const events = (timeline ?? []).map((e: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => ({
     id: e.id,
     type: e.event_type,
     schoolName: e.schools?.name ?? 'Unknown School',

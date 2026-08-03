@@ -51,7 +51,7 @@ interface TLV { tag: number; tagLen: number; cstart: number; clen: number; end: 
 function readTLV(buf: Buffer, p: number): TLV | null {
   if (p >= buf.length) return null;
   const tagStart = p;
-  let t = buf[p++];
+  const t = buf[p++];
   if ((t & 0x1f) === 0x1f) {
     // high-tag-number form: subsequent bytes until one without the 0x80 bit
     while (p < buf.length && (buf[p] & 0x80) !== 0) p++;
@@ -98,7 +98,7 @@ export function parseAttestationExtension(leafDer: Buffer): ParsedAttestation | 
     const oidIdx = leafDer.indexOf(ATTEST_OID_BYTES);
     if (oidIdx === -1) return null;
 
-    let p = oidIdx + ATTEST_OID_BYTES.length;
+    const p = oidIdx + ATTEST_OID_BYTES.length;
     let tlv = readTLV(leafDer, p);
     if (!tlv) return null;
     if (tlv.tag === 0x01) {           // optional 'critical' BOOLEAN

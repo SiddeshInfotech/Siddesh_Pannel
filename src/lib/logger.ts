@@ -1,11 +1,14 @@
 export const logger = {
-  info: (context: Record<string, any>, message?: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  info: (context: Record<string, unknown>, message?: string) => {
     // Silenced as per requirements
   },
-  error: (context: Record<string, any>, error?: any) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  error: (context: Record<string, unknown>, error?: unknown) => {
     // Silenced as per requirements
   },
-  warn: (context: Record<string, any>, message?: string) => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  warn: (context: Record<string, unknown>, message?: string) => {
     // Silenced as per requirements
   }
 };

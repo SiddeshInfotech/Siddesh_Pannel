@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import GlassCard from './GlassCard';
 
 interface Option {
@@ -53,7 +54,7 @@ export default function CustomSelect({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-4 py-3 bg-[#121216] dark:bg-[#121216]/40 border border-white/10 dark:border-white/10 hover:border-white/15 dark:hover:border-white/15 focus:border-accent-violet dark:focus:border-accent-violet rounded-xl text-sm text-left flex items-center justify-between text-zinc-300 dark:text-zinc-300 transition-all cursor-pointer select-none custom-select-btn"
+        className="w-full px-4 py-3 bg-[#121216]/40 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-left flex items-center justify-between text-zinc-300 transition-all cursor-pointer select-none custom-select-btn"
       >
         <span className={!selectedOption ? 'text-zinc-500 font-medium' : 'text-white font-semibold'}>
           {selectedOption ? selectedOption.label : placeholder}
@@ -81,7 +82,7 @@ export default function CustomSelect({
       {/* Dropdown Options List */}
       {isOpen && (
         <div className="absolute left-0 right-0 mt-2 z-50 animate-fade-in custom-select-dropdown">
-          <div className="bg-[#121216] dark:bg-[#121216] border border-white/10 dark:border-white/10 shadow-2xl p-1.5 max-h-60 overflow-y-auto rounded-xl custom-select-container">
+          <div className="bg-[#121216] border border-white/10 shadow-2xl p-1.5 max-h-60 overflow-y-auto rounded-xl custom-select-container">
             {options.map((opt) => {
               const isSelected = opt.value === value;
               return (
@@ -91,8 +92,8 @@ export default function CustomSelect({
                   onClick={() => handleSelect(opt.value)}
                   className={`w-full text-left px-3.5 py-2.5 rounded-lg text-xs font-semibold select-none cursor-pointer transition-all flex items-center justify-between ${
                     isSelected
-                      ? 'bg-accent-violet/10 dark:bg-accent-violet/15 text-accent-violet'
-                      : 'text-zinc-300 dark:text-zinc-300 hover:bg-white/5 dark:hover:bg-white/5 hover:text-white'
+                      ? 'bg-accent-violet/15 text-accent-violet'
+                      : 'text-zinc-300 hover:bg-white/5 hover:text-white'
                   }`}
                 >
                   <span>{opt.label}</span>

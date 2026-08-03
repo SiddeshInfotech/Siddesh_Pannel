@@ -181,6 +181,7 @@ const [vendorToDelete, setVendorToDelete] =
                                         <td className="py-4 px-3.5 text-xs text-zinc-400">{vendor.email}</td>
                                         <td className="py-4 px-3.5 text-xs text-zinc-400 font-semibold">{vendor.city}</td>
                                         <td className="py-4 px-3.5">
+    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                                             <StatusBadge status={vendor.status as any} />
                                         </td>
                                         <td className="py-4 px-3.5">

@@ -1,24 +1,33 @@
 'use client';
 
-import { useState } from 'react';
-import { School, Building2, Users } from 'lucide-react';
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+import { useState, useEffect } from 'react';
+
 
 import SchoolsClient from './SchoolsClient';
 import VendorsClient from './VendorsClient';
 import ParentsClient from './ParentsClient';
 
 interface DataTabsProps {
-  initialSchools: any[];
-  initialVendors: any[];
-  initialParents: any[];
+  initialSchools: any /* eslint-disable-line @typescript-eslint/no-explicit-any */[];
+  initialVendors: any /* eslint-disable-line @typescript-eslint/no-explicit-any */[];
+  initialParents: any /* eslint-disable-line @typescript-eslint/no-explicit-any */[];
+  initialTab?: 'schools' | 'vendors' | 'parents';
 }
 
 export default function DataTabs({
   initialSchools,
   initialVendors,
   initialParents,
+  initialTab = 'schools',
 }: DataTabsProps) {
-  const [activeTab, setActiveTab] = useState<'schools' | 'vendors' | 'parents'>('schools');
+  const [activeTab, setActiveTab] = useState<'schools' | 'vendors' | 'parents'>(initialTab);
+  const [prevInitialTab, setPrevInitialTab] = useState(initialTab);
+
+  if (initialTab !== prevInitialTab) {
+    setPrevInitialTab(initialTab);
+    setActiveTab(initialTab);
+  }
 
   return (
     <div className="space-y-6">

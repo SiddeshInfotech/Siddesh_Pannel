@@ -14,6 +14,7 @@
 
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
+import Image from 'next/image';
 import { AuthProvider } from '@/context/AuthContext';
 import {
   Mail,
@@ -24,6 +25,7 @@ import {
   Eye,
   EyeOff,
   AlertTriangle,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
   Copy,
   Check,
   Download,
@@ -76,10 +78,13 @@ export default function AuthWrapper({
     }
   }, [mfaSetupRequired, totpSecret, email]);
 
+  const [prevSessionExists, setPrevSessionExists] = useState(sessionExists);
+
   // Sync auth status when server prop updates
-  useEffect(() => {
+  if (sessionExists !== prevSessionExists) {
+    setPrevSessionExists(sessionExists);
     setIsAuthenticated(sessionExists);
-  }, [sessionExists]);
+  }
 
   const triggerErrorShake = () => {
     setShakeError(true);
@@ -121,7 +126,7 @@ export default function AuthWrapper({
     isSubmitting.current = true;
     setLoading(true);
     try {
-      const payload: any = {};
+      const payload: any /* eslint-disable-line @typescript-eslint/no-explicit-any */ = {};
       if (challengeToken) {
         payload.challengeToken = challengeToken;
         if (isRecoveryMode) {
@@ -297,7 +302,7 @@ export default function AuthWrapper({
             {/* Logo header */}
             <div className="flex items-center gap-4 mb-6 px-1">
               <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-lg backdrop-blur-xl relative overflow-hidden flex-shrink-0">
-                <img src="/siddesh_logo.png" alt="Siddesh Logo" className="w-8 h-8 object-contain rounded-lg" />
+                <Image src="/siddesh_logo.png" alt="Siddesh Logo" width={32} height={32} className="w-8 h-8 object-contain rounded-lg" />
               </div>
               <div className="text-left">
                 <h1 className="text-2xl font-black tracking-tight text-white leading-none">
@@ -407,11 +412,14 @@ export default function AuthWrapper({
                     <div className="flex flex-col items-center gap-3">
                       <div className="p-3 bg-white rounded-2xl shadow-lg border-4 border-white/10 mx-auto w-fit">
                         {qrCodeUrl ? (
-                          <img 
-                            src={qrCodeUrl}
-                            alt="MFA QR Code" 
-                            className="w-40 h-40" 
-                          />
+                          <>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img 
+                              src={qrCodeUrl}
+                              alt="MFA QR Code" 
+                              className="w-40 h-40" 
+                            />
+                          </>
                         ) : (
                           <div className="w-40 h-40 flex items-center justify-center animate-pulse bg-zinc-200 rounded-xl">
                             <div className="w-6 h-6 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin"></div>

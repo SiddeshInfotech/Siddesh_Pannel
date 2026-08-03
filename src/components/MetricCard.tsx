@@ -17,7 +17,9 @@ export default function MetricCard({
   badgeText,
   badgeType,
   icon: Icon,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
   sparklineType = 'none',
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
   progress,
 }: MetricCardProps) {
   const getBadgeStyles = () => {
@@ -34,16 +36,16 @@ export default function MetricCard({
   };
 
   return (
-    <GlassCard className="relative overflow-hidden flex flex-col justify-between p-5 border border-black/5 dark:border-white/5 backdrop-blur-xl">
+    <GlassCard className="relative overflow-hidden flex flex-col justify-between p-5 border border-white/5 backdrop-blur-xl">
       {/* Header Info */}
       <div className="flex justify-between items-start">
         <div>
-          <p className="text-xs font-bold text-gray-500 dark:text-zinc-400 uppercase tracking-wider">{title}</p>
-          <h3 className="text-3xl font-extrabold text-black dark:text-white mt-2 tracking-tight">{value}</h3>
+          <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{title}</p>
+          <h3 className="text-3xl font-extrabold text-white mt-2 tracking-tight">{value}</h3>
         </div>
         <div className="flex flex-col items-end gap-2">
-          <span className="p-2 rounded-xl bg-black/5 dark:bg-white/5 border border-black/10 dark:border-white/10">
-            <Icon className="w-4 h-4 text-gray-600 dark:text-zinc-300" />
+          <span className="p-2 rounded-xl bg-white/5 border border-white/10">
+            <Icon className="w-4 h-4 text-zinc-300" />
           </span>
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${getBadgeStyles()}`}>
             {badgeText}

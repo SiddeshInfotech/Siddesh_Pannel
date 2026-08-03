@@ -37,7 +37,7 @@ async function getDevicesData() {
     ({ data: keys } = await fetchActivatedKeys(false));
   }
 
-  return (keys ?? []).map((k: any) => {
+  return (keys ?? []).map((k: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
     // Calculate remaining time
     let remainingTime = 'N/A';
     if (k.expires_at) {

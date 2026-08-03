@@ -10,6 +10,13 @@ const nextConfig: NextConfig = {
   basePath: '/lms-admin',
   // Remove X-Powered-By: Next.js header — prevents tech stack fingerprinting
   poweredByHeader: false,
+  async redirects() {
+    return [
+      { source: '/schools', destination: '/data?tab=schools', permanent: true },
+      { source: '/vendors', destination: '/data?tab=vendors', permanent: true },
+      { source: '/parents', destination: '/data?tab=parents', permanent: true },
+    ];
+  },
   async headers() {
     return [
       {
