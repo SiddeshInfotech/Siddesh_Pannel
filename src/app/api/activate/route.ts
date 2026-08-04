@@ -8,6 +8,7 @@ import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
 import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
+import { signPayload } from '@/lib/licenseSign';
 
 const ActivationRequestSchema = z.object({
   activation_key: z.string().min(1),
@@ -670,18 +671,9 @@ export async function POST(req: NextRequest) {
     const payloadStr = JSON.stringify(payload);
 
     // ── 6. Sign payload with ECDSA private key ────────────────────────────
-    let privateKeyPem = process.env.PRIVATE_KEY?.replace(/\\n/g, '\n');
-    if (!privateKeyPem) {
-      let targetPrivatePath = PRIVATE_KEY_PATH;
-      if (!fs.existsSync(targetPrivatePath)) {
-        targetPrivatePath = path.join('/tmp', 'keys', 'private.pem');
-      }
-      privateKeyPem = fs.readFileSync(targetPrivatePath, 'utf8');
-    }
-    const signer = crypto.createSign('SHA256');
-    signer.update(payloadStr);
-    signer.end();
-    const signature = signer.sign(privateKeyPem, 'base64');
+    // Shared signer (src/lib/licenseSign.ts) — same key /api/device/ping uses to
+    // sign Signed Renewable Leases, so the client verifies both with one pinned key.
+    const signature = signPayload(payloadStr);
 
     // ── 7. Log success ────────────────────────────────────────────────────
     await logHandshake({

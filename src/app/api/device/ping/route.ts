@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
+import { signPayload } from '@/lib/licenseSign';
 
 // ============================================================================
 // POST /api/device/ping  — device online heartbeat (Telemetry, Phase 1)
@@ -37,9 +38,26 @@ const PingSchema = z.object({
   // Tier 8: set to "DECRYPT_FAILED" when a wrapped CEK failed to unwrap on-device since
   // the last heartbeat (previously swallowed to "" inside KeystoreCrypto.unwrap()).
   cek_status: z.enum(['DECRYPT_FAILED']).optional(),
+  // EXPIRY-TAMPER telemetry: the client fail-closes locally when it detects an attempt to
+  // tamper with the licence/expiry, and reports the reason here so an admin can SEE it.
+  //   CLOCK_ROLLBACK   — device wall clock was set behind the sealed monotonic high-water-mark
+  //   STORAGE_TAMPER   — the activation record file was edited (side field ignored / mismatch)
+  //   SIGNATURE_INVALID— the stored signed payload no longer verifies (forged/edited)
+  //   GUARD_UNSEAL_FAIL— the TPM/DPAPI-sealed anti-rollback sidecar could not be unsealed
+  //   FINGERPRINT_MISMATCH — signed device binding does not match this device (clone/restore)
+  //   LEASE_INVALID    — a Signed Renewable Lease failed signature/binding verification
+  tamper_status: z
+    .enum(['CLOCK_ROLLBACK', 'STORAGE_TAMPER', 'SIGNATURE_INVALID', 'GUARD_UNSEAL_FAIL', 'FINGERPRINT_MISMATCH', 'LEASE_INVALID'])
+    .optional(),
 });
 
 const isProd = process.env.NODE_ENV === 'production';
+// ── Signed Renewable Lease (SRL) — docs/Expiry_Server_Authority_Design.md ──────
+// Dark-launched: emit only when LMS_LEASE_ENABLED=true. Old clients ignore the extra
+// fields, so turning this on is backward compatible. The lease is ECDSA-signed with the
+// SAME key /api/activate uses, so the client verifies it with the already-pinned pubkey.
+const LEASE_ENABLED = process.env.LMS_LEASE_ENABLED === 'true';
+const LEASE_TTL_DAYS = Number(process.env.LMS_LEASE_TTL_DAYS ?? 14);
 const MAX_SKEW_MS = 5 * 60 * 1000;         // clock-drift tolerance for air-gapped tablets
 const SESSION_GAP_MS = 6 * 60 * 1000;      // gap > this ⇒ a NEW online session (new timeline row)
 const RL_IP_BURST = { win: 10 * 1000, max: 10 };
@@ -80,7 +98,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return generic(400, 'Invalid request.');
   }
-  const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status } = body;
+  const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status, tamper_status } = body;
   const reportedTier = (security_tier ?? '').trim();
 
   // Gate 1 — per-device rate limit.
@@ -190,6 +208,29 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // EXPIRY-TAMPER — the client fail-closed on a licence/expiry tamper attempt and told us
+  // why. Record it LOUDLY (log + a dedicated timeline event) so an admin can answer "did
+  // someone try to change the expiry on device X?" — the client is the only place that can
+  // observe a local edit / clock rollback (a large rollback never even reaches this endpoint
+  // because the timestamp-skew gate 401s it, so the device's own report is the signal).
+  if (tamper_status) {
+    logger.warn({
+      event: 'PING_EXPIRY_TAMPER',
+      reason: tamper_status,
+      device_fingerprint,
+      school_id: key.school_id,
+      security_tier: reportedTier || null,
+      app_version,
+      ip,
+    });
+    await supabaseAdmin.from('device_timeline').insert({
+      device_fingerprint,
+      school_id: key.school_id,
+      event_type: 'EXPIRY_TAMPER',
+      detail: { reason: tamper_status, app_version, ip, security_tier: reportedTier || null },
+    });
+  }
+
   if (newSession) {
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
@@ -199,9 +240,48 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // ── Signed Renewable Lease (SRL) ────────────────────────────────────────────
+  // Reached only on the bound + Active success path (Gate 4 already 403'd revoked/
+  // unbound devices). The lease is the client's CURRENT, trusted source of expiry +
+  // time: short-lived, fingerprint-bound, and nonce-bound (the nonce was single-use-
+  // verified above). Entirely additive + best-effort — a signing/DB error never breaks
+  // the heartbeat; we just omit the lease and the client falls back to staleness.
+  const nowIso = new Date(now).toISOString();
+  let lease_str: string | undefined;
+  let lease_sig: string | undefined;
+  if (LEASE_ENABLED) {
+    try {
+      const lease = {
+        v: 1,
+        device_fingerprint,
+        activation_key_id: key.id,
+        issued_at: nowIso,                                        // TRUSTED server time
+        not_after: new Date(now + LEASE_TTL_DAYS * 86_400_000).toISOString(),
+        subscription_expires_at: key.expires_at ?? null,          // authoritative expiry
+        status: expired ? 'Expired' : 'Active',                   // bound ⇒ key is Active
+        nonce,                                                     // echo → binds to THIS request
+      };
+      lease_str = JSON.stringify(lease);
+      lease_sig = signPayload(lease_str);
+      // Audit only (best-effort): when we last leased this device. Column added by
+      // scripts/add_device_lease.sql; a not-yet-migrated column must not break the ping.
+      const { error: leErr } = await supabaseAdmin
+        .from('activation_keys')
+        .update({ last_lease_issued_at: nowIso })
+        .eq('id', key.id);
+      if (leErr) logger.warn({ event: 'PING_LEASE_AUDIT_PERSIST_FAILED', error: leErr.message });
+    } catch (e) {
+      lease_str = undefined;
+      lease_sig = undefined;
+      logger.warn({ event: 'PING_LEASE_SIGN_FAILED', error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   return NextResponse.json({
     ok: true,
-    server_time: new Date(now).toISOString(), // device clock sync
+    server_time: nowIso,      // device clock sync
     expired,
+    // Present only when SRL is enabled and signing succeeded; omitted otherwise.
+    ...(lease_str && lease_sig ? { lease_str, lease_sig } : {}),
   });
 }

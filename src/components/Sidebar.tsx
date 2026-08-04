@@ -6,11 +6,12 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { 
-  LayoutDashboard, 
-  School, 
-  PlusCircle, 
-  CreditCard, 
+import {
+  LayoutDashboard,
+  School,
+  Store,
+  Users,
+  CreditCard,
   Key,
   Activity,
   DownloadCloud,
@@ -48,31 +49,12 @@ const MENU_GROUPS: MenuGroup[] = [
   },
   {
     title: 'Accounts',
+    // Clicking an entry opens its (existing) form directly — no Add/Manage dropdown.
+    // The management tables remain reachable from the "Data" tab in Overview.
     items: [
-      { 
-        label: 'Schools', 
-        icon: PlusCircle, 
-        subItems: [
-          { label: 'Add School', path: '/schools/new' },
-          { label: 'Manage Schools', path: '/data?tab=schools' },
-        ]
-      },
-      { 
-        label: 'Vendors', 
-        icon: PlusCircle, 
-        subItems: [
-          { label: 'Add Vendor', path: '/vendors/new' },
-          { label: 'Manage Vendors', path: '/data?tab=vendors' },
-        ]
-      },
-      { 
-        label: 'Parents', 
-        icon: PlusCircle, 
-        subItems: [
-          { label: 'Add Parent', path: '/parents/new' },
-          { label: 'Manage Parents', path: '/data?tab=parents' },
-        ]
-      },
+      { label: 'Schools', icon: School, path: '/schools/new' },
+      { label: 'Vendors', icon: Store, path: '/vendors/new' },
+      { label: 'Parents', icon: Users, path: '/parents/new' },
     ]
   },
   {
