@@ -643,6 +643,27 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── 3e. Record the SIGNED expiry + clear any prior tamper flag (best-effort) ──
+    // `signed_expires_at` is the exact expiry we are about to sign into the payload below.
+    // It is the immutable ground truth the ping route compares device reports against, and
+    // is deliberately SEPARATE from `expires_at` (which an admin may later shorten/extend).
+    // A fresh (re)activation also clears any previous expiry-tamper flag. Non-blocking:
+    // run scripts/add_expiry_tamper.sql to add these columns (until then this logs + skips).
+    {
+      const { error: etError } = await supabaseAdmin
+        .from('activation_keys')
+        .update({
+          signed_expires_at: expiresAt.toISOString(),
+          expiry_tamper_flag: false,
+          expiry_tamper_at: null,
+          expiry_tamper_detail: null,
+        })
+        .eq('id', keyRecord.id);
+      if (etError) {
+        logger.warn({ event: 'SIGNED_EXPIRY_PERSIST_FAILED', keyId: keyRecord.id, error: etError.message });
+      }
+    }
+
     // ── 4. Fetch School metadata ───────────────────────────────────────────
     const { data: school } = await supabaseAdmin
       .from('schools')

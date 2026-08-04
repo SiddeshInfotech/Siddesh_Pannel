@@ -49,6 +49,10 @@ const PingSchema = z.object({
   tamper_status: z
     .enum(['CLOCK_ROLLBACK', 'STORAGE_TAMPER', 'SIGNATURE_INVALID', 'GUARD_UNSEAL_FAIL', 'FINGERPRINT_MISMATCH', 'LEASE_INVALID'])
     .optional(),
+  // Server-side expiry-tamper detection: the expiry the device currently holds/enforces
+  // (from its signed payload), as an ISO string. The panel compares it to signed_expires_at
+  // (the value it signed at activation). Bounded length; parse issues just skip the check.
+  reported_expiry: z.string().max(40).optional(),
 });
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -98,7 +102,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return generic(400, 'Invalid request.');
   }
-  const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status, tamper_status } = body;
+  const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status, tamper_status, reported_expiry } = body;
   const reportedTier = (security_tier ?? '').trim();
 
   // Gate 1 — per-device rate limit.
@@ -229,6 +233,55 @@ export async function POST(req: NextRequest) {
       event_type: 'EXPIRY_TAMPER',
       detail: { reason: tamper_status, app_version, ip, security_tier: reportedTier || null },
     });
+  }
+
+  // SERVER-SIDE EXPIRY-TAMPER (the robust, un-spoofable detector) — compare the expiry the
+  // device reports against what we SIGNED at activation (signed_expires_at, immutable to admin
+  // edits). If the device claims a LATER expiry than was ever signed, it extended its own
+  // licence → flag it. FALSE-POSITIVE-SAFE: admin shorten/extend never changes signed_expires_at,
+  // and we only flag `reported > signed`. DEDUPLICATED via a conditional false→true flip, so a
+  // tampered device writes exactly ONE timeline row (no panel spam, no new rate-limit surface).
+  // Fully fail-open: a missing column, parse error, or race just skips — never breaks the ping.
+  if (reported_expiry) {
+    try {
+      const { data: exRow, error: exErr } = await supabaseAdmin
+        .from('activation_keys')
+        .select('signed_expires_at, expiry_tamper_flag')
+        .eq('id', key.id)
+        .maybeSingle();
+      const signedMs = exRow?.signed_expires_at ? new Date(exRow.signed_expires_at).getTime() : NaN;
+      const reportedMs = new Date(reported_expiry).getTime();
+      const TOLERANCE_MS = 60_000; // absorb format/rounding; only a real extension trips it
+      if (!exErr && Number.isFinite(signedMs) && Number.isFinite(reportedMs)
+          && reportedMs > signedMs + TOLERANCE_MS && exRow?.expiry_tamper_flag !== true) {
+        const detail = {
+          reason: 'SERVER_MISMATCH',
+          reported_expiry,
+          signed_expires_at: exRow?.signed_expires_at ?? null,
+          extra_days: Math.round((reportedMs - signedMs) / 86_400_000),
+          app_version,
+          ip,
+        };
+        // Conditional false→true flip → exactly-once even under concurrent heartbeats.
+        const { data: flipped, error: flagErr } = await supabaseAdmin
+          .from('activation_keys')
+          .update({ expiry_tamper_flag: true, expiry_tamper_at: new Date(now).toISOString(), expiry_tamper_detail: detail })
+          .eq('id', key.id)
+          .eq('expiry_tamper_flag', false)
+          .select('id');
+        if (!flagErr && flipped && flipped.length > 0) {
+          logger.warn({ event: 'PING_EXPIRY_TAMPER_SERVER', device_fingerprint, school_id: key.school_id, ...detail });
+          await supabaseAdmin.from('device_timeline').insert({
+            device_fingerprint,
+            school_id: key.school_id,
+            event_type: 'EXPIRY_TAMPER',
+            detail,
+          });
+        }
+      }
+    } catch (e) {
+      logger.warn({ event: 'PING_EXPIRY_COMPARE_FAILED', error: e instanceof Error ? e.message : String(e) });
+    }
   }
 
   if (newSession) {

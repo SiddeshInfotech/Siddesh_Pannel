@@ -25,7 +25,8 @@ import {
   BookOpen,
   Lock,
   CheckCircle2,
-  FileCheck
+  FileCheck,
+  ShieldAlert
 } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
 import StatusBadge from '@/components/StatusBadge';
@@ -68,6 +69,11 @@ interface DeviceRow {
   termsAccepted: boolean;
   termsVersion: string | null;
   termsAcceptedAt: string | null;
+  // Server-side expiry-tamper: flagged when the device reported an expiry later than signed.
+  expiryTamper: boolean;
+  expiryTamperAt: string | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  expiryTamperDetail: any;
 }
 
 // Maps the device security tier (KeystoreCrypto taxonomy) to a short label + badge
@@ -298,7 +304,19 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                           {dev.fingerprint.substring(0, 12)}...
                         </code>
                       </td>
-                      <td className="py-4 px-3 text-sm font-bold text-zinc-300 group-hover:text-white transition-colors">{dev.schoolName}</td>
+                      <td className="py-4 px-3 text-sm font-bold text-zinc-300 group-hover:text-white transition-colors">
+                        <div className="flex items-center gap-2">
+                          <span>{dev.schoolName}</span>
+                          {dev.expiryTamper && (
+                            <span
+                              title={`Expiry tamper detected${dev.expiryTamperAt ? ` on ${dev.expiryTamperAt}` : ''}${dev.expiryTamperDetail?.extra_days ? ` (+${dev.expiryTamperDetail.extra_days}d claimed)` : ''}`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap bg-rose-500/10 border-rose-500/30 text-rose-400"
+                            >
+                              <ShieldAlert className="w-3 h-3" /> Tamper
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="py-4 px-3">
                         {(() => {
                           const t = tierStyle(dev.securityTier);
@@ -404,6 +422,25 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
 
             {/* Modal Content - Scrollable */}
             <div className="p-6 overflow-y-auto space-y-6">
+              {/* Expiry-tamper alert — server detected this device reporting an expiry later than signed. */}
+              {selectedDevice.expiryTamper && (
+                <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30">
+                  <ShieldAlert className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs">
+                    <div className="text-rose-300 font-bold text-sm">Expiry tamper detected</div>
+                    <div className="text-rose-200/80 mt-0.5">
+                      This device reported an expiry LATER than the panel signed at activation
+                      {selectedDevice.expiryTamperDetail?.extra_days ? ` (claimed +${selectedDevice.expiryTamperDetail.extra_days} days)` : ''}
+                      {selectedDevice.expiryTamperAt ? ` · first seen ${selectedDevice.expiryTamperAt}` : ''}.
+                    </div>
+                    {selectedDevice.expiryTamperDetail?.reported_expiry && (
+                      <code className="block text-[10px] text-rose-200/70 font-mono mt-1">
+                        reported {String(selectedDevice.expiryTamperDetail.reported_expiry)} vs signed {String(selectedDevice.expiryTamperDetail.signed_expires_at ?? '—')}
+                      </code>
+                    )}
+                  </div>
+                </div>
+              )}
               {/* 1. Device Hardware Properties */}
               <div>
                 <h4 className="text-xs font-extrabold uppercase text-accent-violet tracking-wider mb-3 flex items-center gap-2">
