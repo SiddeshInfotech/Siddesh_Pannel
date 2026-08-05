@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
 import { signPayload } from '@/lib/licenseSign';
+import { sendSecurityAlert } from '@/lib/alert';
 
 // ============================================================================
 // POST /api/device/ping  — device online heartbeat (Telemetry, Phase 1)
@@ -46,8 +47,10 @@ const PingSchema = z.object({
   //   GUARD_UNSEAL_FAIL— the TPM/DPAPI-sealed anti-rollback sidecar could not be unsealed
   //   FINGERPRINT_MISMATCH — signed device binding does not match this device (clone/restore)
   //   LEASE_INVALID    — a Signed Renewable Lease failed signature/binding verification
+  //   WINE_DETECTED    — the Windows app is running under Wine/Proton (Linux/Kali) — no genuine
+  //                      TPM, so DRM/anti-rollback degrade; a strong reverse-engineering signal
   tamper_status: z
-    .enum(['CLOCK_ROLLBACK', 'STORAGE_TAMPER', 'SIGNATURE_INVALID', 'GUARD_UNSEAL_FAIL', 'FINGERPRINT_MISMATCH', 'LEASE_INVALID'])
+    .enum(['CLOCK_ROLLBACK', 'STORAGE_TAMPER', 'SIGNATURE_INVALID', 'GUARD_UNSEAL_FAIL', 'FINGERPRINT_MISMATCH', 'LEASE_INVALID', 'WINE_DETECTED'])
     .optional(),
   // Server-side expiry-tamper detection: the expiry the device currently holds/enforces
   // (from its signed payload), as an ISO string. The panel compares it to signed_expires_at
@@ -133,6 +136,57 @@ export async function POST(req: NextRequest) {
     logger.error({ event: 'PING_KEY_LOOKUP_ERROR', error: keyErr.message });
     return generic(503, 'Service unavailable.');
   }
+  // Remote-kill propagation (P4): an admin "Deactivate" flips the key to 'Revoked'. That
+  // is a deliberate signal to THIS device — so when the revoked key is presented ON ITS OWN
+  // bound fingerprint (no information disclosure: the device is proving it already holds this
+  // exact key+fingerprint pair), answer 200 with kill:true instead of a blanket 403. Both the
+  // Android and Windows clients purge their keys + permanently block on kill. Any OTHER
+  // unauthorized shape (unknown key, or a fingerprint that does not match) still gets the
+  // uniform 403 below and learns nothing. Fires every ping until the device stops calling —
+  // idempotent on the client (purgeAndBlock is a no-op once blocked).
+  const ownRevoked = key
+    && key.status === 'Revoked'
+    && key.device_fingerprint === device_fingerprint;
+  if (ownRevoked) {
+    logger.warn({ event: 'PING_REMOTE_KILL', device_fingerprint, school_id: key.school_id, app_version });
+    // Best-effort audit trail so the panel timeline shows WHEN the kill actually reached the
+    // device (distinct from when the admin clicked Deactivate). Written EXACTLY ONCE: a killed
+    // device keeps pinging (its client purge is idempotent), so we skip the insert if a
+    // REMOTE_KILL row already exists for this device — no timeline spam. Never blocks the kill.
+    try {
+      const { data: priorKill } = await supabaseAdmin
+        .from('device_timeline')
+        .select('id')
+        .eq('device_fingerprint', device_fingerprint)
+        .eq('event_type', 'REMOTE_KILL')
+        .limit(1)
+        .maybeSingle();
+      if (!priorKill) {
+        const { error: ktErr } = await supabaseAdmin.from('device_timeline').insert({
+          device_fingerprint,
+          school_id: key.school_id,
+          event_type: 'REMOTE_KILL',
+          detail: { reason: 'revoked', app_version, ip },
+        });
+        if (ktErr) logger.warn({ event: 'PING_KILL_TIMELINE_FAILED', error: ktErr.message });
+        // Proactively alert admins the first time the kill actually reaches the device.
+        if (!ktErr) {
+          await sendSecurityAlert('REMOTE_KILL', `Device deactivated key reached device (school ${key.school_id})`, {
+            device_fingerprint, school_id: key.school_id, app_version, ip,
+          });
+        }
+      }
+    } catch (e) {
+      logger.warn({ event: 'PING_KILL_TIMELINE_FAILED', error: e instanceof Error ? e.message : String(e) });
+    }
+    return NextResponse.json({
+      ok: true,
+      kill: true,
+      kill_reason: 'revoked',
+      server_time: new Date().toISOString(),
+    });
+  }
+
   const bound = key
     && key.status === 'Active'
     && key.device_fingerprint === device_fingerprint;
@@ -233,6 +287,9 @@ export async function POST(req: NextRequest) {
       event_type: 'EXPIRY_TAMPER',
       detail: { reason: tamper_status, app_version, ip, security_tier: reportedTier || null },
     });
+    await sendSecurityAlert('EXPIRY_TAMPER', `Device reported ${tamper_status} (school ${key.school_id})`, {
+      reason: tamper_status, device_fingerprint, school_id: key.school_id, app_version, ip,
+    });
   }
 
   // SERVER-SIDE EXPIRY-TAMPER (the robust, un-spoofable detector) — compare the expiry the
@@ -276,6 +333,9 @@ export async function POST(req: NextRequest) {
             school_id: key.school_id,
             event_type: 'EXPIRY_TAMPER',
             detail,
+          });
+          await sendSecurityAlert('EXPIRY_TAMPER', `Device claimed +${detail.extra_days}d beyond signed expiry (school ${key.school_id})`, {
+            device_fingerprint, school_id: key.school_id, ...detail,
           });
         }
       }
