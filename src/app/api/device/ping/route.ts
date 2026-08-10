@@ -37,6 +37,30 @@ const PingSchema = z.object({
   // Tier 8: set to "DECRYPT_FAILED" when a wrapped CEK failed to unwrap on-device since
   // the last heartbeat (previously swallowed to "" inside KeystoreCrypto.unwrap()).
   cek_status: z.enum(['DECRYPT_FAILED']).optional(),
+<<<<<<< Updated upstream
+=======
+  // EXPIRY-TAMPER telemetry: the client fail-closes locally when it detects an attempt to
+  // tamper with the licence/expiry, and reports the reason here so an admin can SEE it.
+  //   CLOCK_ROLLBACK   — device wall clock was set behind the sealed monotonic high-water-mark
+  //   STORAGE_TAMPER   — the activation record file was edited (side field ignored / mismatch)
+  //   SIGNATURE_INVALID— the stored signed payload no longer verifies (forged/edited)
+  //   GUARD_UNSEAL_FAIL— the TPM/DPAPI-sealed anti-rollback sidecar could not be unsealed
+  //   FINGERPRINT_MISMATCH — signed device binding does not match this device (clone/restore)
+  //   LEASE_INVALID    — a Signed Renewable Lease failed signature/binding verification
+  //   WINE_DETECTED    — the Windows app is running under Wine/Proton (Linux/Kali) — no genuine
+  //                      TPM, so DRM/anti-rollback degrade; a strong reverse-engineering signal
+  tamper_status: z
+    .enum(['CLOCK_ROLLBACK', 'STORAGE_TAMPER', 'SIGNATURE_INVALID', 'GUARD_UNSEAL_FAIL', 'FINGERPRINT_MISMATCH', 'LEASE_INVALID', 'WINE_DETECTED'])
+    .optional(),
+  // Server-side expiry-tamper detection: the expiry the device currently holds/enforces
+  // (from its signed payload), as an ISO string. The panel compares it to signed_expires_at
+  // (the value it signed at activation). Bounded length; parse issues just skip the check.
+  reported_expiry: z.string().max(40).optional(),
+  // LMS Lab platform ('windows' | 'linux' | 'android'). Optional + backward compatible:
+  // older builds omit it. When present, the heartbeat also stamps the matching per-platform
+  // LMS Lab column on device_status (see lms-lab-device-platform.sql). Never affects authZ.
+  os_platform: z.enum(['windows', 'linux', 'android']).optional(),
+>>>>>>> Stashed changes
 });
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -80,7 +104,11 @@ export async function POST(req: NextRequest) {
   } catch {
     return generic(400, 'Invalid request.');
   }
+<<<<<<< Updated upstream
   const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status } = body;
+=======
+  const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status, tamper_status, reported_expiry, os_platform } = body;
+>>>>>>> Stashed changes
   const reportedTier = (security_tier ?? '').trim();
 
   // Gate 1 — per-device rate limit.
@@ -169,6 +197,23 @@ export async function POST(req: NextRequest) {
       .update({ security_tier: reportedTier })
       .eq('device_fingerprint', device_fingerprint);
     if (stErr) logger.warn({ event: 'PING_SECURITY_TIER_PERSIST_FAILED', error: stErr.message });
+  }
+
+  // LMS Lab per-platform online telemetry. Records this heartbeat's time into the LMS Lab
+  // column matching the reporting platform, so Windows/Linux/Android online activity is
+  // tracked SEPARATELY (per requirement) without touching the shared device_status fields.
+  // Additive + fail-open: a not-yet-migrated column (run lms-lab-device-platform.sql) or any
+  // error is logged and skipped — it never blocks the heartbeat. Runs only on the bound path.
+  if (os_platform) {
+    const platformColumn =
+      os_platform === 'windows' ? 'lms_lab_windows_last_seen'
+      : os_platform === 'linux' ? 'lms_lab_linux_last_seen'
+      : 'lms_lab_android_last_seen';
+    const { error: platErr } = await supabaseAdmin
+      .from('device_status')
+      .update({ [platformColumn]: new Date(now).toISOString() })
+      .eq('device_fingerprint', device_fingerprint);
+    if (platErr) logger.warn({ event: 'PING_LMS_LAB_PLATFORM_PERSIST_FAILED', platform: os_platform, error: platErr.message });
   }
 
   // Tier 8 — CEK decrypt failure. Previously the app swallowed unwrap() failures to ""
