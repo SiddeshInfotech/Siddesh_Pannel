@@ -66,6 +66,7 @@ interface DeviceRow {
   durationDays: number;
   expiresAt?: string | null;
   securityTier: string;
+  product: string;
   termsAccepted: boolean;
   termsVersion: string | null;
   termsAcceptedAt: string | null;
@@ -109,6 +110,36 @@ function tierStyle(tier: string): { label: string; cls: string } {
   }
 }
 
+// Maps the auto-derived product (src/lib/product.ts) to a short label + badge colour.
+// LMS Lab family in cool tones, the original LMS apps in warmer ones; 'unknown' neutral.
+function productStyle(product: string): { label: string; cls: string } {
+  switch (product) {
+    case 'lms_lab_android':
+      return { label: 'LMS Lab · Android', cls: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' };
+    case 'lms_lab_windows':
+      return { label: 'LMS Lab · Windows', cls: 'bg-sky-500/10 border-sky-500/25 text-sky-400' };
+    case 'lms_lab_linux':
+      return { label: 'LMS Lab · Linux', cls: 'bg-violet-500/10 border-violet-500/25 text-violet-400' };
+    case 'lms_android':
+      return { label: 'LMS · Android', cls: 'bg-teal-500/10 border-teal-500/25 text-teal-400' };
+    case 'lms_windows':
+      return { label: 'LMS · Windows', cls: 'bg-blue-500/10 border-blue-500/25 text-blue-400' };
+    default:
+      return { label: 'Unknown', cls: 'bg-white/5 border-white/10 text-zinc-400' };
+  }
+}
+
+// Product filter dropdown options (value must match the DB `product` values).
+const PRODUCT_FILTER_OPTIONS = [
+  { value: 'all', label: 'All products' },
+  { value: 'lms_lab_android', label: 'LMS Lab · Android' },
+  { value: 'lms_lab_windows', label: 'LMS Lab · Windows' },
+  { value: 'lms_lab_linux', label: 'LMS Lab · Linux' },
+  { value: 'lms_android', label: 'LMS · Android' },
+  { value: 'lms_windows', label: 'LMS · Windows' },
+  { value: 'unknown', label: 'Unknown' },
+];
+
 interface MonitoringClientProps {
   initialDevices: DeviceRow[];
   totalDevicesCount: number;
@@ -119,6 +150,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
   const [isPending, startTransition] = useTransition();
   const [search, setSearch] = useState('');
   const [entityFilter, setEntityFilter] = useState<'Schools' | 'Vendors' | 'Users'>('Schools');
+  const [productFilter, setProductFilter] = useState<string>('all');
   const [selectedDevice, setSelectedDevice] = useState<DeviceRow | null>(null);
   const [devicesList, setDevicesList] = useState<DeviceRow[]>(initialDevices);
 
@@ -208,7 +240,8 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
 
   const filteredDevices = devicesList.filter(dev => {
     if (entityFilter !== 'Schools') return false; // Database doesn't have Vendor/User devices yet
-    return dev.model.toLowerCase().includes(search.toLowerCase()) || 
+    if (productFilter !== 'all' && dev.product !== productFilter) return false;
+    return dev.model.toLowerCase().includes(search.toLowerCase()) ||
     dev.fingerprint.toLowerCase().includes(search.toLowerCase()) ||
     dev.schoolName.toLowerCase().includes(search.toLowerCase());
   });
@@ -239,6 +272,13 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                 { value: 'Vendors', label: 'Vendors' },
                 { value: 'Users', label: 'Users' }
               ]}
+            />
+          </div>
+          <div className="w-[190px]">
+            <CustomSelect
+              value={productFilter}
+              onChange={val => setProductFilter(val)}
+              options={PRODUCT_FILTER_OPTIONS}
             />
           </div>
           <div className="relative">
@@ -277,6 +317,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                 <th className="py-4 px-3">Hardware Fingerprint</th>
                 <th className="py-4 px-3">School Name</th>
                 <th className="py-4 px-3">Security Tier</th>
+                <th className="py-4 px-3">Product</th>
                 <th className="py-4 px-3">Consent</th>
                 <th className="py-4 px-3">Activation</th>
                 <th className="py-4 px-3">Last Sync</th>
@@ -338,6 +379,19 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                         })()}
                       </td>
                       <td className="py-4 px-3">
+                        {(() => {
+                          const p = productStyle(dev.product);
+                          return (
+                            <span
+                              title={dev.product}
+                              className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-[10px] font-semibold whitespace-nowrap ${p.cls}`}
+                            >
+                              {p.label}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="py-4 px-3">
                         {dev.termsAccepted ? (
                           <span
                             title={`Privacy Policy + Terms accepted${dev.termsVersion ? ` (v${dev.termsVersion})` : ''}${dev.termsAcceptedAt ? ` on ${dev.termsAcceptedAt}` : ''}`}
@@ -384,7 +438,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                 })
               ) : (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-zinc-500 text-sm">
+                  <td colSpan={11} className="py-12 text-center text-zinc-500 text-sm">
                     {/* colSpan spans all columns incl. the Security Tier + Consent columns */}
                     <AlertCircle className="w-5 h-5 mx-auto mb-2 text-zinc-600" />
                     No registered devices matching search filters found in the database.
@@ -540,6 +594,20 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                         );
                       })()}
                       <code className="block text-[10px] text-zinc-500 font-mono mt-1">{selectedDevice.securityTier}</code>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] text-zinc-500 uppercase font-bold flex items-center gap-1 mt-1">
+                        <Laptop className="w-3 h-3 text-zinc-500" /> Product
+                      </span>
+                      {(() => {
+                        const p = productStyle(selectedDevice.product);
+                        return (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg border text-[10px] font-semibold mt-0.5 ${p.cls}`}>
+                            {p.label}
+                          </span>
+                        );
+                      })()}
+                      <code className="block text-[10px] text-zinc-500 font-mono mt-1">{selectedDevice.product}</code>
                     </div>
                     <div>
                       <span className="block text-[10px] text-zinc-500 uppercase font-bold flex items-center gap-1 mt-1">

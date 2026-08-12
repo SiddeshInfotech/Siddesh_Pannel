@@ -25,7 +25,7 @@ const KEY_COLS_BASE = `id, key, status, duration_days, expires_at, activated_at,
 
 async function fetchActivatedKeys(includeTier: boolean) {
   const sel = includeTier
-    ? `${KEY_COLS_BASE}, security_tier, ${SCHOOL_COLS}`
+    ? `${KEY_COLS_BASE}, security_tier, product, ${SCHOOL_COLS}`
     : `${KEY_COLS_BASE}, ${SCHOOL_COLS}`;
   return supabaseAdmin
     .from('activation_keys')
@@ -118,6 +118,7 @@ async function getDevicesData() {
       manufacturer: k.device_manufacturer || 'N/A',
       androidId: k.device_android_id || 'N/A',
       securityTier: k.security_tier || 'UNREPORTED',
+      product: k.product || 'unknown',
       activationDate: k.activated_at
         ? new Date(k.activated_at).toLocaleDateString('en-IN', { timeZone: IST })
         : 'N/A',
