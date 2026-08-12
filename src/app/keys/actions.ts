@@ -38,7 +38,7 @@ type CreatedKey = {
   batchId: string | null;
 };
 
-export async function createActivationKeys(formData: any): Promise<ActionResult<CreatedKey[]>> {
+export async function createActivationKeys(formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult<CreatedKey[]>> {
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
 

@@ -50,6 +50,23 @@ async function fetchTermsAcceptances(fingerprints: string[]): Promise<Map<string
   return map;
 }
 
+// Server-side expiry-tamper flags, keyed by activation-key id. Best-effort + isolated: if the
+// expiry_tamper columns aren't migrated yet (scripts/add_expiry_tamper.sql), PostgREST 400s and
+// every key just shows "no tamper" — the device list is never blanked by a missing column.
+async function fetchTamperFlags(keyIds: string[]): Promise<Map<string, { flag: boolean; at: string | null; detail: unknown }>> {
+  const map = new Map<string, { flag: boolean; at: string | null; detail: unknown }>();
+  if (keyIds.length === 0) return map;
+  const { data, error } = await supabaseAdmin
+    .from('activation_keys')
+    .select('id, expiry_tamper_flag, expiry_tamper_at, expiry_tamper_detail')
+    .in('id', keyIds);
+  if (error) return map;
+  for (const row of data ?? []) {
+    map.set(row.id, { flag: row.expiry_tamper_flag === true, at: row.expiry_tamper_at ?? null, detail: row.expiry_tamper_detail ?? null });
+  }
+  return map;
+}
+
 async function getDevicesData() {
   let { data: keys, error } = await fetchActivatedKeys(true);
   if (error) {
@@ -61,9 +78,13 @@ async function getDevicesData() {
     .map((k: any) => k.device_fingerprint)
     .filter((f: any): f is string => !!f);
   const termsByFp = await fetchTermsAcceptances(fingerprints);
+  const tamperById = await fetchTamperFlags(
+    ((keys ?? []) as unknown as Array<{ id: string }>).map((k) => k.id).filter((id) => !!id)
+  );
 
-  return (keys ?? []).map((k: any) => {
+  return (keys ?? []).map((k: any ) => {
     const terms = k.device_fingerprint ? termsByFp.get(k.device_fingerprint) : undefined;
+    const tamper = tamperById.get(k.id);
     // Calculate remaining time
     let remainingTime = 'N/A';
     if (k.expires_at) {
@@ -147,6 +168,12 @@ async function getDevicesData() {
             timeZone: IST,
           })
         : null,
+      // Server-side expiry-tamper: true once this key reported an expiry later than signed.
+      expiryTamper: tamper?.flag === true,
+      expiryTamperAt: tamper?.at
+        ? new Date(tamper.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: IST })
+        : null,
+      expiryTamperDetail: tamper?.detail ?? null,
     };
   });
 }

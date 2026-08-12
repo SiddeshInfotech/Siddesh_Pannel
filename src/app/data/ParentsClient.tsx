@@ -93,7 +93,7 @@ export default function ParentsClient({
                         placeholder="Search parents..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-sm outline-none focus:border-accent-violet transition-all text-white light:text-black"
+                        className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-sm outline-none focus:border-accent-violet transition-all text-white"
                     />
                 </div>
             </div>
@@ -105,7 +105,7 @@ export default function ParentsClient({
                             <tr className="border-b border-white/10 text-xs text-zinc-400">
                                 <th className="p-4 font-semibold">PARENT ID</th>
                                 <th className="p-4 font-semibold">PARENT NAME</th>
-                                <th className="p-4 font-semibold">KID'S NAME</th>
+                                <th className="p-4 font-semibold">KID&apos;S NAME</th>
                                 <th className="p-4 font-semibold">GRADE</th>
                                 <th className="p-4 font-semibold">CONTACT</th>
                                 <th className="p-4 font-semibold">STATUS</th>
@@ -123,7 +123,7 @@ export default function ParentsClient({
                                             <span className="font-mono text-xs text-zinc-300">{parent.parentId}</span>
                                         </div>
                                     </td>
-                                    <td className="p-4 font-semibold text-white light:text-black">
+                                    <td className="p-4 font-semibold text-white">
                                         {parent.parentName}
                                     </td>
                                     <td className="p-4 text-zinc-400">

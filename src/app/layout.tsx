@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import './globals.css';
 import Sidebar from '@/components/Sidebar';
@@ -24,7 +25,11 @@ export default async function RootLayout({
         <ToastProvider>
           <AuthWrapper sessionExists={sessionExists}>
             {/* Sidebar Nav */}
-            {sessionExists && <Sidebar />}
+            {sessionExists && (
+              <Suspense fallback={<div className="w-52 h-screen bg-sidebar-custom fixed left-0 top-0"></div>}>
+                <Sidebar />
+              </Suspense>
+            )}
 
             {/* Content Wrapper */}
             <div className={`flex-1 ${sessionExists ? 'ml-52' : ''} min-h-screen flex flex-col min-w-0`}>

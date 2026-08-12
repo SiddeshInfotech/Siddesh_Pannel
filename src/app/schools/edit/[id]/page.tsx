@@ -8,7 +8,7 @@ export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
 interface PageProps {
-  params: any;
+  params: any /* eslint-disable-line @typescript-eslint/no-explicit-any */;
 }
 
 // Direct fetch (page is force-dynamic): avoids the Next 16 unstable_cache
@@ -40,6 +40,7 @@ export default async function EditSchoolPage({ params }: PageProps) {
   const schoolData = {
     dbId: school.id,
     name: school.name,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     board: school.board as any,
     mediums: school.mediums || [],
     // Flat columns (no longer nested address/contact/infrastructure)

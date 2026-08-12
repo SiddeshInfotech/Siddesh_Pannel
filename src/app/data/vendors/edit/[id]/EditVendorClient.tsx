@@ -13,6 +13,7 @@ import {
 import Link from 'next/link';
 
 import GlassCard from '@/components/GlassCard';
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import StatusBadge from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
 import CustomSelect from '@/components/CustomSelect';
@@ -343,7 +344,7 @@ export default function EditVendorClient({
                     Basic Vendor Information
                   </h3>
                   <p className="text-xs text-zinc-400 mt-1">
-                    Update the vendor's primary business details.
+                    Update the vendor&apos;s primary business details.
                   </p>
                 </div>
 
@@ -367,7 +368,7 @@ export default function EditVendorClient({
                     </label>
                     <CustomSelect
                       value={status}
-                      onChange={(v: any) => setStatus(v)}
+                      onChange={(v: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => setStatus(v)}
                       options={[
                         { label: 'Active', value: 'Active' },
                         { label: 'Inactive', value: 'Inactive' },

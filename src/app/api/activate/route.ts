@@ -7,6 +7,8 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
 import { verifyAttestation, checkRevocation } from '@/lib/attestation';
+import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
+import { signPayload } from '@/lib/licenseSign';
 
 const ActivationRequestSchema = z.object({
   activation_key: z.string().min(1),
@@ -51,10 +53,18 @@ const ActivationRequestSchema = z.object({
 // attested tier — those CAN attest, so a failed/absent chain is a genuine red flag.
 // Devices reporting a genuinely non-attestable tier are allowed even with the master
 // switch on. Alert tiers are logged loudly (they should not normally reach /activate).
-const ATTEST_CAPABLE_TIERS = new Set(['ATTESTED_STRONGBOX', 'ATTESTED_TEE']); // Tier 4/5 → ENFORCE
+const ATTEST_CAPABLE_TIERS = new Set(['ATTESTED_STRONGBOX', 'ATTESTED_TEE', 'WIN_TPM_ATTESTED']); // → ENFORCE
 const ALERT_TIERS = new Set(['PROVISION_FAILED', 'CEK_DECRYPT_FAILED']);       // Tier 7/8 → ALERT
-// Everything else — SW_ONLY / TEE_LEGACY_NOATTEST / MODEL_SKIP / KEYSTORE_PLAIN
-// (Tier 1/2/3/6) — is ALLOW: audit-logged but never blocked (can't produce a chain).
+// Everything else — SW_ONLY / TEE_LEGACY_NOATTEST / MODEL_SKIP / KEYSTORE_PLAIN, and the
+// Windows WIN_TPM_NOATTEST / WIN_SW_ONLY — is ALLOW: audit-logged but never blocked
+// (device-bound via the wrap key, but genuinely can't produce a HW-attestation proof).
+
+// Platform tag for an activation. WIN_* tiers (or a Windows device_os) => 'windows'.
+function detectPlatform(tier: string, deviceOs?: string): 'android' | 'windows' {
+  if (tier.startsWith('WIN_')) return 'windows';
+  if ((deviceOs ?? '').toLowerCase().includes('windows')) return 'windows';
+  return 'android';
+}
 
 // Setup key storage inside the workspace keys directory
 const KEYS_DIR = path.join(process.cwd(), 'keys');
@@ -156,19 +166,20 @@ function watermarkCode(activationKey: string): string {
 // oaepHash 'sha1' (OAEP digest + MGF1 = SHA-1) matches the app's OAEPParameterSpec —
 // required because Android Keystore hard-wires MGF1 to SHA-1 on many devices. Output is
 // single base64. Returns null if the public key can't be parsed.
-function wrapToPublicKey(plaintext: string, spkiBase64: string): string | null {
+function wrapToPublicKey(plaintext: string, spkiBase64: string, oaepHash: 'sha1' | 'sha256' = 'sha1'): string | null {
   try {
     const publicKey = crypto.createPublicKey({
       key: Buffer.from(spkiBase64, 'base64'),
       format: 'der',
       type: 'spki',
     });
-    // OAEP-SHA1 (+ MGF1-SHA1, the default) to match the Android Keystore wrap key.
-    // Android Keystore hard-wires MGF1 to SHA-1 on many devices, so SHA-256 OAEP fails
-    // on-device with IllegalBlockSizeException. SHA-1 OAEP is supported by both sides
-    // and remains secure for wrapping a 32-byte CEK.
+    // Android (oaepHash 'sha1'): Android Keystore hard-wires MGF1 to SHA-1 on many
+    // devices, so SHA-256 OAEP fails on-device with IllegalBlockSizeException.
+    // Windows/TPM (oaepHash 'sha256'): the TPM NCryptDecrypt path uses standard
+    // OAEP-SHA256. The hash is chosen per platform by the caller. Both securely wrap
+    // a 32-byte CEK; only the device's private half (Keystore / TPM) can unwrap.
     const enc = crypto.publicEncrypt(
-      { key: publicKey, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: 'sha1' },
+      { key: publicKey, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash },
       Buffer.from(plaintext, 'utf8')
     );
     return enc.toString('base64');
@@ -186,7 +197,7 @@ function wrapToPublicKey(plaintext: string, spkiBase64: string): string | null {
 // FAIL CLOSED: if no in-range entitlement can be determined, return [] so the
 // device receives NO content keys. We NEVER fall back to "all classes" — that
 // was the leak (a 5th-7th or unparseable school silently got every class' keys).
-function resolveClassIds(school: any): string[] {
+function resolveClassIds(school: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): string[] {
   // 1. Explicit operator override on the school record wins, if present.
   const explicit = school?.class_id ?? school?.curriculum_class ?? school?.class;
   const explicitNums = explicit
@@ -303,7 +314,7 @@ export async function POST(req: NextRequest) {
 
     const rawBody = await req.text();
 
-    let body: any;
+    let body: any /* eslint-disable-line @typescript-eslint/no-explicit-any */;
     try {
       body = JSON.parse(rawBody);
     } catch {
@@ -342,7 +353,11 @@ export async function POST(req: NextRequest) {
       security_tier,
     } = validationResult.data;
     const reportedTier = security_tier ?? 'UNREPORTED';
-    
+    // Windows desktop vs Android tablet — drives attestation verifier, CEK wrap hash,
+    // and the platform tag persisted on the activation record.
+    const platform = detectPlatform(reportedTier, device_os);
+    const isWindows = platform === 'windows';
+
 
     // Populate the audit/context vars from the validated request. (Bug fix:
     // these were left as '' for the whole handler — which both blanked every
@@ -403,13 +418,24 @@ export async function POST(req: NextRequest) {
       }
       const tsNum = Number(attestation_timestamp);
       const skewOk = Number.isFinite(tsNum) && Math.abs(Date.now() - tsNum) <= ATTEST_MAX_SKEW_MS;
-      const att = verifyAttestation({
-        chainB64: attestation_chain ?? [],
-        deviceWrapPubkeyB64: device_wrap_pubkey,
-        activationKey: activation_key,
-        nonce: attestation_nonce ?? '',
-        timestamp: attestation_timestamp ?? '',
-      });
+      // Route to the platform's attestation verifier: Android = Google-rooted key
+      // attestation (X.509 chain); Windows = TPM platform claim (DRM-006).
+      const att = isWindows
+        ? verifyWindowsAttestation({
+            claimB64: attestation_chain ?? [],
+            deviceWrapPubkeyB64: device_wrap_pubkey,
+            activationKey: activation_key,
+            nonce: attestation_nonce ?? '',
+            timestamp: attestation_timestamp ?? '',
+            tier: reportedTier,
+          })
+        : verifyAttestation({
+            chainB64: attestation_chain ?? [],
+            deviceWrapPubkeyB64: device_wrap_pubkey,
+            activationKey: activation_key,
+            nonce: attestation_nonce ?? '',
+            timestamp: attestation_timestamp ?? '',
+          });
 
       // Gap #2 — single-use nonce (replay defense). Reuse the rate-limit RPC with
       // max=1 over the skew window: the first use of a nonce is allowed; any repeat
@@ -421,8 +447,11 @@ export async function POST(req: NextRequest) {
         nonceOk = nrl.allowed;
       }
 
-      // Gap #5 — optional Google revocation-list check (OFF by default, fails open).
-      const rev = await checkRevocation(attestation_chain ?? []);
+      // Gap #5 — optional Google revocation-list check (Android only; OFF by default,
+      // fails open). Windows TPM claims are not on Google's list, so it is skipped.
+      const rev = isWindows
+        ? { revoked: false as boolean, reason: undefined as string | undefined }
+        : await checkRevocation(attestation_chain ?? []);
 
       // NOTE: the app `logger` is silenced, so these use console.* directly — that is
       // what shows up in Vercel runtime logs (search "ATTEST").
@@ -602,6 +631,41 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── 3d. Persist device platform tag (best-effort) ──────────────────────
+    // android | windows — lets the panel distinguish Windows desktop activations
+    // from Android tablets. Separate non-blocking update; run scripts/add_platform.sql
+    // to add the column (until then this logs and is skipped).
+    {
+      const { error: pfError } = await supabaseAdmin
+        .from('activation_keys')
+        .update({ platform })
+        .eq('id', keyRecord.id);
+      if (pfError) {
+        logger.warn({ event: 'PLATFORM_PERSIST_FAILED', keyId: keyRecord.id, error: pfError.message });
+      }
+    }
+
+    // ── 3e. Record the SIGNED expiry + clear any prior tamper flag (best-effort) ──
+    // `signed_expires_at` is the exact expiry we are about to sign into the payload below.
+    // It is the immutable ground truth the ping route compares device reports against, and
+    // is deliberately SEPARATE from `expires_at` (which an admin may later shorten/extend).
+    // A fresh (re)activation also clears any previous expiry-tamper flag. Non-blocking:
+    // run scripts/add_expiry_tamper.sql to add these columns (until then this logs + skips).
+    {
+      const { error: etError } = await supabaseAdmin
+        .from('activation_keys')
+        .update({
+          signed_expires_at: expiresAt.toISOString(),
+          expiry_tamper_flag: false,
+          expiry_tamper_at: null,
+          expiry_tamper_detail: null,
+        })
+        .eq('id', keyRecord.id);
+      if (etError) {
+        logger.warn({ event: 'SIGNED_EXPIRY_PERSIST_FAILED', keyId: keyRecord.id, error: etError.message });
+      }
+    }
+
     // ── 4. Fetch School metadata ───────────────────────────────────────────
     const { data: school } = await supabaseAdmin
       .from('schools')
@@ -630,18 +694,9 @@ export async function POST(req: NextRequest) {
     const payloadStr = JSON.stringify(payload);
 
     // ── 6. Sign payload with ECDSA private key ────────────────────────────
-    let privateKeyPem = process.env.PRIVATE_KEY?.replace(/\\n/g, '\n');
-    if (!privateKeyPem) {
-      let targetPrivatePath = PRIVATE_KEY_PATH;
-      if (!fs.existsSync(targetPrivatePath)) {
-        targetPrivatePath = path.join('/tmp', 'keys', 'private.pem');
-      }
-      privateKeyPem = fs.readFileSync(targetPrivatePath, 'utf8');
-    }
-    const signer = crypto.createSign('SHA256');
-    signer.update(payloadStr);
-    signer.end();
-    const signature = signer.sign(privateKeyPem, 'base64');
+    // Shared signer (src/lib/licenseSign.ts) — same key /api/device/ping uses to
+    // sign Signed Renewable Leases, so the client verifies both with one pinned key.
+    const signature = signPayload(payloadStr);
 
     // ── 7. Log success ────────────────────────────────────────────────────
     await logHandshake({
@@ -673,8 +728,10 @@ export async function POST(req: NextRequest) {
     // (RSA-OAEP-SHA256) — only that device's TEE/StrongBox private key can unwrap it.
     // The old symmetric Tier-2 wrap is removed: its key was derived from the shared
     // native HMAC secret that has been deleted from the app.
+    // Windows/TPM unwraps with OAEP-SHA256; Android Keystore requires OAEP-SHA1.
+    const oaepHash: 'sha1' | 'sha256' = isWindows ? 'sha256' : 'sha1';
     const wrapOne = (plaintext: string): string => {
-      const out = wrapToPublicKey(plaintext, device_wrap_pubkey);
+      const out = wrapToPublicKey(plaintext, device_wrap_pubkey, oaepHash);
       if (!out) throw new Error('Failed to wrap CEK to device public key');
       return out;
     };

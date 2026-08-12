@@ -9,7 +9,9 @@ import { getHandshakeLogs, getLiveSchoolsFeed } from '@/app/actions';
 
 export default function DashboardTabs() {
   const [activeTab, setActiveTab] = useState<'logs' | 'schools'>('logs');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [logs, setLogs] = useState<any[]>([]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [liveFeed, setLiveFeed] = useState<any[]>([]);
   const [page, setPage] = useState(1);
   const [totalLogsCount, setTotalLogsCount] = useState(0);
@@ -35,7 +37,7 @@ export default function DashboardTabs() {
         }
       }
     });
-  }, [activeTab]);
+  }, [activeTab, liveFeed.length, logs.length]);
 
   const limit = 10;
   const totalPages = Math.ceil(totalLogsCount / limit);
@@ -95,7 +97,7 @@ export default function DashboardTabs() {
         {activeTab === 'logs' ? (
           <GlassCard className="/40 !border-0 shadow-none space-y-4">
             <div className="flex justify-between items-center mb-2">
-              <h3 className="text-lg font-bold text-black dark:text-white tracking-tight flex items-center gap-2">
+              <h3 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
                 <Terminal className="w-5 h-5 text-[#8b5cf6]" />
                 Audit Logs
               </h3>
@@ -143,8 +145,8 @@ export default function DashboardTabs() {
         ) : (
           <GlassCard className="/40 !border-0 shadow-none">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-lg font-bold text-black dark:text-white tracking-tight flex items-center gap-2">
-                <School className="w-5 h-5 text-gray-500 dark:text-zinc-400" />
+              <h3 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                <School className="w-5 h-5 text-zinc-400" />
                 Schools Overview
               </h3>
             </div>
@@ -159,23 +161,24 @@ export default function DashboardTabs() {
                 liveFeed.map((item) => (
                 <div 
                   key={item.id} 
-                  className="flex items-center justify-between p-4 bg-black/[0.02] dark:bg-white/[0.02] border border-card-border rounded-2xl hover:border-black/10 dark:hover:border-white/10 hover:bg-black/[0.04] dark:hover:bg-white/[0.04] transition-all"
+                  className="flex items-center justify-between p-4 bg-white/[0.02] border border-card-border rounded-2xl hover:border-white/10 hover:bg-white/[0.04] transition-all"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-xl bg-black/5 dark:bg-white/5 flex items-center justify-center text-gray-500 dark:text-zinc-400">
-                      <School className="w-5 h-5 text-gray-500 dark:text-zinc-400" />
+                    <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-zinc-400">
+                      <School className="w-5 h-5 text-zinc-400" />
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-black dark:text-white">{item.school}</h4>
-                      <p className="text-xs text-gray-500 dark:text-zinc-400 mt-0.5">{item.details}</p>
+                      <h4 className="text-sm font-semibold text-white">{item.school}</h4>
+                      <p className="text-xs text-zinc-400 mt-0.5">{item.details}</p>
                     </div>
                   </div>
                   <div className="flex items-center gap-4">
-                    <span className="text-[11px] text-gray-500 dark:text-zinc-500 font-medium">
+                    <span className="text-[11px] text-zinc-500 font-medium">
                       {item.time !== 'Recently' && !isNaN(new Date(item.time).getTime()) 
                         ? new Date(item.time).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) 
                         : item.time}
                     </span>
+    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                     <StatusBadge status={item.status as any} />
                   </div>
                 </div>

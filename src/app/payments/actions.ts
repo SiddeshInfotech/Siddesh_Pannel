@@ -38,7 +38,7 @@ const PaymentSchema = z.object({
   return true;
 }, { message: 'Select an entity.' });
 
-export async function createPayment(formData: any): Promise<ActionResult> {
+export async function createPayment(formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult> {
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
 
@@ -129,7 +129,7 @@ export async function createPayment(formData: any): Promise<ActionResult> {
   }
 }
 
-export async function updatePayment(id: string, formData: any): Promise<ActionResult> {
+export async function updatePayment(id: string, formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult> {
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
   if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);

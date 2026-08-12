@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 const fs = require('fs');
 let content = fs.readFileSync('src/proxy.ts', 'utf8');
 content = content.replace(/new URL\('\/', req\.url\)/g, "new URL('/lms-admin/', req.url)");

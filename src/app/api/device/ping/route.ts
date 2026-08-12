@@ -3,6 +3,8 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
+import { signPayload } from '@/lib/licenseSign';
+import { sendSecurityAlert } from '@/lib/alert';
 
 // ============================================================================
 // POST /api/device/ping  — device online heartbeat (Telemetry, Phase 1)
@@ -37,8 +39,6 @@ const PingSchema = z.object({
   // Tier 8: set to "DECRYPT_FAILED" when a wrapped CEK failed to unwrap on-device since
   // the last heartbeat (previously swallowed to "" inside KeystoreCrypto.unwrap()).
   cek_status: z.enum(['DECRYPT_FAILED']).optional(),
-<<<<<<< Updated upstream
-=======
   // EXPIRY-TAMPER telemetry: the client fail-closes locally when it detects an attempt to
   // tamper with the licence/expiry, and reports the reason here so an admin can SEE it.
   //   CLOCK_ROLLBACK   — device wall clock was set behind the sealed monotonic high-water-mark
@@ -60,10 +60,15 @@ const PingSchema = z.object({
   // older builds omit it. When present, the heartbeat also stamps the matching per-platform
   // LMS Lab column on device_status (see lms-lab-device-platform.sql). Never affects authZ.
   os_platform: z.enum(['windows', 'linux', 'android']).optional(),
->>>>>>> Stashed changes
 });
 
 const isProd = process.env.NODE_ENV === 'production';
+// ── Signed Renewable Lease (SRL) — docs/Expiry_Server_Authority_Design.md ──────
+// Dark-launched: emit only when LMS_LEASE_ENABLED=true. Old clients ignore the extra
+// fields, so turning this on is backward compatible. The lease is ECDSA-signed with the
+// SAME key /api/activate uses, so the client verifies it with the already-pinned pubkey.
+const LEASE_ENABLED = process.env.LMS_LEASE_ENABLED === 'true';
+const LEASE_TTL_DAYS = Number(process.env.LMS_LEASE_TTL_DAYS ?? 14);
 const MAX_SKEW_MS = 5 * 60 * 1000;         // clock-drift tolerance for air-gapped tablets
 const SESSION_GAP_MS = 6 * 60 * 1000;      // gap > this ⇒ a NEW online session (new timeline row)
 const RL_IP_BURST = { win: 10 * 1000, max: 10 };
@@ -104,11 +109,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return generic(400, 'Invalid request.');
   }
-<<<<<<< Updated upstream
-  const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status } = body;
-=======
   const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status, tamper_status, reported_expiry, os_platform } = body;
->>>>>>> Stashed changes
   const reportedTier = (security_tier ?? '').trim();
 
   // Gate 1 — per-device rate limit.
@@ -139,6 +140,57 @@ export async function POST(req: NextRequest) {
     logger.error({ event: 'PING_KEY_LOOKUP_ERROR', error: keyErr.message });
     return generic(503, 'Service unavailable.');
   }
+  // Remote-kill propagation (P4): an admin "Deactivate" flips the key to 'Revoked'. That
+  // is a deliberate signal to THIS device — so when the revoked key is presented ON ITS OWN
+  // bound fingerprint (no information disclosure: the device is proving it already holds this
+  // exact key+fingerprint pair), answer 200 with kill:true instead of a blanket 403. Both the
+  // Android and Windows clients purge their keys + permanently block on kill. Any OTHER
+  // unauthorized shape (unknown key, or a fingerprint that does not match) still gets the
+  // uniform 403 below and learns nothing. Fires every ping until the device stops calling —
+  // idempotent on the client (purgeAndBlock is a no-op once blocked).
+  const ownRevoked = key
+    && key.status === 'Revoked'
+    && key.device_fingerprint === device_fingerprint;
+  if (ownRevoked) {
+    logger.warn({ event: 'PING_REMOTE_KILL', device_fingerprint, school_id: key.school_id, app_version });
+    // Best-effort audit trail so the panel timeline shows WHEN the kill actually reached the
+    // device (distinct from when the admin clicked Deactivate). Written EXACTLY ONCE: a killed
+    // device keeps pinging (its client purge is idempotent), so we skip the insert if a
+    // REMOTE_KILL row already exists for this device — no timeline spam. Never blocks the kill.
+    try {
+      const { data: priorKill } = await supabaseAdmin
+        .from('device_timeline')
+        .select('id')
+        .eq('device_fingerprint', device_fingerprint)
+        .eq('event_type', 'REMOTE_KILL')
+        .limit(1)
+        .maybeSingle();
+      if (!priorKill) {
+        const { error: ktErr } = await supabaseAdmin.from('device_timeline').insert({
+          device_fingerprint,
+          school_id: key.school_id,
+          event_type: 'REMOTE_KILL',
+          detail: { reason: 'revoked', app_version, ip },
+        });
+        if (ktErr) logger.warn({ event: 'PING_KILL_TIMELINE_FAILED', error: ktErr.message });
+        // Proactively alert admins the first time the kill actually reaches the device.
+        if (!ktErr) {
+          await sendSecurityAlert('REMOTE_KILL', `Device deactivated key reached device (school ${key.school_id})`, {
+            device_fingerprint, school_id: key.school_id, app_version, ip,
+          });
+        }
+      }
+    } catch (e) {
+      logger.warn({ event: 'PING_KILL_TIMELINE_FAILED', error: e instanceof Error ? e.message : String(e) });
+    }
+    return NextResponse.json({
+      ok: true,
+      kill: true,
+      kill_reason: 'revoked',
+      server_time: new Date().toISOString(),
+    });
+  }
+
   const bound = key
     && key.status === 'Active'
     && key.device_fingerprint === device_fingerprint;
@@ -235,6 +287,84 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // EXPIRY-TAMPER — the client fail-closed on a licence/expiry tamper attempt and told us
+  // why. Record it LOUDLY (log + a dedicated timeline event) so an admin can answer "did
+  // someone try to change the expiry on device X?" — the client is the only place that can
+  // observe a local edit / clock rollback (a large rollback never even reaches this endpoint
+  // because the timestamp-skew gate 401s it, so the device's own report is the signal).
+  if (tamper_status) {
+    logger.warn({
+      event: 'PING_EXPIRY_TAMPER',
+      reason: tamper_status,
+      device_fingerprint,
+      school_id: key.school_id,
+      security_tier: reportedTier || null,
+      app_version,
+      ip,
+    });
+    await supabaseAdmin.from('device_timeline').insert({
+      device_fingerprint,
+      school_id: key.school_id,
+      event_type: 'EXPIRY_TAMPER',
+      detail: { reason: tamper_status, app_version, ip, security_tier: reportedTier || null },
+    });
+    await sendSecurityAlert('EXPIRY_TAMPER', `Device reported ${tamper_status} (school ${key.school_id})`, {
+      reason: tamper_status, device_fingerprint, school_id: key.school_id, app_version, ip,
+    });
+  }
+
+  // SERVER-SIDE EXPIRY-TAMPER (the robust, un-spoofable detector) — compare the expiry the
+  // device reports against what we SIGNED at activation (signed_expires_at, immutable to admin
+  // edits). If the device claims a LATER expiry than was ever signed, it extended its own
+  // licence → flag it. FALSE-POSITIVE-SAFE: admin shorten/extend never changes signed_expires_at,
+  // and we only flag `reported > signed`. DEDUPLICATED via a conditional false→true flip, so a
+  // tampered device writes exactly ONE timeline row (no panel spam, no new rate-limit surface).
+  // Fully fail-open: a missing column, parse error, or race just skips — never breaks the ping.
+  if (reported_expiry) {
+    try {
+      const { data: exRow, error: exErr } = await supabaseAdmin
+        .from('activation_keys')
+        .select('signed_expires_at, expiry_tamper_flag')
+        .eq('id', key.id)
+        .maybeSingle();
+      const signedMs = exRow?.signed_expires_at ? new Date(exRow.signed_expires_at).getTime() : NaN;
+      const reportedMs = new Date(reported_expiry).getTime();
+      const TOLERANCE_MS = 60_000; // absorb format/rounding; only a real extension trips it
+      if (!exErr && Number.isFinite(signedMs) && Number.isFinite(reportedMs)
+          && reportedMs > signedMs + TOLERANCE_MS && exRow?.expiry_tamper_flag !== true) {
+        const detail = {
+          reason: 'SERVER_MISMATCH',
+          reported_expiry,
+          signed_expires_at: exRow?.signed_expires_at ?? null,
+          extra_days: Math.round((reportedMs - signedMs) / 86_400_000),
+          app_version,
+          ip,
+        };
+        // Conditional false→true flip → exactly-once even under concurrent heartbeats.
+        const { data: flipped, error: flagErr } = await supabaseAdmin
+          .from('activation_keys')
+          .update({ expiry_tamper_flag: true, expiry_tamper_at: new Date(now).toISOString(), expiry_tamper_detail: detail })
+          .eq('id', key.id)
+          .eq('expiry_tamper_flag', false)
+          .select('id');
+        if (!flagErr && flipped && flipped.length > 0) {
+          logger.warn({ event: 'PING_EXPIRY_TAMPER_SERVER', device_fingerprint, school_id: key.school_id, ...detail });
+          await supabaseAdmin.from('device_timeline').insert({
+            device_fingerprint,
+            school_id: key.school_id,
+            event_type: 'EXPIRY_TAMPER',
+            detail,
+          });
+          await sendSecurityAlert('EXPIRY_TAMPER', `Device claimed +${detail.extra_days}d beyond signed expiry (school ${key.school_id})`, {
+            device_fingerprint, school_id: key.school_id, ...detail,
+          });
+        }
+      }
+    } catch (e) {
+      logger.warn({ event: 'PING_EXPIRY_COMPARE_FAILED', error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   if (newSession) {
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
@@ -244,9 +374,48 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // ── Signed Renewable Lease (SRL) ────────────────────────────────────────────
+  // Reached only on the bound + Active success path (Gate 4 already 403'd revoked/
+  // unbound devices). The lease is the client's CURRENT, trusted source of expiry +
+  // time: short-lived, fingerprint-bound, and nonce-bound (the nonce was single-use-
+  // verified above). Entirely additive + best-effort — a signing/DB error never breaks
+  // the heartbeat; we just omit the lease and the client falls back to staleness.
+  const nowIso = new Date(now).toISOString();
+  let lease_str: string | undefined;
+  let lease_sig: string | undefined;
+  if (LEASE_ENABLED) {
+    try {
+      const lease = {
+        v: 1,
+        device_fingerprint,
+        activation_key_id: key.id,
+        issued_at: nowIso,                                        // TRUSTED server time
+        not_after: new Date(now + LEASE_TTL_DAYS * 86_400_000).toISOString(),
+        subscription_expires_at: key.expires_at ?? null,          // authoritative expiry
+        status: expired ? 'Expired' : 'Active',                   // bound ⇒ key is Active
+        nonce,                                                     // echo → binds to THIS request
+      };
+      lease_str = JSON.stringify(lease);
+      lease_sig = signPayload(lease_str);
+      // Audit only (best-effort): when we last leased this device. Column added by
+      // scripts/add_device_lease.sql; a not-yet-migrated column must not break the ping.
+      const { error: leErr } = await supabaseAdmin
+        .from('activation_keys')
+        .update({ last_lease_issued_at: nowIso })
+        .eq('id', key.id);
+      if (leErr) logger.warn({ event: 'PING_LEASE_AUDIT_PERSIST_FAILED', error: leErr.message });
+    } catch (e) {
+      lease_str = undefined;
+      lease_sig = undefined;
+      logger.warn({ event: 'PING_LEASE_SIGN_FAILED', error: e instanceof Error ? e.message : String(e) });
+    }
+  }
+
   return NextResponse.json({
     ok: true,
-    server_time: new Date(now).toISOString(), // device clock sync
+    server_time: nowIso,      // device clock sync
     expired,
+    // Present only when SRL is enabled and signing succeeded; omitted otherwise.
+    ...(lease_str && lease_sig ? { lease_str, lease_sig } : {}),
   });
 }

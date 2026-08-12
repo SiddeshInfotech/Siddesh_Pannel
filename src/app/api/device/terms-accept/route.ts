@@ -41,7 +41,11 @@ const TermsSchema = z.object({
   device_model: z.string().max(120).optional(),
   device_os: z.string().max(60).optional(),
   // NC-1 hardware key-attestation (same scheme as /api/activate).
-  device_wrap_pubkey: z.string().min(1),
+  // [WINDOWS] Desktop has no Android Keystore/StrongBox: the Windows client reports
+  // security_tier "DESKTOP" with an empty device_wrap_pubkey / attestation_chain. That
+  // tier is NOT attestation-capable (see ATTEST_CAPABLE_TIERS), so it is audit-only and
+  // never enforced — Android's hardware-attestation enforcement is unchanged.
+  device_wrap_pubkey: z.string().max(4096).optional().default(''),
   attestation_chain: z.array(z.string()).optional(),
   security_tier: z
     .enum([
@@ -59,6 +63,9 @@ const TermsSchema = z.object({
       'WIN_TPM_ATTESTED',
       'WIN_TPM_NOATTEST',
       'WIN_SW_ONLY',
+      // Legacy desktop consent path (empty pubkey + tier "DESKTOP"). Kept for backward
+      // compatibility with older Windows builds; also audit-only, never blocked.
+      'DESKTOP',
     ])
     .optional(),
 });

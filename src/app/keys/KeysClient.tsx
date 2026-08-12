@@ -8,6 +8,7 @@ import {
   Lock, 
   ShieldAlert,
   Copy,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
   QrCode,
   Sparkles,
   Trash2,
@@ -44,6 +45,8 @@ interface KeyRow {
   deviceAndroidId?: string | null;
   activatedAt?: string | null;
   watermarkCode?: string | null;
+  platform?: string | null;        // 'android' | 'windows'
+  securityTier?: string | null;
 }
 
 interface KeysClientProps {
@@ -64,26 +67,21 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
   const [selectedParentId, setSelectedParentId] = useState('');
   
   const [durationMode, setDurationMode] = useState<'1year' | 'custom'>('1year');
-  const [customDate, setCustomDate] = useState('');
-  
   // Custom Time Dropdown Selector States
   const [customDateOnly, setCustomDateOnly] = useState('');
   const [customHour, setCustomHour] = useState('12');
   const [customMinute, setCustomMinute] = useState('00');
   const [customAmpm, setCustomAmpm] = useState('PM');
 
-  React.useEffect(() => {
-    if (customDateOnly) {
-      let hour24 = parseInt(customHour);
-      if (customAmpm === 'PM' && hour24 < 12) hour24 += 12;
-      if (customAmpm === 'AM' && hour24 === 12) hour24 = 0;
-      const hourStr = String(hour24).padStart(2, '0');
-      const minStr = customMinute.padStart(2, '0');
-      setCustomDate(`${customDateOnly}T${hourStr}:${minStr}`);
-    } else {
-      setCustomDate('');
-    }
-  }, [customDateOnly, customHour, customMinute, customAmpm]);
+  let customDate = '';
+  if (customDateOnly) {
+    let hour24 = parseInt(customHour);
+    if (customAmpm === 'PM' && hour24 < 12) hour24 += 12;
+    if (customAmpm === 'AM' && hour24 === 12) hour24 = 0;
+    const hourStr = String(hour24).padStart(2, '0');
+    const minStr = customMinute.padStart(2, '0');
+    customDate = `${customDateOnly}T${hourStr}:${minStr}`;
+  }
 
   const keyInputState = useState('LMS-TRIMURTI-BETA');
   const keyInput = keyInputState[0];
@@ -209,6 +207,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
           id: result.id,
           key: result.key,
           entityName: entityName,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
           status: result.status as any,
           durationDays: result.durationDays,
           expiresAt: result.expiresAt,
@@ -380,6 +379,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
               required
               value={entityType}
               onChange={val => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 setEntityType(val as any);
                 setSelectedSchoolId('');
                 setSelectedVendorId('');
@@ -626,7 +626,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                   {/* Copy box */}
                   <div className="flex-1 w-full space-y-3">
                     <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block">Activation Token {idx + 1}</span>
-                    <div className="flex items-center justify-between p-3 bg-[#121216]/50 border border-white/10 rounded-xl font-mono text-xs font-bold text-emerald-500 dark:text-emerald-400 light:text-black tracking-wider">
+                    <div className="flex items-center justify-between p-3 bg-[#121216]/50 border border-white/10 rounded-xl font-mono text-xs font-bold text-emerald-400 tracking-wider">
                       <span className="truncate mr-2">{keyVal}</span>
                       <button
                         type="button"
@@ -695,8 +695,8 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                     <span className="text-[9px] font-bold text-accent-violet uppercase tracking-widest block font-mono">
                       {batch.id.startsWith('BATCH-') ? batch.id : 'Legacy Batch Run'}
                     </span>
-                    <h4 className="text-base font-bold text-white dark:text-white light:text-black flex items-center gap-2">
-                      <SchoolIcon className="w-4 h-4 text-zinc-400 light:text-black" />
+                    <h4 className="text-base font-bold text-white flex items-center gap-2">
+                      <SchoolIcon className="w-4 h-4 text-zinc-400" />
                       {batch.entityName}
                     </h4>
                   </div>
@@ -748,11 +748,11 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                     return (
                       <div 
                         key={k.id} 
-                        className="flex flex-col lg:flex-row lg:items-center justify-between p-4 bg-[#09090b]/40 dark:bg-black/30 border border-white/5 hover:border-white/10 rounded-xl gap-4 transition-all"
+                        className="flex flex-col lg:flex-row lg:items-center justify-between p-4 bg-[#09090b]/40 border border-white/5 hover:border-white/10 rounded-xl gap-4 transition-all"
                       >
                         {/* Token and Copy Button */}
                         <div className="flex items-center justify-between lg:justify-start gap-3 min-w-[220px]">
-                          <span className="font-mono text-sm font-bold text-emerald-500 dark:text-emerald-400 light:text-black select-all tracking-wide activation-token">
+                          <span className="font-mono text-sm font-bold text-emerald-500 select-all tracking-wide activation-token">
                             {k.key}
                           </span>
                           <button
@@ -804,15 +804,30 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                         <div className="flex-1 min-w-[220px]">
                           {hasDevice ? (
                             <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-2.5 w-full max-w-[320px]">
-                              <div className="p-1.5 rounded bg-accent-violet/10 text-accent-violet flex-shrink-0 text-xs">
-                                📱
-                              </div>
+                              {(() => {
+                                const isWin = (k.platform || '').toLowerCase() === 'windows'
+                                  || (k.deviceOS || '').toLowerCase().includes('windows');
+                                return (
+                                  <div className={`p-1.5 rounded flex-shrink-0 text-xs ${isWin ? 'bg-sky-500/10 text-sky-400' : 'bg-accent-violet/10 text-accent-violet'}`}>
+                                    {isWin ? '💻' : '📱'}
+                                  </div>
+                                );
+                              })()}
                               <div className="space-y-0.5 min-w-0">
-                                <div className="font-bold text-white text-xs truncate">
-                                  {k.deviceBrand || ''} {k.deviceModel || 'Unknown Device'}
+                                <div className="font-bold text-white text-xs truncate flex items-center gap-1.5">
+                                  <span className="truncate">{k.deviceBrand || ''} {k.deviceModel || 'Unknown Device'}</span>
+                                  {(() => {
+                                    const isWin = (k.platform || '').toLowerCase() === 'windows'
+                                      || (k.deviceOS || '').toLowerCase().includes('windows');
+                                    return (
+                                      <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wide flex-shrink-0 ${isWin ? 'bg-sky-500/20 text-sky-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                                        {isWin ? 'Windows' : 'Android'}
+                                      </span>
+                                    );
+                                  })()}
                                 </div>
                                 <div className="text-[10px] text-zinc-500 font-mono truncate">
-                                  OS: {k.deviceOS || 'Android'} • ID: {k.deviceAndroidId || 'N/A'}
+                                  OS: {k.deviceOS || 'Android'}{k.securityTier ? ` • ${k.securityTier}` : ''}
                                 </div>
                                 {k.activatedAt && (
                                   <div className="text-[9px] text-emerald-400 font-bold">

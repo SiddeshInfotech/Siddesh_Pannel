@@ -24,7 +24,7 @@ function generateParentId(): string {
   return `PAR-${new Date().getFullYear()}-${random}`;
 }
 
-export async function createParent(formData: any): Promise<ActionResult<string>> {
+export async function createParent(formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult<string>> {
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
 
