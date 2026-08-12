@@ -33,6 +33,10 @@ interface KeyRow {
   id: string;
   key: string;
   entityName: string;
+  // Exactly one of these is set — determines the entity type for the two-level filter.
+  schoolId?: string;
+  vendorId?: string;
+  parentId?: string;
   status: 'Unpaid' | 'Paid' | 'Active' | 'Revoked';
   durationDays: number;
   expiresAt?: string | null;
@@ -89,6 +93,9 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
   const [keyCount, setKeyCount] = useState(1);
   const [generatedKeys, setGeneratedKeys] = useState<string[]>([]);
   const [copiedKeyIndex, setCopiedKeyIndex] = useState<number | null>(null);
+  // Two-level filter (image 2): first pick the entity TYPE, then a specific entity
+  // of that type (or all of that type). filterSchoolId holds the selected entity name.
+  const [filterEntityType, setFilterEntityType] = useState<'all' | 'School' | 'Vendor' | 'Parent'>('all');
   const [filterSchoolId, setFilterSchoolId] = useState('all');
   // Search by activation token OR forensic watermark code (the faint code seen in a
   // leaked recording) — lets an admin trace a leak straight back to the bound tablet.
@@ -207,6 +214,9 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
           id: result.id,
           key: result.key,
           entityName: entityName,
+          schoolId: entityType === 'School' ? selectedSchoolId : undefined,
+          vendorId: entityType === 'Vendor' ? selectedVendorId : undefined,
+          parentId: entityType === 'Individual' ? selectedParentId : undefined,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
           status: result.status as any,
           durationDays: result.durationDays,
@@ -307,23 +317,35 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
     setTimeout(() => setCopiedKeyIndex(null), 2000);
   };
 
+  const keyEntityType = (k: KeyRow): 'School' | 'Vendor' | 'Parent' =>
+    k.vendorId ? 'Vendor' : k.parentId ? 'Parent' : 'School';
+
+  // Entity names available for the second dropdown, scoped to the chosen type.
   const keySchools = React.useMemo(() => {
     const unique = new Map<string, string>();
     keyList.forEach(k => {
+      if (filterEntityType !== 'all' && keyEntityType(k) !== filterEntityType) return;
       unique.set(k.entityName, k.entityName);
     });
     return Array.from(unique.keys()).sort();
-  }, [keyList]);
+  }, [keyList, filterEntityType]);
 
   const filterOptions = React.useMemo(() => {
+    const allLabel =
+      filterEntityType === 'School' ? 'All Schools'
+      : filterEntityType === 'Vendor' ? 'All Vendors'
+      : filterEntityType === 'Parent' ? 'All Parents'
+      : 'All Entities';
     return [
-      { value: 'all', label: 'All Entities' },
+      { value: 'all', label: allLabel },
       ...keySchools.map(name => ({ value: name, label: name }))
     ];
-  }, [keySchools]);
+  }, [keySchools, filterEntityType]);
 
   const filteredKeyList = React.useMemo(() => {
-    let list = filterSchoolId === 'all' ? keyList : keyList.filter(k => k.entityName === filterSchoolId);
+    let list = keyList;
+    if (filterEntityType !== 'all') list = list.filter(k => keyEntityType(k) === filterEntityType);
+    if (filterSchoolId !== 'all') list = list.filter(k => k.entityName === filterSchoolId);
     const q = searchQuery.trim().toUpperCase();
     if (q) {
       list = list.filter(k =>
@@ -332,7 +354,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
       );
     }
     return list;
-  }, [keyList, filterSchoolId, searchQuery]);
+  }, [keyList, filterEntityType, filterSchoolId, searchQuery]);
 
   const batches = React.useMemo(() => {
     const map: { [key: string]: { id: string; entityName: string; createdAt: string; keys: KeyRow[] } } = {};
@@ -671,8 +693,24 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                 className="w-full pl-9 pr-3 py-2.5 bg-[#121216]/60 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-xs text-zinc-200 focus:outline-none transition-all font-mono tracking-wide"
               />
             </div>
-            <div className="flex items-center gap-3 w-full sm:w-[260px]">
-              <span className="text-xs font-bold text-zinc-400 whitespace-nowrap">Filter School:</span>
+            <div className="flex items-center gap-2 w-full sm:w-[180px]">
+              <span className="text-xs font-bold text-zinc-400 whitespace-nowrap">Filter:</span>
+              <CustomSelect
+                value={filterEntityType}
+                onChange={val => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  setFilterEntityType(val as any);
+                  setFilterSchoolId('all'); // reset the dependent entity dropdown
+                }}
+                options={[
+                  { value: 'all', label: 'All Types' },
+                  { value: 'School', label: 'School' },
+                  { value: 'Vendor', label: 'Vendor' },
+                  { value: 'Parent', label: 'Parent' },
+                ]}
+              />
+            </div>
+            <div className="flex items-center gap-2 w-full sm:w-[230px]">
               <CustomSelect
                 value={filterSchoolId}
                 onChange={val => setFilterSchoolId(val)}

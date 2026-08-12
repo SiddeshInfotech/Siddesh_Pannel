@@ -51,6 +51,26 @@ interface DeviceRow {
   exactLastSync: string;
   remainingTime: string;
   status: 'Active' | 'Inactive' | 'Revoked' | 'Unpaid' | 'Paid';
+  // Entity ownership (school | vendor | student). Drives the Schools/Vendors/Users filter.
+  entityType: 'school' | 'vendor' | 'student';
+  entityName: string;
+  // Vendor detail (admin-only view).
+  vendorId: string;
+  vendorCode: string;
+  vendorCategory: string;
+  vendorCity: string;
+  vendorState: string;
+  vendorEmail: string;
+  vendorPhone: string;
+  vendorYear: string;
+  // Student / parent detail (admin-only view).
+  studentName: string;
+  studentGrade: string;
+  parentName: string;
+  parentEmail: string;
+  parentPhone: string;
+  parentCity: string;
+  parentState: string;
   schoolName: string;
   schoolCustomId: string;
   schoolBoard: string;
@@ -238,12 +258,16 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
     return Monitor;
   };
 
+  // Schools → school devices, Vendors → vendor devices, Users → student/parent devices.
+  const entityFilterType = entityFilter === 'Vendors' ? 'vendor' : entityFilter === 'Users' ? 'student' : 'school';
   const filteredDevices = devicesList.filter(dev => {
-    if (entityFilter !== 'Schools') return false; // Database doesn't have Vendor/User devices yet
+    // Older device rows (activated before entityType existed) default to 'school'.
+    if ((dev.entityType || 'school') !== entityFilterType) return false;
     if (productFilter !== 'all' && dev.product !== productFilter) return false;
-    return dev.model.toLowerCase().includes(search.toLowerCase()) ||
-    dev.fingerprint.toLowerCase().includes(search.toLowerCase()) ||
-    dev.schoolName.toLowerCase().includes(search.toLowerCase());
+    const q = search.toLowerCase();
+    return dev.model.toLowerCase().includes(q) ||
+      dev.fingerprint.toLowerCase().includes(q) ||
+      (dev.entityName || dev.schoolName).toLowerCase().includes(q);
   });
 
   return (
@@ -315,7 +339,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
               <tr className="border-b border-card-border text-[10px] uppercase font-bold text-zinc-500 tracking-wider">
                 <th className="py-4 px-3">Device (Model + OS)</th>
                 <th className="py-4 px-3">Hardware Fingerprint</th>
-                <th className="py-4 px-3">School Name</th>
+                <th className="py-4 px-3">{entityFilter === 'Vendors' ? 'Vendor Name' : entityFilter === 'Users' ? 'Student Name' : 'School Name'}</th>
                 <th className="py-4 px-3">Security Tier</th>
                 <th className="py-4 px-3">Product</th>
                 <th className="py-4 px-3">Consent</th>
@@ -354,7 +378,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                       </td>
                       <td className="py-4 px-3 text-sm font-bold text-zinc-300 group-hover:text-white transition-colors">
                         <div className="flex items-center gap-2">
-                          <span>{dev.schoolName}</span>
+                          <span>{dev.entityName || dev.schoolName}</span>
                           {dev.expiryTamper && (
                             <span
                               title={`Expiry tamper detected${dev.expiryTamperAt ? ` on ${dev.expiryTamperAt}` : ''}${dev.expiryTamperDetail?.extra_days ? ` (+${dev.expiryTamperDetail.extra_days}d claimed)` : ''}`}
@@ -633,70 +657,152 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                 </div>
               </div>
 
-              {/* 3. School Profile Binding */}
+              {/* 3. Entity Profile Binding (School / Vendor / Student) */}
               <div>
                 <h4 className="text-xs font-extrabold uppercase text-accent-violet tracking-wider mb-3 flex items-center gap-2">
                   <BookOpen className="w-4 h-4" />
-                  School Information Binding
+                  {selectedDevice.entityType === 'vendor' ? 'Vendor Information Binding'
+                    : selectedDevice.entityType === 'student' ? 'Student Information Binding'
+                    : 'School Information Binding'}
                 </h4>
-                <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-4">
-                  <div className="flex justify-between items-start border-b border-white/5 pb-3 flex-wrap gap-2">
-                    <div>
-                      <span className="text-[10px] text-zinc-500 uppercase font-bold">Bound School ID</span>
-                      <code className="block text-xs text-zinc-400 font-mono font-semibold">{selectedDevice.schoolCustomId}</code>
-                    </div>
-                    <div>
-                      <span className="text-[10px] text-zinc-500 uppercase font-bold">School Name</span>
-                      <span className="block text-sm text-white font-bold">{selectedDevice.schoolName}</span>
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-y-4 gap-x-6 text-xs">
-                    <div>
-                      <span className="block text-[10px] text-zinc-500 uppercase font-bold">Affiliation Board</span>
-                      <span className="text-zinc-300 font-semibold flex items-center gap-1 mt-0.5">
-                        <Award className="w-3.5 h-3.5 text-accent-violet" />
-                        {selectedDevice.schoolBoard}
-                      </span>
+                {/* VENDOR */}
+                {selectedDevice.entityType === 'vendor' ? (
+                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-4">
+                    <div className="flex justify-between items-start border-b border-white/5 pb-3 flex-wrap gap-2">
+                      <div>
+                        <span className="text-[10px] text-zinc-500 uppercase font-bold">Vendor ID</span>
+                        <code className="block text-xs text-zinc-400 font-mono font-semibold">{selectedDevice.vendorId}</code>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-zinc-500 uppercase font-bold">Vendor Name</span>
+                        <span className="block text-sm text-white font-bold">{selectedDevice.entityName}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="block text-[10px] text-zinc-500 uppercase font-bold">Class standard</span>
-                      <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.schoolStandard || 'N/A'}</span>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-y-4 gap-x-6 text-xs">
+                      <div>
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Vendor Code</span>
+                        <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.vendorCode}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Category</span>
+                        <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.vendorCategory}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Year</span>
+                        <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.vendorYear}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Location</span>
+                        <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.vendorCity}, {selectedDevice.vendorState}</span>
+                      </div>
                     </div>
-                    <div>
-                      <span className="block text-[10px] text-zinc-500 uppercase font-bold">Section Code</span>
-                      <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.schoolSection || 'N/A'}</span>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] text-zinc-500 uppercase font-bold">Academic Year</span>
-                      <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.schoolAcademicYear || 'N/A'}</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="block text-[10px] text-zinc-500 uppercase font-bold">Medium(s) of Instruction</span>
-                      <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.schoolMediums}</span>
-                    </div>
-                    <div className="col-span-2">
-                      <span className="block text-[10px] text-zinc-500 uppercase font-bold">Class Bind Designation</span>
-                      <span className="text-zinc-300 font-semibold mt-0.5 block text-accent-violet">{selectedDevice.schoolClassName || 'N/A'}</span>
+                    <div className="pt-3 border-t border-white/5 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <Mail className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                        <span className="truncate select-all"><b>Email:</b> {selectedDevice.vendorEmail}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <Phone className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                        <span className="truncate select-all"><b>Phone:</b> {selectedDevice.vendorPhone}</span>
+                      </div>
                     </div>
                   </div>
+                ) : selectedDevice.entityType === 'student' ? (
+                  /* STUDENT / PARENT */
+                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-4">
+                    <div className="flex justify-between items-start border-b border-white/5 pb-3 flex-wrap gap-2">
+                      <div>
+                        <span className="text-[10px] text-zinc-500 uppercase font-bold">Student Name</span>
+                        <span className="block text-sm text-white font-bold">{selectedDevice.studentName}</span>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-zinc-500 uppercase font-bold">Grade</span>
+                        <span className="block text-sm text-white font-bold">{selectedDevice.studentGrade}</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-y-4 gap-x-6 text-xs">
+                      <div>
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Parent / Guardian</span>
+                        <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.parentName}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Location</span>
+                        <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.parentCity}, {selectedDevice.parentState}</span>
+                      </div>
+                    </div>
+                    <div className="pt-3 border-t border-white/5 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <Mail className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                        <span className="truncate select-all"><b>Email:</b> {selectedDevice.parentEmail}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <Phone className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                        <span className="truncate select-all"><b>Phone:</b> {selectedDevice.parentPhone}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* SCHOOL (unchanged) */
+                  <div className="p-4 rounded-xl bg-white/[0.02] border border-white/5 space-y-4">
+                    <div className="flex justify-between items-start border-b border-white/5 pb-3 flex-wrap gap-2">
+                      <div>
+                        <span className="text-[10px] text-zinc-500 uppercase font-bold">Bound School ID</span>
+                        <code className="block text-xs text-zinc-400 font-mono font-semibold">{selectedDevice.schoolCustomId}</code>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-zinc-500 uppercase font-bold">School Name</span>
+                        <span className="block text-sm text-white font-bold">{selectedDevice.schoolName}</span>
+                      </div>
+                    </div>
 
-                  {/* School Contacts */}
-                  <div className="pt-3 border-t border-white/5 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
-                    <div className="flex items-center gap-2 text-zinc-400">
-                      <User className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
-                      <span className="truncate"><b>Coord:</b> {selectedDevice.schoolCoordinator}</span>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-y-4 gap-x-6 text-xs">
+                      <div>
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Affiliation Board</span>
+                        <span className="text-zinc-300 font-semibold flex items-center gap-1 mt-0.5">
+                          <Award className="w-3.5 h-3.5 text-accent-violet" />
+                          {selectedDevice.schoolBoard}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Class standard</span>
+                        <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.schoolStandard || 'N/A'}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Section Code</span>
+                        <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.schoolSection || 'N/A'}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Academic Year</span>
+                        <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.schoolAcademicYear || 'N/A'}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Medium(s) of Instruction</span>
+                        <span className="text-zinc-300 font-medium mt-0.5 block">{selectedDevice.schoolMediums}</span>
+                      </div>
+                      <div className="col-span-2">
+                        <span className="block text-[10px] text-zinc-500 uppercase font-bold">Class Bind Designation</span>
+                        <span className="text-zinc-300 font-semibold mt-0.5 block text-accent-violet">{selectedDevice.schoolClassName || 'N/A'}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 text-zinc-400">
-                      <Mail className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
-                      <span className="truncate select-all"><b>Email:</b> {selectedDevice.schoolEmail}</span>
-                    </div>
-                    <div className="flex items-center gap-2 text-zinc-400">
-                      <Phone className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
-                      <span className="truncate select-all"><b>Phone:</b> {selectedDevice.schoolPhone}</span>
+
+                    {/* School Contacts */}
+                    <div className="pt-3 border-t border-white/5 grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <User className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                        <span className="truncate"><b>Coord:</b> {selectedDevice.schoolCoordinator}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <Mail className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                        <span className="truncate select-all"><b>Email:</b> {selectedDevice.schoolEmail}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-zinc-400">
+                        <Phone className="w-3.5 h-3.5 text-zinc-500 flex-shrink-0" />
+                        <span className="truncate select-all"><b>Phone:</b> {selectedDevice.schoolPhone}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
             </div>
 

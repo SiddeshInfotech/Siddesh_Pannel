@@ -19,14 +19,24 @@ const SCHOOL_COLS = `schools (
         id, name, school_id, board, mediums, academic_year, section, standard,
         full_class_name, coordinator_name, email, phone
       )`;
+// Vendor + Parent embeds — a device belongs to exactly one entity. Vendor rows show the
+// vendor (this is the ADMIN's own dashboard, so the full name is fine here — the privacy
+// limit only applies to what the vendor's own APP receives). Parent rows show the student.
+const VENDOR_COLS = `vendors (
+        vendor_id, vendor_name, vendor_code, business_category, standard, academic_year, city, state, email_address, mobile_number
+      )`;
+const PARENT_COLS = `parents (
+        id, parent_id, parent_name, kid_name, grade, city, state, email, phone_number
+      )`;
 const KEY_COLS_BASE = `id, key, status, duration_days, expires_at, activated_at, last_known_monotonic_time,
+      school_id, vendor_id, parent_id,
       device_fingerprint, device_model, device_os, device_board, device_brand,
       device_device, device_manufacturer, device_android_id`;
 
 async function fetchActivatedKeys(includeTier: boolean) {
   const sel = includeTier
-    ? `${KEY_COLS_BASE}, security_tier, product, ${SCHOOL_COLS}`
-    : `${KEY_COLS_BASE}, ${SCHOOL_COLS}`;
+    ? `${KEY_COLS_BASE}, security_tier, product, ${SCHOOL_COLS}, ${VENDOR_COLS}, ${PARENT_COLS}`
+    : `${KEY_COLS_BASE}, ${SCHOOL_COLS}, ${VENDOR_COLS}, ${PARENT_COLS}`;
   return supabaseAdmin
     .from('activation_keys')
     .select(sel)
@@ -106,8 +116,41 @@ async function getDevicesData() {
     if (remainingTime === 'Expired' && status === 'Active') status = 'Inactive';
 
     const school = k.schools;
+    const vendor = k.vendors;
+    const parent = k.parents;
+
+    // Which entity owns this device (exactly one id is set). Drives the monitoring
+    // filter (Schools / Vendors / Users) and what the row + detail panel show.
+    let entityType: 'school' | 'vendor' | 'student' = 'school';
+    let entityName = school?.name || 'Unknown School';
+    if (k.vendor_id) {
+      entityType = 'vendor';
+      entityName = vendor?.vendor_name || vendor?.vendor_id || 'Unknown Vendor';
+    } else if (k.parent_id) {
+      entityType = 'student';
+      entityName = parent?.kid_name || parent?.parent_name || 'Unknown Student';
+    }
 
     return {
+      entityType,
+      entityName,
+      // Vendor detail (admin view).
+      vendorId: vendor?.vendor_id || k.vendor_id || 'N/A',
+      vendorCode: vendor?.vendor_code || 'N/A',
+      vendorCategory: vendor?.business_category || 'N/A',
+      vendorCity: vendor?.city || 'N/A',
+      vendorState: vendor?.state || 'N/A',
+      vendorEmail: vendor?.email_address || 'N/A',
+      vendorPhone: vendor?.mobile_number || 'N/A',
+      vendorYear: vendor?.academic_year || 'N/A',
+      // Student / parent detail (admin view).
+      studentName: parent?.kid_name || 'N/A',
+      studentGrade: parent?.grade || 'N/A',
+      parentName: parent?.parent_name || 'N/A',
+      parentEmail: parent?.email || 'N/A',
+      parentPhone: parent?.phone_number || 'N/A',
+      parentCity: parent?.city || 'N/A',
+      parentState: parent?.state || 'N/A',
       id: k.id,
       model: k.device_model || 'Unknown Device',
       os: k.device_os || 'Unknown OS',

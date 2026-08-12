@@ -4,6 +4,7 @@
 import React, { useState, useTransition, useEffect } from 'react';
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { Edit2, Trash2, XCircle, CreditCard, School, AlertCircle, AlertTriangle, X } from 'lucide-react';
+import AppleDatePicker from '@/components/AppleDatePicker';
 import GlassCard from '@/components/GlassCard';
 import StatusBadge from '@/components/StatusBadge';
 import { createPayment, updatePayment, deletePayment, cancelPayment } from './actions';
@@ -42,7 +43,10 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
   const { toast } = useToast();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
-  const [filter, setFilter] = useState<'All' | 'Unpaid' | 'Paid'>('All');
+  const [filter, setFilter] = useState<'All' | 'Unpaid' | 'Paid' | 'Pending'>('All');
+  // Entity dimension (image 1): All / School / Vendor / Parent. Independent of the
+  // status pill below, so an admin can see e.g. "Vendor" + "Pending" together.
+  const [entityTab, setEntityTab] = useState<'All' | 'School' | 'Vendor' | 'Parent'>('All');
   
   // Syncing payments with server dynamic revalidation
   const [payments, setPayments] = useState<PaymentRow[]>(initialPayments);
@@ -174,9 +178,14 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
     }
   };
 
+  const paymentEntity = (p: PaymentRow): 'School' | 'Vendor' | 'Parent' =>
+    p.vendorId ? 'Vendor' : p.parentId ? 'Parent' : 'School';
+
   const filteredPayments = payments.filter(p => {
+    if (entityTab !== 'All' && paymentEntity(p) !== entityTab) return false;
     if (filter === 'Paid') return p.status === 'Paid';
     if (filter === 'Unpaid') return p.status === 'Unpaid';
+    if (filter === 'Pending') return p.status === 'Pending Approval';
     return true;
   });
 
@@ -291,19 +300,10 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
 
             <div className="space-y-2">
               <label className="text-xs font-bold text-zinc-400 block">Payment Date *</label>
-              <input
-                type="date"
-                required
+              <AppleDatePicker 
                 value={paymentDate}
-                onChange={e => setPaymentDate(e.target.value)}
-                onClick={e => {
-                  try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    (e.target as any).showPicker();
-                  } catch {}
-                }}
-                style={{ colorScheme: 'dark' }}
-                className="w-full px-4 py-3 bg-[#121216] border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-zinc-300 focus:outline-none transition-all cursor-pointer"
+                onChange={setPaymentDate}
+                placeholder="mm/dd/yyyy"
               />
             </div>
 
@@ -326,9 +326,29 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
         </GlassCard>
       </form>
 
-      {/* Horizontal Filter */}
-      <div className="flex items-center gap-3">
-        {(['All', 'Unpaid', 'Paid'] as const).map(f => (
+      {/* Filters */}
+      <div className="space-y-3">
+      {/* Entity Filter — All / School / Vendor / Parent */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {(['All', 'School', 'Vendor', 'Parent'] as const).map(t => (
+          <button
+            key={t}
+            type="button"
+            onClick={() => setEntityTab(t)}
+            className={`px-5 py-2 rounded-full text-xs font-bold transition-all border cursor-pointer ${
+              entityTab === t
+                ? 'bg-accent-blue/10 text-accent-blue border-accent-blue/30'
+                : 'bg-white/5 text-zinc-400 border-transparent hover:bg-white/10 hover:text-zinc-200'
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {/* Status Filter — Paid / Unpaid / Pending (applies within the entity above) */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {(['All', 'Unpaid', 'Paid', 'Pending'] as const).map(f => (
           <button
             key={f}
             type="button"
@@ -342,6 +362,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
             {f}
           </button>
         ))}
+      </div>
       </div>
 
       {/* Payment Table Records */}

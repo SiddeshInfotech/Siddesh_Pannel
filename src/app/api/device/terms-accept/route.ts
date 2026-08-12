@@ -234,7 +234,6 @@ export async function POST(req: NextRequest) {
     device_model: device_model ?? null,
     device_os: device_os ?? null,
     ip_address: ip,
-    product,
     updated_at: now,
   }, { onConflict: 'device_fingerprint' });
 
@@ -243,6 +242,16 @@ export async function POST(req: NextRequest) {
     // (run scripts/add_terms_acceptances.sql). Log and return a generic 503.
     logger.error({ event: 'TERMS_UPSERT_ERROR', error: upErr.message });
     return generic(503, 'Service unavailable.');
+  }
+
+  // Product tag — SEPARATE best-effort write so a not-yet-migrated `product` column
+  // (run product-column.sql) can never fail an otherwise-successful consent record.
+  {
+    const { error: prodErr } = await supabaseAdmin
+      .from('terms_acceptances')
+      .update({ product })
+      .eq('device_fingerprint', device_fingerprint);
+    if (prodErr) logger.warn({ event: 'TERMS_PRODUCT_PERSIST_FAILED', error: prodErr.message });
   }
 
   return NextResponse.json({ ok: true });

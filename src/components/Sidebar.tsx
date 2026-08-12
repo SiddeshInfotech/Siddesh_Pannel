@@ -79,7 +79,7 @@ export default function Sidebar() {
   const currentTab = searchParams.get('tab');
   const [isDark, setIsDark] = useState(true);
   const [openDropdowns, setOpenDropdowns] = useState<string[]>([]);
-  const [openGroups, setOpenGroups] = useState<string[]>(MENU_GROUPS.map(g => g.title));
+  const [openGroups, setOpenGroups] = useState<string[]>([MENU_GROUPS[0].title]);
   // F-10 fix: get logout from React Context instead of window.__adminLogout
   const { logout } = useAuth();
 
@@ -128,13 +128,13 @@ export default function Sidebar() {
   const toggleGroup = (title: string) => {
     setOpenGroups((prev) => 
       prev.includes(title) 
-        ? prev.filter(t => t !== title)
-        : [...prev, title]
+        ? []
+        : [title]
     );
   };
 
   return (
-    <aside className="w-52 bg-sidebar-custom sidebar-dashed-border mt-24 flex flex-col h-screen fixed left-0 top-0 z-40 transition-colors duration-300">
+    <aside className="w-52 bg-sidebar-custom sidebar-dashed-border mt-24 flex flex-col h-screen fixed left-0 top-0 z-40">
       {/* Brand Header */}
       <div className="p-6 pb-2 flex items-center gap-3 mt-[-100px]">
         <Image src="/lms-admin/siddesh_logo.png" alt="Siddesh Logo" width={40} height={40} className="w-10 h-10 object-contain rounded-xl" />
@@ -257,8 +257,8 @@ export default function Sidebar() {
           onClick={toggleTheme}
           className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-full text-xs font-bold bg-white/5 hover:bg-white/10 border border-sidebar-border text-zinc-400 hover:text-white transition-all cursor-pointer shadow-sm"
         >
-          {isDark ? <Moon className="w-4 h-4 text-white" /> : <Sun className="w-4 h-4 text-amber-500" />}
-          {isDark ? 'Dark Theme' : 'Light Theme'}
+          {isDark ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-800" />}
+          {isDark ? 'Light Theme' : 'Dark Theme'}
         </button>
 
 

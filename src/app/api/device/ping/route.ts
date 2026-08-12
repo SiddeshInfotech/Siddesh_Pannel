@@ -136,9 +136,19 @@ export async function POST(req: NextRequest) {
   // Gate 4 — device-bound authorization: key must be Active AND bound to THIS device.
   const { data: key, error: keyErr } = await supabaseAdmin
     .from('activation_keys')
-    .select('id, school_id, status, device_fingerprint, expires_at')
+    .select('id, school_id, vendor_id, parent_id, status, device_fingerprint, expires_at')
     .eq('key', activation_key)
     .maybeSingle();
+
+  // Entity columns for telemetry writes — a key belongs to exactly one of school/
+  // vendor/parent, so device_status + device_timeline are stamped with the right one
+  // (the other two stay null). Vendor/parent keys have school_id = null, which is why
+  // multi-entity-chain.sql drops NOT NULL on device_status/device_timeline.school_id.
+  const entityCols = (k: { school_id?: string | null; vendor_id?: string | null; parent_id?: string | null }) => ({
+    school_id: k.school_id ?? null,
+    vendor_id: k.vendor_id ?? null,
+    parent_id: k.parent_id ?? null,
+  });
 
   if (keyErr) {
     logger.error({ event: 'PING_KEY_LOOKUP_ERROR', error: keyErr.message });
@@ -172,7 +182,7 @@ export async function POST(req: NextRequest) {
       if (!priorKill) {
         const { error: ktErr } = await supabaseAdmin.from('device_timeline').insert({
           device_fingerprint,
-          school_id: key.school_id,
+          ...entityCols(key),
           product,
           event_type: 'REMOTE_KILL',
           detail: { reason: 'revoked', app_version, ip },
@@ -234,17 +244,26 @@ export async function POST(req: NextRequest) {
 
   const { error: upErr } = await supabaseAdmin.from('device_status').upsert({
     device_fingerprint,
-    school_id: key.school_id,
+    ...entityCols(key),
     activation_key,
     app_version,
     last_seen: new Date(now).toISOString(),
     session_start: sessionStart,
     total_online_seconds: total,
     last_ip: ip,
-    product,
     updated_at: new Date(now).toISOString(),
   }, { onConflict: 'device_fingerprint' });
   if (upErr) logger.error({ event: 'PING_STATUS_UPSERT_ERROR', error: upErr.message });
+
+  // Product tag — SEPARATE best-effort write (like security_tier below) so a not-yet-migrated
+  // `product` column (run product-column.sql) can't blackout the whole heartbeat write.
+  {
+    const { error: prodErr } = await supabaseAdmin
+      .from('device_status')
+      .update({ product })
+      .eq('device_fingerprint', device_fingerprint);
+    if (prodErr) logger.warn({ event: 'PING_PRODUCT_PERSIST_FAILED', error: prodErr.message });
+  }
 
   // Persist the reported security tier onto device_status (best-effort, SEPARATE from
   // the upsert above so a not-yet-migrated `security_tier` column can't blackout the
@@ -287,7 +306,7 @@ export async function POST(req: NextRequest) {
     });
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
-      school_id: key.school_id,
+      ...entityCols(key),
       product,
       event_type: 'CEK_DECRYPT_FAILED',
       detail: { app_version, ip, security_tier: reportedTier || null },
@@ -311,7 +330,7 @@ export async function POST(req: NextRequest) {
     });
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
-      school_id: key.school_id,
+      ...entityCols(key),
       product,
       event_type: 'EXPIRY_TAMPER',
       detail: { reason: tamper_status, app_version, ip, security_tier: reportedTier || null },
@@ -359,7 +378,7 @@ export async function POST(req: NextRequest) {
           logger.warn({ event: 'PING_EXPIRY_TAMPER_SERVER', device_fingerprint, school_id: key.school_id, ...detail });
           await supabaseAdmin.from('device_timeline').insert({
             device_fingerprint,
-            school_id: key.school_id,
+            ...entityCols(key),
             product,
             event_type: 'EXPIRY_TAMPER',
             detail,
@@ -377,7 +396,7 @@ export async function POST(req: NextRequest) {
   if (newSession) {
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
-      school_id: key.school_id,
+      ...entityCols(key),
       product,
       event_type: 'ONLINE',
       detail: { app_version, ip },

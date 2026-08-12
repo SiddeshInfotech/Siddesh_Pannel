@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { randomInt } from 'crypto';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
+import { indianAcademicYear } from '@/lib/entity';
 
 // Activation keys are CREDENTIALS — generate the random portion with a CSPRNG
 // (crypto.randomInt is unbiased), never Math.random() which is predictable and
@@ -92,6 +93,8 @@ export async function createPayment(formData: any /* eslint-disable-line @typesc
 
     // Auto-provision activation keys linked to this payment
     const keyStatus = validData.status === 'Paid' ? 'Paid' : 'Unpaid';
+    // Academic year of issuance — served back at activation as the entity's "year".
+    const academicYear = indianAcademicYear();
     const keyRows = Array.from({ length: validData.keysCount }, () => {
       return {
         school_id: validData.entityType === 'School' ? validData.schoolId : null,
@@ -101,6 +104,7 @@ export async function createPayment(formData: any /* eslint-disable-line @typesc
         key: `LMS-${sanitizedEntityName}-${generateActivationCode()}`,
         status: keyStatus as 'Unpaid' | 'Paid',
         duration_days: 365,
+        academic_year: academicYear,
       };
     });
 

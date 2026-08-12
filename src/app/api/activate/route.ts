@@ -10,6 +10,7 @@ import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
 import { signPayload } from '@/lib/licenseSign';
 import { detectProduct } from '@/lib/product';
+import { entityRefFromRow, resolveEntity, isEntitledToAll } from '@/lib/entity';
 
 const ActivationRequestSchema = z.object({
   activation_key: z.string().min(1),
@@ -150,10 +151,8 @@ async function logHandshake(data: {
 // master — so a single compromised tablet cannot yield the key to all content.
 // MUST stay in sync with encrypt_videos.py (Mode 3) and the app's scope ids.
 const SUBJECTS = ['Marathi', 'English', 'Math', 'EVS'];
-// Content exists ONLY for these classes. Entitlement is always the intersection
-// of what a school bought with this set — a school can never receive keys for a
-// class that has no content (or that it did not pay for).
-const CONTENT_CLASS_NUMBERS = [1, 2, 3, 4];
+// Content class entitlement now lives in src/lib/entity.ts (resolveEntity), shared by
+// the School/Vendor/Parent chain. CONTENT_CLASS_NUMBERS is imported from there.
 
 function deriveScopePassphrase(master: string, scopeId: string): string {
   return crypto.createHmac('sha256', master).update('lms-scope:' + scopeId).digest('base64');
@@ -194,43 +193,6 @@ function wrapToPublicKey(plaintext: string, spkiBase64: string, oaepHash: 'sha1'
   } catch {
     return null;
   }
-}
-
-// V-07: resolve the curriculum class id(s) a school is entitled to.
-// `standard` is a purchased GRADE SCOPE — either a range ("1st to 4th",
-// "1st to 10th") or a single grade ("Grade 2"). We extract its integers and
-// intersect with the classes that actually have content (1-4):
-//   • two numbers -> inclusive range [min..max] ∩ {1..4}
-//   • one number  -> that single grade if it is in {1..4}
-// FAIL CLOSED: if no in-range entitlement can be determined, return [] so the
-// device receives NO content keys. We NEVER fall back to "all classes" — that
-// was the leak (a 5th-7th or unparseable school silently got every class' keys).
-function resolveClassIds(school: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): string[] {
-  // 1. Explicit operator override on the school record wins, if present.
-  const explicit = school?.class_id ?? school?.curriculum_class ?? school?.class;
-  const explicitNums = explicit
-    ? (String(explicit).match(/\d+/g) ?? []).map(Number).filter((n) => CONTENT_CLASS_NUMBERS.includes(n))
-    : [];
-  if (explicitNums.length) {
-    return [...new Set(explicitNums)].sort((a, b) => a - b).map((n) => `class_${n}`);
-  }
-
-  // 2. Parse the controlled grade-scope field only (free-text fields can carry
-  //    stray numbers like years, which must not widen entitlement).
-  const nums = (String(school?.standard ?? '').match(/\d+/g) ?? []).map(Number).filter((n) => n > 0);
-
-  let entitled: number[];
-  if (nums.length >= 2) {
-    const lo = Math.min(nums[0], nums[1]);
-    const hi = Math.max(nums[0], nums[1]);
-    entitled = CONTENT_CLASS_NUMBERS.filter((n) => n >= lo && n <= hi);
-  } else if (nums.length === 1) {
-    entitled = CONTENT_CLASS_NUMBERS.filter((n) => n === nums[0]);
-  } else {
-    entitled = []; // 3. fail closed — unknown/blank scope gets no content keys
-  }
-
-  return entitled.map((n) => `class_${n}`);
 }
 
 // ─── Rate limiting (V-03) ────────────────────────────────────────────────────
@@ -604,7 +566,6 @@ export async function POST(req: NextRequest) {
         device_device: body?.device_device || 'N/A',
         device_manufacturer: body?.device_manufacturer || 'N/A',
         status: 'Active',
-        product,
         activated_at: activatedAt.toISOString(),
         expires_at: expiresAt.toISOString(),
         last_known_monotonic_time: activatedAt.toISOString(),
@@ -659,6 +620,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // ── 3d-bis. Persist the product identifier (best-effort) ───────────────
+    // lms_lab_windows | lms_lab_android | lms_android | … — separate non-blocking update so a
+    // not-yet-migrated `product` column (run product-column.sql) can never fail the activation.
+    {
+      const { error: prError } = await supabaseAdmin
+        .from('activation_keys')
+        .update({ product })
+        .eq('id', keyRecord.id);
+      if (prError) {
+        logger.warn({ event: 'PRODUCT_PERSIST_FAILED', keyId: keyRecord.id, error: prError.message });
+      }
+    }
+
     // ── 3e. Record the SIGNED expiry + clear any prior tamper flag (best-effort) ──
     // `signed_expires_at` is the exact expiry we are about to sign into the payload below.
     // It is the immutable ground truth the ping route compares device reports against, and
@@ -680,25 +654,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── 4. Fetch School metadata ───────────────────────────────────────────
-    const { data: school } = await supabaseAdmin
-      .from('schools')
-      .select('*')
-      .eq('id', keyRecord.school_id)
-      .single();
-
-    const schoolName = school ? school.name : 'LMS Institution';
+    // ── 4. Resolve the OWNING ENTITY (school | vendor | parent) ────────────
+    // A key belongs to exactly one entity. resolveEntity fetches the right table and
+    // returns (a) the entity-specific license fields (school info / generic vendor /
+    // student), and (b) the content-class entitlement — full parity across entities.
+    const entityRef = entityRefFromRow(keyRecord);
+    const resolved = await resolveEntity(entityRef, { keyAcademicYear: keyRecord.academic_year });
 
     // ── 5. Construct licensing JWT payload ────────────────────────────────
+    // Common fields + the entity-specific license portion. `entity_type` lets each
+    // client app render the correct Information tab (school / vendor / student).
     const payload = {
-      school_id: keyRecord.school_id,
-      school_name: schoolName,
-      board: school ? school.board : 'State Board',
-      mediums: school ? school.mediums : ['Semi-English'],
-      academicYear: school?.academic_year || '2026-27',
-      section: school?.section || 'Section A',
-      standard: school?.standard || 'Primary',
-      fullClassName: school?.full_class_name || 'Curriculum Portal',
+      ...resolved.license,
       device_fingerprint: hardware_fingerprint,
       activation_date: activatedAt.toISOString(),
       expiration_date: expiresAt.toISOString(),
@@ -751,16 +718,21 @@ export async function POST(req: NextRequest) {
       return out;
     };
 
-    // Per-subject wrapped CEKs — only for the classes this school is entitled to.
-    const classIds = resolveClassIds(school);
+    // Per-subject wrapped CEKs — only for the classes this ENTITY is entitled to
+    // (school grade scope / vendor scope-or-all / parent grade). resolveEntity above
+    // computed this with the same fail-closed rules for every entity type.
+    const classIds = resolved.classIds;
     if (classIds.length === 0) {
-      // Fail closed: the device activates but gets no content keys. Surface it so
-      // the operator can fix a school whose grade scope is blank/out-of-range.
+      // Fail closed: the device activates but gets no content keys. Surface it so the
+      // operator can fix an entity whose grade scope is blank/out-of-range.
       logger.warn({
         event: 'ACTIVATE_NO_ENTITLEMENT',
         ipAddress,
-        schoolId: keyRecord.school_id,
-        standard: school?.standard ?? null,
+        entityType: resolved.entityType,
+        entityName: resolved.entityName,
+        schoolId: keyRecord.school_id ?? null,
+        vendorId: keyRecord.vendor_id ?? null,
+        parentId: keyRecord.parent_id ?? null,
       });
     }
     const wrappedCeks: Record<string, string> = {};
@@ -784,7 +756,7 @@ export async function POST(req: NextRequest) {
     // device that is not entitled to every content class — that would defeat the
     // per-class scoping above. Also gated by LMS_DISABLE_LEGACY_CEK so it can be
     // turned off entirely once all content is on per-subject keys (recommended).
-    const entitledToAll = CONTENT_CLASS_NUMBERS.every((n) => classIds.includes(`class_${n}`));
+    const entitledToAll = isEntitledToAll(classIds);
     if (process.env.LMS_DISABLE_LEGACY_CEK !== 'true' && entitledToAll) {
       responseBody.wk0 = wrapOne(masterCek);   // F7: opaque wire name (client maps wk0 -> wrapped_cek)
     }

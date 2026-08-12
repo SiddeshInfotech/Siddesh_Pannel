@@ -6,6 +6,7 @@ import { getAdminSession } from '@/lib/auth';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
+import { indianAcademicYear } from '@/lib/entity';
 
 // Activation key format: LMS-<SCHOOLCODE 2..12>-<CODE 10>. Rejects manually-typed
 // junk like "LMS-SCHOOL-MNS7LGUAA4879898" (3rd segment must be exactly 10 chars).
@@ -70,6 +71,11 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
 
     const batchId = `BATCH-${Date.now()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
+    // The operator has just chosen this key's validity (duration/expiry) above. Capture
+    // the academic year of that window NOW and store it on the key, so activation can
+    // show & maintain the year the operator picked (used for the vendor's "Year").
+    const academicYear = indianAcademicYear(validData.expiresAt ? new Date(validData.expiresAt) : new Date());
+
     const insertRows = validData.keys.map(keyVal => ({
       school_id: validData.entityType === 'School' ? validData.schoolId : null,
       vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
@@ -77,6 +83,7 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
       key: keyVal,
       duration_days: validData.durationDays,
       expires_at: validData.expiresAt ? new Date(validData.expiresAt).toISOString() : null,
+      academic_year: academicYear,
       status: 'Paid' as const,
       batch_id: batchId,
     }));
