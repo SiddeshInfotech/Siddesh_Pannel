@@ -47,6 +47,10 @@ const ActivationRequestSchema = z.object({
       'WIN_SW_ONLY',
     ])
     .optional(),
+  // [Windows] Real request-binding: RSA-SHA256 signature (base64) over
+  // "<activation_key|attestation_nonce|attestation_timestamp>", made with the wrap private key.
+  // Verified against device_wrap_pubkey (see verifyWindowsAttestation). Optional/advisory.
+  challenge_signature: z.string().max(1024).optional(),
 });
 
 // ── security_tier staging (must mirror the app's KeystoreCrypto taxonomy) ─────
@@ -355,6 +359,7 @@ export async function POST(req: NextRequest) {
       attestation_timestamp,
       attestation_chain,
       security_tier,
+      challenge_signature,
     } = validationResult.data;
     const reportedTier = security_tier ?? 'UNREPORTED';
     // Windows desktop vs Android tablet — drives attestation verifier, CEK wrap hash,
@@ -435,6 +440,7 @@ export async function POST(req: NextRequest) {
             nonce: attestation_nonce ?? '',
             timestamp: attestation_timestamp ?? '',
             tier: reportedTier,
+            challengeSignatureB64: challenge_signature,
           })
         : verifyAttestation({
             chainB64: attestation_chain ?? [],

@@ -32,6 +32,10 @@ export interface WindowsAttestationInput {
   nonce: string;
   timestamp: string;
   tier: string;                // WIN_* security tier reported by the device
+  // Real request-binding (gap 1): RSA-SHA256 signature (base64) over "<activationKey|nonce|
+  // timestamp>", made by the device with the wrap PRIVATE key. Verified against the wrap public
+  // key below. Optional — older client builds omit it (lenient path still accepts).
+  challengeSignatureB64?: string;
 }
 
 export interface WindowsAttestationResult {
@@ -44,30 +48,56 @@ export function computeChallenge(activationKey: string, nonce: string, timestamp
 }
 
 export function verifyWindowsAttestation(input: WindowsAttestationInput): WindowsAttestationResult {
-  const { claimB64, deviceWrapPubkeyB64, activationKey, nonce, timestamp, tier } = input;
+  const { claimB64, deviceWrapPubkeyB64, activationKey, nonce, timestamp, tier, challengeSignatureB64 } = input;
 
   // The wrap key MUST be a parseable RSA public key — CEKs are wrapped to it, so a
   // bad key would make the device unable to unwrap regardless of attestation.
   if (!deviceWrapPubkeyB64) return { ok: false, reason: 'device_wrap_pubkey missing' };
+  let wrapPub: crypto.KeyObject;
   try {
-    crypto.createPublicKey({ key: Buffer.from(deviceWrapPubkeyB64, 'base64'), format: 'der', type: 'spki' });
+    wrapPub = crypto.createPublicKey({ key: Buffer.from(deviceWrapPubkeyB64, 'base64'), format: 'der', type: 'spki' });
   } catch (e) {
     return { ok: false, reason: `device_wrap_pubkey unparseable: ${(e as Error).message}` };
   }
 
-  // Chain-less tiers cannot present a claim — they are audit-only (like the Android
-  // non-attestable tiers). Treat as OK here; the route keeps them out of enforcement.
+  // ── Real request-binding (gap 1) ────────────────────────────────────────────────
+  // The device signs "<activationKey|nonce|timestamp>" with the wrap PRIVATE key (TPM CNG or
+  // the DPAPI-sealed software key). Verifying it against the wrap PUBLIC key proves the device
+  // holds that private key AND that the attestation was minted for THIS request — the binding a
+  // platform claim cannot carry. Achievable by any genuine device, so it is the real gate; the
+  // route's single-use nonce + skew guards remain the outer replay defence.
+  const signaturePresent = !!challengeSignatureB64;
+  let signatureValid = false;
+  if (signaturePresent) {
+    try {
+      const msg = Buffer.from(`${activationKey}|${nonce}|${timestamp}`, 'utf8');
+      signatureValid = crypto.verify('sha256', msg, wrapPub, Buffer.from(challengeSignatureB64 as string, 'base64'));
+    } catch {
+      signatureValid = false;
+    }
+  }
+  // A present-but-INVALID signature is a forgery/tamper signal (a genuine device produces a
+  // valid signature or none) → reject even on the lenient path.
+  if (signaturePresent && !signatureValid) {
+    return { ok: false, reason: 'request signature invalid (not bound to this request / wrong key)' };
+  }
+
+  const strict = process.env.LMS_WIN_ATTEST_STRICT === 'true';
+
+  // Non-attestation-capable tiers (WIN_TPM_NOATTEST / WIN_SW_ONLY): no platform claim expected.
+  // With a valid request signature they ARE cryptographically request-bound; the route keeps
+  // them audit-only regardless. Strict additionally requires the signature to be present.
   if (tier !== 'WIN_TPM_ATTESTED') {
+    if (strict && !signatureValid) return { ok: false, reason: 'strict: request signature required' };
+    logger.info({ event: 'WIN_ATTEST_EXT', tier, signaturePresent, signatureValid });
     return { ok: true };
   }
 
-  // WIN_TPM_ATTESTED: a platform claim must be present. A device that reports the
-  // attestation-capable tier but sends NO claim is contradictory (a downgrade lie), so
-  // that is rejected even on the lenient path so it can't be used to fake "attested".
+  // WIN_TPM_ATTESTED: a platform claim must be present (a device claiming the attestation-capable
+  // tier but sending NO claim is a downgrade lie) — rejected even on the lenient path.
   if (!claimB64 || claimB64.length === 0 || !claimB64[0]) {
     return { ok: false, reason: 'WIN_TPM_ATTESTED but no attestation claim present' };
   }
-
   let claim: Buffer;
   try {
     claim = Buffer.from(claimB64[0], 'base64');
@@ -75,26 +105,11 @@ export function verifyWindowsAttestation(input: WindowsAttestationInput): Window
     return { ok: false, reason: `claim parse failed: ${(e as Error).message}` };
   }
 
-  // Whether the 32-byte request challenge is embedded in the claim. IMPORTANT: the shipped
-  // desktop client builds the claim with NCryptCreateClaim(NCRYPT_CLAIM_PLATFORM) and a NULL
-  // parameter list (TpmSealing.createClaim), so a platform claim attests PCR state — it does
-  // NOT carry a caller nonce. On the lenient (unmanaged) path this is therefore best-effort
-  // telemetry, NOT a gate: request-binding is enforced by the route's single-use nonce +
-  // timestamp-skew guards, and content is bound by the RSA wrap key (CEKs are OAEP-wrapped to
-  // it). Requiring the challenge here would wrongly block every genuine TPM device under
-  // LMS_ENFORCE_ATTESTATION=true. Managed fleets that ship a client which embeds the challenge
-  // opt into a hard check via LMS_WIN_ATTEST_STRICT below.
-  const challenge = computeChallenge(activationKey, nonce, timestamp);
-  const challengeBound = claim.indexOf(challenge) !== -1;
-
-  const strict = process.env.LMS_WIN_ATTEST_STRICT === 'true';
   if (strict) {
-    // Managed deployments: require BOTH the request-bound challenge in the claim AND the
-    // pinned AIK/EK roots (LMS_WIN_ATTEST_AIK_ROOTS) for full quote-signature verification.
-    // Fail closed so "strict" never silently downgrades to the lenient path.
-    if (!challengeBound) {
-      return { ok: false, reason: 'attestation claim not bound to this request (challenge absent)' };
-    }
+    // Managed deployments: require the real request-binding signature AND the pinned AIK/EK
+    // roots (LMS_WIN_ATTEST_AIK_ROOTS) for full TPM-quote / key-residency verification. Fail
+    // closed so "strict" never silently downgrades to the lenient path.
+    if (!signatureValid) return { ok: false, reason: 'strict: request signature required/invalid' };
     if (!process.env.LMS_WIN_ATTEST_AIK_ROOTS) {
       return { ok: false, reason: 'LMS_WIN_ATTEST_STRICT set but no AIK roots configured' };
     }
@@ -102,10 +117,9 @@ export function verifyWindowsAttestation(input: WindowsAttestationInput): Window
     return { ok: true };
   }
 
-  // Lenient (unmanaged fleets): a present, parseable platform claim + a valid RSA wrap key
-  // (checked above) is the strongest proof available without enrolled AIK roots. This lets a
-  // genuine TPM-attested Windows device pass under LMS_ENFORCE_ATTESTATION=true instead of
-  // being wrongly blocked by a challenge check its platform claim cannot satisfy.
-  logger.info({ event: 'WIN_ATTEST_EXT', claimBytes: claim.length, challengeBound });
+  // Lenient (unmanaged fleets): a present platform claim + a valid RSA wrap key, plus a VALID
+  // request signature when the client supplies one, is the strongest proof available without
+  // enrolled AIK roots. A genuine device passes under LMS_ENFORCE_ATTESTATION=true.
+  logger.info({ event: 'WIN_ATTEST_EXT', claimBytes: claim.length, signaturePresent, signatureValid });
   return { ok: true };
 }

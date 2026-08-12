@@ -71,6 +71,10 @@ const TermsSchema = z.object({
       'DESKTOP',
     ])
     .optional(),
+  // [Windows] Real request-binding: RSA-SHA256 signature (base64) over
+  // "terms-accept:<fingerprint>:<version>|nonce|timestamp", made with the wrap private key.
+  // Verified against device_wrap_pubkey (see verifyWindowsAttestation). Optional/advisory.
+  challenge_signature: z.string().max(1024).optional(),
 });
 
 // Mirror /api/activate's tier staging so enforcement is identical across endpoints.
@@ -125,6 +129,7 @@ export async function POST(req: NextRequest) {
   const {
     device_fingerprint, terms_version, accepted_at, nonce, timestamp,
     device_model, device_os, device_wrap_pubkey, attestation_chain, security_tier,
+    challenge_signature,
   } = body;
   const reportedTier = security_tier ?? 'UNREPORTED';
 
@@ -186,6 +191,7 @@ export async function POST(req: NextRequest) {
           nonce,
           timestamp,
           tier: reportedTier,
+          challengeSignatureB64: challenge_signature,
         })
       : verifyAttestation({
           chainB64: attestation_chain ?? [],
