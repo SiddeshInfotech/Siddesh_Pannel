@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
 import { verifyAttestation, checkRevocation } from '@/lib/attestation';
+import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
 
 // ============================================================================
 // POST /api/device/terms-accept — pre-activation consent record
@@ -41,10 +42,11 @@ const TermsSchema = z.object({
   device_model: z.string().max(120).optional(),
   device_os: z.string().max(60).optional(),
   // NC-1 hardware key-attestation (same scheme as /api/activate).
-  // [WINDOWS] Desktop has no Android Keystore/StrongBox: the Windows client reports
-  // security_tier "DESKTOP" with an empty device_wrap_pubkey / attestation_chain. That
-  // tier is NOT attestation-capable (see ATTEST_CAPABLE_TIERS), so it is audit-only and
-  // never enforced — Android's hardware-attestation enforcement is unchanged.
+  // [WINDOWS] Desktop has no Android Keystore/StrongBox: it provisions a TPM (or DPAPI
+  // software) wrap key via DrmPolicy and reports a WIN_* tier — WIN_TPM_ATTESTED carries a
+  // TPM platform claim (attestation-capable → enforced), WIN_TPM_NOATTEST / WIN_SW_ONLY do
+  // not (audit-only). The obsolete "DESKTOP" tier (empty pubkey) is still accepted for
+  // backward compatibility and stays audit-only. Android enforcement is unchanged.
   device_wrap_pubkey: z.string().max(4096).optional().default(''),
   attestation_chain: z.array(z.string()).optional(),
   security_tier: z
@@ -71,7 +73,12 @@ const TermsSchema = z.object({
 });
 
 // Mirror /api/activate's tier staging so enforcement is identical across endpoints.
-const ATTEST_CAPABLE_TIERS = new Set(['ATTESTED_STRONGBOX', 'ATTESTED_TEE']);
+// Attestation-capable (→ FAIL CLOSED under LMS_ENFORCE_ATTESTATION): Android StrongBox/TEE,
+// and Windows WIN_TPM_ATTESTED (has a TPM platform claim). Genuinely non-attestable tiers —
+// Android SW_ONLY / TEE_LEGACY_NOATTEST / MODEL_SKIP / KEYSTORE_PLAIN and Windows
+// WIN_TPM_NOATTEST / WIN_SW_ONLY / DESKTOP — stay ALLOW (audit-only) so legitimate older
+// Android and non-TPM/Wine Windows devices are never locked out of recording consent.
+const ATTEST_CAPABLE_TIERS = new Set(['ATTESTED_STRONGBOX', 'ATTESTED_TEE', 'WIN_TPM_ATTESTED']);
 const ALERT_TIERS = new Set(['PROVISION_FAILED', 'CEK_DECRYPT_FAILED']);
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -161,16 +168,35 @@ export async function POST(req: NextRequest) {
       console.warn('[TERMS_ATTEST_MODEL_EXEMPT]', JSON.stringify({ tier: reportedTier, model: requestModel, ip }));
     }
 
-    // Same challenge binding the app used: "terms-accept:<fingerprint>:<version>".
+    // Route to the platform's attestation verifier (parity with /api/activate):
+    // Windows (WIN_* tier, legacy DESKTOP tier, or a Windows device_os) = TPM platform
+    // claim (DRM-006); Android = Google-rooted X.509 key-attestation chain. Same challenge
+    // binding the app used: "terms-accept:<fingerprint>:<version>".
+    const isWindows =
+      reportedTier.startsWith('WIN_') ||
+      reportedTier === 'DESKTOP' ||
+      (device_os ?? '').toLowerCase().includes('windows');
     const bindToken = `terms-accept:${device_fingerprint}:${terms_version}`;
-    const att = verifyAttestation({
-      chainB64: attestation_chain ?? [],
-      deviceWrapPubkeyB64: device_wrap_pubkey,
-      activationKey: bindToken,
-      nonce,
-      timestamp,
-    });
-    const rev = await checkRevocation(attestation_chain ?? []);
+    const att = isWindows
+      ? verifyWindowsAttestation({
+          claimB64: attestation_chain ?? [],
+          deviceWrapPubkeyB64: device_wrap_pubkey,
+          activationKey: bindToken,
+          nonce,
+          timestamp,
+          tier: reportedTier,
+        })
+      : verifyAttestation({
+          chainB64: attestation_chain ?? [],
+          deviceWrapPubkeyB64: device_wrap_pubkey,
+          activationKey: bindToken,
+          nonce,
+          timestamp,
+        });
+    // Google revocation list is Android-only; Windows TPM claims are not on it.
+    const rev = isWindows
+      ? { revoked: false as boolean, reason: undefined as string | undefined }
+      : await checkRevocation(attestation_chain ?? []);
 
     if (!att.ok || rev.revoked) {
       const reason = rev.revoked ? rev.reason : att.reason;

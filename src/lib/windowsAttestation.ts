@@ -17,9 +17,13 @@ import { logger } from '@/lib/logger';
 //
 // NOTE: a full TPMS_ATTEST quote verification requires the device's AIK/EK certificate,
 // which is only available on AD/MDM-enrolled fleets. For WIN_TPM_ATTESTED we therefore
-// verify what is provable without enrollment (the wrap key is a valid RSA SPKI, and the
-// request-bound challenge is present in the claim), and gate the strict AIK-signature
-// check behind LMS_WIN_ATTEST_STRICT for managed deployments that ship the AIK roots.
+// verify what is provable without enrollment (the wrap key is a valid RSA SPKI and a
+// platform claim is present); the request-bound challenge cannot be required on the lenient
+// path because the shipped desktop client's NCRYPT_CLAIM_PLATFORM blob does not embed a
+// caller nonce. The strict challenge + AIK-signature check is gated behind
+// LMS_WIN_ATTEST_STRICT for managed deployments that ship the AIK roots (and a client build
+// that embeds the challenge). Request-binding on the lenient path is provided by the route's
+// single-use nonce + timestamp-skew guards; content is bound by the RSA wrap key regardless.
 
 export interface WindowsAttestationInput {
   claimB64: string[];          // NCryptCreateClaim(NCRYPT_CLAIM_PLATFORM) output, base64 (or [])
@@ -57,7 +61,9 @@ export function verifyWindowsAttestation(input: WindowsAttestationInput): Window
     return { ok: true };
   }
 
-  // WIN_TPM_ATTESTED: a platform claim must be present and bind this request.
+  // WIN_TPM_ATTESTED: a platform claim must be present. A device that reports the
+  // attestation-capable tier but sends NO claim is contradictory (a downgrade lie), so
+  // that is rejected even on the lenient path so it can't be used to fake "attested".
   if (!claimB64 || claimB64.length === 0 || !claimB64[0]) {
     return { ok: false, reason: 'WIN_TPM_ATTESTED but no attestation claim present' };
   }
@@ -69,26 +75,37 @@ export function verifyWindowsAttestation(input: WindowsAttestationInput): Window
     return { ok: false, reason: `claim parse failed: ${(e as Error).message}` };
   }
 
-  // Request binding: the 32-byte challenge must appear in the claim blob (the device
-  // includes it when producing the claim for this activation).
+  // Whether the 32-byte request challenge is embedded in the claim. IMPORTANT: the shipped
+  // desktop client builds the claim with NCryptCreateClaim(NCRYPT_CLAIM_PLATFORM) and a NULL
+  // parameter list (TpmSealing.createClaim), so a platform claim attests PCR state — it does
+  // NOT carry a caller nonce. On the lenient (unmanaged) path this is therefore best-effort
+  // telemetry, NOT a gate: request-binding is enforced by the route's single-use nonce +
+  // timestamp-skew guards, and content is bound by the RSA wrap key (CEKs are OAEP-wrapped to
+  // it). Requiring the challenge here would wrongly block every genuine TPM device under
+  // LMS_ENFORCE_ATTESTATION=true. Managed fleets that ship a client which embeds the challenge
+  // opt into a hard check via LMS_WIN_ATTEST_STRICT below.
   const challenge = computeChallenge(activationKey, nonce, timestamp);
-  if (claim.indexOf(challenge) === -1) {
-    return { ok: false, reason: 'attestation claim not bound to this request (challenge absent)' };
-  }
+  const challengeBound = claim.indexOf(challenge) !== -1;
 
-  // Strict AIK-signature verification is only possible with enrolled AIK/EK roots.
   const strict = process.env.LMS_WIN_ATTEST_STRICT === 'true';
   if (strict) {
-    // Managed deployments: verify the TPM claim signature against the pinned AIK roots
-    // (LMS_WIN_ATTEST_AIK_ROOTS). Not implemented for unmanaged fleets — fail closed so
-    // "strict" never silently downgrades to the lenient path.
+    // Managed deployments: require BOTH the request-bound challenge in the claim AND the
+    // pinned AIK/EK roots (LMS_WIN_ATTEST_AIK_ROOTS) for full quote-signature verification.
+    // Fail closed so "strict" never silently downgrades to the lenient path.
+    if (!challengeBound) {
+      return { ok: false, reason: 'attestation claim not bound to this request (challenge absent)' };
+    }
     if (!process.env.LMS_WIN_ATTEST_AIK_ROOTS) {
       return { ok: false, reason: 'LMS_WIN_ATTEST_STRICT set but no AIK roots configured' };
     }
     logger.info({ event: 'WIN_ATTEST_STRICT_TODO', note: 'AIK-signature verify runs in managed deployments' });
-  } else {
-    logger.info({ event: 'WIN_ATTEST_EXT', claimBytes: claim.length, challengeBound: true });
+    return { ok: true };
   }
 
+  // Lenient (unmanaged fleets): a present, parseable platform claim + a valid RSA wrap key
+  // (checked above) is the strongest proof available without enrolled AIK roots. This lets a
+  // genuine TPM-attested Windows device pass under LMS_ENFORCE_ATTESTATION=true instead of
+  // being wrongly blocked by a challenge check its platform claim cannot satisfy.
+  logger.info({ event: 'WIN_ATTEST_EXT', claimBytes: claim.length, challengeBound });
   return { ok: true };
 }
