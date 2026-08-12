@@ -5,6 +5,7 @@ import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
 import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
+import { detectProduct } from '@/lib/product';
 
 // ============================================================================
 // POST /api/device/terms-accept — pre-activation consent record
@@ -218,6 +219,8 @@ export async function POST(req: NextRequest) {
   })();
 
   const now = new Date().toISOString();
+  // Which product recorded this consent (WIN_*/DESKTOP tier ⇒ LMS Lab desktop; else by OS).
+  const product = detectProduct({ securityTier: reportedTier, deviceOs: device_os });
   const { error: upErr } = await supabaseAdmin.from('terms_acceptances').upsert({
     device_fingerprint,
     terms_version,
@@ -225,6 +228,7 @@ export async function POST(req: NextRequest) {
     device_model: device_model ?? null,
     device_os: device_os ?? null,
     ip_address: ip,
+    product,
     updated_at: now,
   }, { onConflict: 'device_fingerprint' });
 

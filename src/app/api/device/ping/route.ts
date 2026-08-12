@@ -5,6 +5,7 @@ import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
 import { signPayload } from '@/lib/licenseSign';
 import { sendSecurityAlert } from '@/lib/alert';
+import { detectProduct } from '@/lib/product';
 
 // ============================================================================
 // POST /api/device/ping  — device online heartbeat (Telemetry, Phase 1)
@@ -111,6 +112,9 @@ export async function POST(req: NextRequest) {
   }
   const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status, tamper_status, reported_expiry, os_platform } = body;
   const reportedTier = (security_tier ?? '').trim();
+  // Which product this heartbeat is from. os_platform (LMS Lab only) makes this precise;
+  // written to device_status (authoritative) and every device_timeline event below.
+  const product = detectProduct({ osPlatform: os_platform, securityTier: reportedTier, appVersion: app_version });
 
   // Gate 1 — per-device rate limit.
   if (isProd && !(await bump(`ping_fp:${device_fingerprint}`, RL_FP_WIN.win, RL_FP_WIN.max))) {
@@ -169,6 +173,7 @@ export async function POST(req: NextRequest) {
         const { error: ktErr } = await supabaseAdmin.from('device_timeline').insert({
           device_fingerprint,
           school_id: key.school_id,
+          product,
           event_type: 'REMOTE_KILL',
           detail: { reason: 'revoked', app_version, ip },
         });
@@ -236,6 +241,7 @@ export async function POST(req: NextRequest) {
     session_start: sessionStart,
     total_online_seconds: total,
     last_ip: ip,
+    product,
     updated_at: new Date(now).toISOString(),
   }, { onConflict: 'device_fingerprint' });
   if (upErr) logger.error({ event: 'PING_STATUS_UPSERT_ERROR', error: upErr.message });
@@ -282,6 +288,7 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
       school_id: key.school_id,
+      product,
       event_type: 'CEK_DECRYPT_FAILED',
       detail: { app_version, ip, security_tier: reportedTier || null },
     });
@@ -305,6 +312,7 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
       school_id: key.school_id,
+      product,
       event_type: 'EXPIRY_TAMPER',
       detail: { reason: tamper_status, app_version, ip, security_tier: reportedTier || null },
     });
@@ -352,6 +360,7 @@ export async function POST(req: NextRequest) {
           await supabaseAdmin.from('device_timeline').insert({
             device_fingerprint,
             school_id: key.school_id,
+            product,
             event_type: 'EXPIRY_TAMPER',
             detail,
           });
@@ -369,6 +378,7 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
       school_id: key.school_id,
+      product,
       event_type: 'ONLINE',
       detail: { app_version, ip },
     });

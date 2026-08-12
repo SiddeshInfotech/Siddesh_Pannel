@@ -9,6 +9,7 @@ import { getClientIp } from '@/lib/sanitize';
 import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
 import { signPayload } from '@/lib/licenseSign';
+import { detectProduct } from '@/lib/product';
 
 const ActivationRequestSchema = z.object({
   activation_key: z.string().min(1),
@@ -124,6 +125,8 @@ async function logHandshake(data: {
   status: 'SUCCESS' | 'FAILED';
   errorMessage?: string;
   ipAddress: string;
+  securityTier?: string | null; // lets the product be derived (WIN_* ⇒ LMS Lab desktop)
+  product?: string; // precomputed product; falls back to deriving from deviceOS + tier
 }) {
   await supabaseAdmin.from('handshake_logs').insert({
     activation_key: data.activationKey,
@@ -133,6 +136,7 @@ async function logHandshake(data: {
     status: data.status,
     error_message: data.errorMessage ?? null,
     ip_address: data.ipAddress,
+    product: data.product ?? detectProduct({ deviceOs: data.deviceOS, securityTier: data.securityTier }),
   });
 }
 
@@ -357,6 +361,9 @@ export async function POST(req: NextRequest) {
     // and the platform tag persisted on the activation record.
     const platform = detectPlatform(reportedTier, device_os);
     const isWindows = platform === 'windows';
+    // Which product this activation is from (WIN_* tier ⇒ LMS Lab desktop; else by OS).
+    // Persisted on the activation_keys row and the SUCCESS handshake log below.
+    const product = detectProduct({ securityTier: security_tier, deviceOs: device_os });
 
 
     // Populate the audit/context vars from the validated request. (Bug fix:
@@ -591,6 +598,7 @@ export async function POST(req: NextRequest) {
         device_device: body?.device_device || 'N/A',
         device_manufacturer: body?.device_manufacturer || 'N/A',
         status: 'Active',
+        product,
         activated_at: activatedAt.toISOString(),
         expires_at: expiresAt.toISOString(),
         last_known_monotonic_time: activatedAt.toISOString(),
@@ -706,6 +714,7 @@ export async function POST(req: NextRequest) {
       deviceOS: requestOS,
       status: 'SUCCESS',
       ipAddress,
+      product,
     });
 
     // V-03: activation succeeded — clear this device's & key's brute-force
