@@ -90,6 +90,13 @@ function tierStyle(tier: string): { label: string; cls: string } {
       return { label: 'Provision failed', cls: 'bg-rose-500/10 border-rose-500/25 text-rose-400' };
     case 'CEK_DECRYPT_FAILED':
       return { label: 'CEK failed', cls: 'bg-rose-500/10 border-rose-500/25 text-rose-400' };
+    // Windows desktop (TpmSealing) tiers.
+    case 'WIN_TPM_ATTESTED':
+      return { label: 'Windows TPM (attested)', cls: 'bg-green-500/10 border-green-500/25 text-green-400' };
+    case 'WIN_TPM_NOATTEST':
+      return { label: 'Windows TPM', cls: 'bg-yellow-500/10 border-yellow-500/25 text-yellow-400' };
+    case 'WIN_SW_ONLY':
+      return { label: 'Windows (software)', cls: 'bg-orange-500/10 border-orange-500/25 text-orange-400' };
     default:
       return { label: 'Unreported', cls: 'bg-white/5 border-white/10 text-zinc-400' };
   }

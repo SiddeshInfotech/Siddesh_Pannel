@@ -28,6 +28,7 @@ const ActivationRequestSchema = z.object({
   // the known enum so a rogue client can't inject arbitrary strings into our logs/DB.
   security_tier: z
     .enum([
+      // Android (KeystoreCrypto) taxonomy — unchanged.
       'SW_ONLY',
       'TEE_LEGACY_NOATTEST',
       'MODEL_SKIP',
@@ -35,6 +36,12 @@ const ActivationRequestSchema = z.object({
       'ATTESTED_TEE',
       'KEYSTORE_PLAIN',
       'PROVISION_FAILED',
+      // Windows desktop (TpmSealing) taxonomy — advisory/logged only. Deliberately
+      // NOT added to ATTEST_CAPABLE_TIERS: desktop TPM cannot supply a Google-rooted
+      // chain, so it stays in the audit-only lane exactly like a chain-less low tier.
+      'WIN_TPM_ATTESTED',
+      'WIN_TPM_NOATTEST',
+      'WIN_SW_ONLY',
     ])
     .optional(),
 });
