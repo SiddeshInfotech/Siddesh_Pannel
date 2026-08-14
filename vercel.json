@@ -2,20 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "cleanUrls": true,
   "trailingSlash": false,
-  "rewrites": [
-    {
-      "source": "/siddeshcomputers",
-      "destination": "https://custom-templete-palate.vercel.app/rotarydhuleconnect/siddeshcomputers"
-    },
-    {
-      "source": "/rotarydhuleconnect",
-      "destination": "https://custom-templete-palate.vercel.app/rotarydhuleconnect"
-    },
-    {
-      "source": "/rotarydhuleconnect/:path*",
-      "destination": "https://custom-templete-palate.vercel.app/rotarydhuleconnect/:path*"
-    }
-  ],
   "headers": [
     {
       "source": "/(.*)",

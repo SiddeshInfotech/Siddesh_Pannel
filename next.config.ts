@@ -6,10 +6,42 @@ import type { NextConfig } from "next";
 // browser apply the INTERSECTION of both and strip the nonce — breaking scripts.
 // proxy.ts is the single source of truth for CSP.
 
+// Production domain of the "rotarydhuleconnect" zone (a separate Next.js app that
+// uses basePath '/rotarydhuleconnect'). We proxy that zone under our own domain.
+const ROTARY_ZONE = 'https://custom-templete-palate.vercel.app';
+
 const nextConfig: NextConfig = {
   basePath: '/lms-admin',
   // Remove X-Powered-By: Next.js header — prevents tech stack fingerprinting
   poweredByHeader: false,
+  // Multi-zone proxy. These MUST be `beforeFiles` so they run before this app's
+  // own `_next/static` filesystem handler — otherwise `/rotarydhuleconnect/_next/*`
+  // asset requests get swallowed here (404) instead of proxying to the zone, which
+  // strips all CSS/JS from the proxied pages. `basePath: false` opts these paths out
+  // of the '/lms-admin' prefix so they match at the domain root.
+  async rewrites() {
+    return {
+      beforeFiles: [
+        {
+          source: '/siddeshcomputers',
+          destination: `${ROTARY_ZONE}/rotarydhuleconnect/siddeshcomputers`,
+          basePath: false,
+        },
+        {
+          source: '/rotarydhuleconnect',
+          destination: `${ROTARY_ZONE}/rotarydhuleconnect`,
+          basePath: false,
+        },
+        {
+          source: '/rotarydhuleconnect/:path+',
+          destination: `${ROTARY_ZONE}/rotarydhuleconnect/:path+`,
+          basePath: false,
+        },
+      ],
+      afterFiles: [],
+      fallback: [],
+    };
+  },
   async redirects() {
     return [
       { source: '/schools', destination: '/data?tab=schools', permanent: true },
