@@ -87,6 +87,16 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
     customDate = `${customDateOnly}T${hourStr}:${minStr}`;
   }
 
+  // Indian academic year (Apr–Mar) captured on the key at generation. Mirrors
+  // indianAcademicYear() on the server. For a custom expiry we use that date, else now.
+  // Shown to the operator and (for a Vendor key) surfaced as the app's generic "Year".
+  const licenseAcademicYear = React.useMemo(() => {
+    const d = durationMode === 'custom' && customDate ? new Date(customDate) : new Date();
+    const y = d.getFullYear();
+    const start = d.getMonth() + 1 >= 4 ? y : y - 1;
+    return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
+  }, [durationMode, customDate]);
+
   const keyInputState = useState('LMS-TRIMURTI-BETA');
   const keyInput = keyInputState[0];
   const setKeyInput = keyInputState[1];
@@ -565,6 +575,19 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                 )}
               </div>
             </div>
+          </div>
+
+          {/* Academic year captured on the key at generation (served back at activation).
+              Most relevant for a Vendor key, whose Information tab shows only ID + year. */}
+          <div className="flex items-center gap-2 text-[11px] font-bold text-zinc-400">
+            <Calendar className="w-3.5 h-3.5 text-accent-violet" />
+            <span>
+              Academic Year on key:{' '}
+              <span className="text-accent-violet font-mono">{licenseAcademicYear}</span>
+              {entityType === 'Vendor' && (
+                <span className="text-zinc-500 font-normal"> — shown as the vendor’s “Year” after activation</span>
+              )}
+            </span>
           </div>
 
           {/* Key Count & Activation Key input row */}

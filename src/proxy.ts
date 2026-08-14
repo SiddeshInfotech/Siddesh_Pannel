@@ -355,7 +355,7 @@ export const config = {
      * - _next/image (image optimization)
      * - favicon.ico, .png, .jpg, .svg etc
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:png|jpg|jpeg|svg|ico|webp)).*)',
+    '/((?!_next/static|_next/image|favicon.ico|rotarydhuleconnect|siddeshcomputers|.*\\.(?:png|jpg|jpeg|svg|ico|webp)).*)',
   ],
 };
 
