@@ -97,9 +97,15 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
     return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
   }, [durationMode, customDate]);
 
-  const keyInputState = useState('LMS-TRIMURTI-BETA');
+  // Start EMPTY and auto-fill with a valid, entity-named key below (see effect).
+  // The old static default 'LMS-TRIMURTI-BETA' could never pass the server format
+  // (LMS-<2..12>-<EXACTLY 10>), so a single-key submit was always rejected with
+  // "Invalid activation key format." keyManuallyEdited turns auto-fill off once the
+  // operator types their own key.
+  const keyInputState = useState('');
   const keyInput = keyInputState[0];
   const setKeyInput = keyInputState[1];
+  const [keyManuallyEdited, setKeyManuallyEdited] = useState(false);
   const [keyCount, setKeyCount] = useState(1);
   const [generatedKeys, setGeneratedKeys] = useState<string[]>([]);
   const [copiedKeyIndex, setCopiedKeyIndex] = useState<number | null>(null);
@@ -159,7 +165,21 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
     else if (entityType === 'Individual') currentName = selectedParent?.name || 'INDIVIDUAL';
     
     setKeyInput(generateRandomKey(currentName));
+    setKeyManuallyEdited(false);
   };
+
+  // Keep the single-key field populated with a VALID auto-generated key that reflects
+  // the chosen entity, until the operator manually edits it. Runs client-side only
+  // (generateRandomKey uses Web Crypto), so it never executes during SSR.
+  React.useEffect(() => {
+    if (keyCount !== 1 || keyManuallyEdited) return;
+    let currentName = 'ENTITY';
+    if (entityType === 'School') currentName = selectedSchool?.name || 'SCHOOL';
+    else if (entityType === 'Vendor') currentName = selectedVendor?.name || 'VENDOR';
+    else if (entityType === 'Individual') currentName = selectedParent?.name || 'INDIVIDUAL';
+    setKeyInput(generateRandomKey(currentName));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entityType, selectedSchoolId, selectedVendorId, selectedParentId, keyCount, keyManuallyEdited]);
 
   const handleGenerate = (e: React.FormEvent) => {
     e.preventDefault();
@@ -243,6 +263,9 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
 
         setKeyList(prev => [...newKeyRows, ...prev]);
         setGeneratedKeys(keysToCreate);
+        // Re-enable auto-fill so the next single-key submit gets a fresh, unique key
+        // (submitting the same token again would collide on the unique constraint).
+        setKeyManuallyEdited(false);
         toast(`${keysToCreate.length} Activation key(s) generated successfully!`, 'success');
       } catch {
         toast('Something went wrong. Please try again.', 'error');
@@ -416,6 +439,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                 setSelectedSchoolId('');
                 setSelectedVendorId('');
                 setSelectedParentId('');
+                setKeyManuallyEdited(false); // re-enable auto-fill for the new entity type
               }}
               options={[
                 { value: 'School', label: 'School' },
@@ -618,9 +642,9 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                     type="text"
                     required={keyCount === 1}
                     disabled={keyCount > 1}
-                    placeholder={keyCount > 1 ? "Auto-generating keys..." : "LMS-EDU-CABE-BETA"}
+                    placeholder={keyCount > 1 ? "Auto-generating keys..." : "LMS-SCHOOL-ABCDEFGHJK"}
                     value={keyCount > 1 ? "" : keyInput}
-                    onChange={e => setKeyInput(e.target.value)}
+                    onChange={e => { setKeyInput(e.target.value); setKeyManuallyEdited(true); }}
                     className={`w-full pl-4 ${keyCount === 1 ? 'pr-24' : 'pr-4'} py-3.5 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm font-bold text-white focus:outline-none transition-all tracking-wide font-mono disabled:opacity-50`}
                   />
                   {keyCount === 1 && (
