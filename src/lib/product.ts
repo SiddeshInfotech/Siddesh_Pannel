@@ -25,6 +25,7 @@ export type Product =
   | 'lms_lab_linux'
   | 'lms_android'
   | 'lms_windows'
+  | 'lms_linux'
   | 'unknown';
 
 export const PRODUCTS: readonly Product[] = [
@@ -33,19 +34,20 @@ export const PRODUCTS: readonly Product[] = [
   'lms_lab_linux',
   'lms_android',
   'lms_windows',
+  'lms_linux',
   'unknown',
 ] as const;
 
 export interface ProductSignals {
   osPlatform?: string | null; // ping only: 'windows' | 'linux' | 'android' (LMS Lab)
   securityTier?: string | null; // WIN_*/DESKTOP => LMS Lab desktop; Android tiers => Android
-  appVersion?: string | null; // LMS Lab: '1.0.0-android' | '1.0.0-win'
+  appVersion?: string | null; // LMS Lab: '1.0.0-lab-android' | '1.0.0-lab-linux' | '1.0.0-lab-win'
   deviceOs?: string | null; // 'Android 14' | 'Windows 10.0'
 }
 
 // Android Keystore (KeystoreCrypto) tiers — shared by original LMS Android and LMS Lab
 // Android. On their own they only prove "an Android device"; the LMS Lab markers
-// (os_platform / '-android' app_version, checked first) are what promote to lms_lab_android.
+// (os_platform / '-lab-android' app_version, checked first) are what promote to lms_lab_android.
 const ANDROID_TIERS = new Set([
   'ATTESTED_STRONGBOX',
   'ATTESTED_TEE',
@@ -72,13 +74,19 @@ export function detectProduct(s: ProductSignals): Product {
   //    Windows host can't be told from a Linux/Wine host → default to windows.
   if (tier.startsWith('WIN_') || tier === 'DESKTOP') return 'lms_lab_windows';
 
-  // 3) LMS Lab app_version markers (activate/terms carry no os_platform).
-  if (ver.includes('-android')) return 'lms_lab_android';
-  if (ver.includes('-win')) return 'lms_lab_windows';
+  // 3) LMS Lab app_version markers (activate/terms carry no os_platform). Lab builds tag their
+  //    version with '-lab-<os>' (e.g. '1.0.0-lab-android', '1.0.0-lab-linux', '1.0.0-lab-win') —
+  //    markers the original LMS School build never sends — so a generic '-android'/'-linux' can
+  //    NEVER be misread as Lab. ('-win' also matches older Lab desktop builds; Lab Windows is
+  //    anyway resolved by the WIN_* tier in step 2.)
+  if (ver.includes('lab-android')) return 'lms_lab_android';
+  if (ver.includes('lab-linux')) return 'lms_lab_linux';
+  if (ver.includes('lab-win') || ver.includes('-win')) return 'lms_lab_windows';
 
-  // 4) No LMS Lab marker → an original LMS app, classified by OS.
+  // 4) No LMS Lab marker → an original LMS School app, classified by OS.
   if (dos.includes('android')) return 'lms_android';
   if (dos.includes('windows')) return 'lms_windows';
+  if (dos.includes('linux')) return 'lms_linux';
 
   // 5) Android Keystore tier with no OS hint → original LMS Android.
   if (ANDROID_TIERS.has(tier)) return 'lms_android';

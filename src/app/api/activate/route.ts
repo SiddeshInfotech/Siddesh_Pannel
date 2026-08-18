@@ -17,6 +17,7 @@ const ActivationRequestSchema = z.object({
   hardware_fingerprint: z.string().min(1),
   device_model: z.string().optional(),
   device_os: z.string().optional(),
+  app_version: z.string().optional(),
   // F6: device_android_id (DPDP-regulated identifier) removed. jhhgkhjb
   // NC-1: base64 SPKI of the device's hardware-backed (TEE/StrongBox) RSA key. CEKs are
   // ALWAYS wrapped to this key, and its hardware key-attestation chain (below) proves the
@@ -316,6 +317,7 @@ export async function POST(req: NextRequest) {
       hardware_fingerprint,
       device_model,
       device_os,
+      app_version,
       device_wrap_pubkey,
       attestation_nonce,
       attestation_timestamp,
@@ -330,7 +332,7 @@ export async function POST(req: NextRequest) {
     const isWindows = platform === 'windows';
     // Which product this activation is from (WIN_* tier ⇒ LMS Lab desktop; else by OS).
     // Persisted on the activation_keys row and the SUCCESS handshake log below.
-    const product = detectProduct({ securityTier: security_tier, deviceOs: device_os });
+    const product = detectProduct({ securityTier: security_tier, deviceOs: device_os, appVersion: app_version });
 
 
     // Populate the audit/context vars from the validated request. (Bug fix:
@@ -736,10 +738,17 @@ export async function POST(req: NextRequest) {
       });
     }
     const wrappedCeks: Record<string, string> = {};
-    for (const classId of classIds) {
-      for (const subject of SUBJECTS) {
-        const scopeId = `${classId}/${subject}`;
+    if (product && product.startsWith('lms_lab_')) {
+      for (let i = 1; i <= 9; i++) {
+        const scopeId = `course_${i}`;
         wrappedCeks[scopeId] = wrapOne(deriveScopePassphrase(masterCek, scopeId));
+      }
+    } else {
+      for (const classId of classIds) {
+        for (const subject of SUBJECTS) {
+          const scopeId = `${classId}/${subject}`;
+          wrappedCeks[scopeId] = wrapOne(deriveScopePassphrase(masterCek, scopeId));
+        }
       }
     }
 
