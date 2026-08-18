@@ -169,7 +169,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [search, setSearch] = useState('');
-  const [entityFilter, setEntityFilter] = useState<'Schools' | 'Vendors' | 'Users'>('Schools');
+  const [entityFilter, setEntityFilter] = useState<'All' | 'Schools' | 'Vendors' | 'Users'>('All');
   const [productFilter, setProductFilter] = useState<string>('all');
   const [selectedDevice, setSelectedDevice] = useState<DeviceRow | null>(null);
   const [devicesList, setDevicesList] = useState<DeviceRow[]>(initialDevices);
@@ -259,10 +259,12 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
   };
 
   // Schools → school devices, Vendors → vendor devices, Users → student/parent devices.
-  const entityFilterType = entityFilter === 'Vendors' ? 'vendor' : entityFilter === 'Users' ? 'student' : 'school';
   const filteredDevices = devicesList.filter(dev => {
     // Older device rows (activated before entityType existed) default to 'school'.
-    if ((dev.entityType || 'school') !== entityFilterType) return false;
+    if (entityFilter !== 'All') {
+      const entityFilterType = entityFilter === 'Vendors' ? 'vendor' : entityFilter === 'Users' ? 'student' : 'school';
+      if ((dev.entityType || 'school') !== entityFilterType) return false;
+    }
     if (productFilter !== 'all' && dev.product !== productFilter) return false;
     const q = search.toLowerCase();
     return dev.model.toLowerCase().includes(q) ||
@@ -292,6 +294,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
               onChange={val => setEntityFilter(val as any)}
               options={[
+                { value: 'All', label: 'All Entities' },
                 { value: 'Schools', label: 'Schools' },
                 { value: 'Vendors', label: 'Vendors' },
                 { value: 'Users', label: 'Users' }
@@ -339,7 +342,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
               <tr className="border-b border-card-border text-[10px] uppercase font-bold text-zinc-500 tracking-wider">
                 <th className="py-4 px-3">Device (Model + OS)</th>
                 <th className="py-4 px-3">Hardware Fingerprint</th>
-                <th className="py-4 px-3">{entityFilter === 'Vendors' ? 'Vendor Name' : entityFilter === 'Users' ? 'Student Name' : 'School Name'}</th>
+                <th className="py-4 px-3">{entityFilter === 'Vendors' ? 'Vendor Name' : entityFilter === 'Users' ? 'Student Name' : entityFilter === 'All' ? 'Entity Name' : 'School Name'}</th>
                 <th className="py-4 px-3">Security Tier</th>
                 <th className="py-4 px-3">Product</th>
                 <th className="py-4 px-3">Consent</th>
