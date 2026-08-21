@@ -739,17 +739,17 @@ export async function POST(req: NextRequest) {
     }
     const wrappedCeks: Record<string, string> = {};
     // ── LMS School vs LMS Lab key scoping (additive, non-breaking) ────────────
-    // A Windows School desktop reports a WIN_* security tier, which detectProduct()
-    // maps to 'lms_lab_windows' (course_N scoping) — because WIN_* is shared by BOTH
-    // LMS School Windows and LMS Lab Windows, so the tier alone cannot tell them apart.
-    // The ENTITY can: LMS School content is class-scoped (class_N/Subject) and is always
-    // sold under a SCHOOL entity, whereas LMS Lab (9 courses) is provisioned under non-school
-    // entities. So course scoping applies ONLY to a lab-tier device that is NOT a school
-    // entity. This is durable (no per-key stamp to be overwritten on activation) and leaves
-    // existing LMS School (Android, school entity → class keys) and non-school LMS Lab
-    // (→ course keys) behaving exactly as before.
-    const useCourseScopes =
-      !!product && product.startsWith('lms_lab_') && resolved.entityType !== 'school';
+    // LMS School content is class-scoped (class_N/Subject) and is sold to school, vendor AND
+    // parent entities — they ALL need class keys. LMS Lab (9 courses) uses course_N scoping.
+    // The WIN_* security tier is NOT a reliable Lab signal: LMS School Windows uses the SAME
+    // TpmSealing WIN_* tier, so detectProduct() mislabels it 'lms_lab_windows'. The canonical
+    // School-vs-Lab distinguisher (see product_registry.sql) is the LAB app_version marker
+    // '-lab-<os>' that only LMS Lab builds send. So course scoping applies ONLY to a
+    // self-identified Lab client; every LMS School activation (any entity) gets class keys.
+    const verMarker = (app_version ?? '').toLowerCase();
+    const isLabClient =
+      verMarker.includes('-lab-android') || verMarker.includes('-lab-win') || verMarker.includes('-lab-linux');
+    const useCourseScopes = isLabClient;
     if (useCourseScopes) {
       for (let i = 1; i <= 9; i++) {
         const scopeId = `course_${i}`;
