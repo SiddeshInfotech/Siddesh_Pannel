@@ -738,7 +738,18 @@ export async function POST(req: NextRequest) {
       });
     }
     const wrappedCeks: Record<string, string> = {};
-    if (product && product.startsWith('lms_lab_')) {
+    // ── LMS School Windows enablement (additive, non-breaking) ────────────────
+    // A Windows School desktop reports a WIN_* security tier, which detectProduct()
+    // maps to 'lms_lab_windows' (course_N scoping) because WIN_* is shared by BOTH
+    // LMS School Windows and LMS Lab Windows and the tier alone cannot tell them apart.
+    // The LICENSE can: when the activation key is EXPLICITLY stamped with a non-Lab
+    // (School) product, honor that and use class_N/Subject scoping. Keys WITHOUT such a
+    // stamp fall through to the unchanged detectProduct() decision — so existing LMS
+    // School (Android) and every LMS Lab activation behave exactly as before.
+    const stampedProduct = ((keyRecord as Record<string, unknown>).product as string | null | undefined ?? '').trim();
+    const isSchoolStampedLicense = stampedProduct.length > 0 && !stampedProduct.startsWith('lms_lab_');
+    const useCourseScopes = !isSchoolStampedLicense && !!product && product.startsWith('lms_lab_');
+    if (useCourseScopes) {
       for (let i = 1; i <= 9; i++) {
         const scopeId = `course_${i}`;
         wrappedCeks[scopeId] = wrapOne(deriveScopePassphrase(masterCek, scopeId));
