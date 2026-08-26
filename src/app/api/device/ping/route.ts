@@ -45,13 +45,27 @@ const PingSchema = z.object({
   //   CLOCK_ROLLBACK   — device wall clock was set behind the sealed monotonic high-water-mark
   //   STORAGE_TAMPER   — the activation record file was edited (side field ignored / mismatch)
   //   SIGNATURE_INVALID— the stored signed payload no longer verifies (forged/edited)
-  //   GUARD_UNSEAL_FAIL— the TPM/DPAPI-sealed anti-rollback sidecar could not be unsealed
+  //   GUARD_UNSEAL_FAIL— LEGACY (pre-split clients only): the anti-rollback sidecar could not be
+  //                      unsealed, cause unknown. Newer clients report one of the three GUARD_*
+  //                      values below instead, which distinguish genuine tamper from a benign
+  //                      TPM/environment hiccup (see GUARD_HEALTH_REASONS below).
+  //   GUARD_CORRUPTED  — sidecar present with POSITIVE evidence of tamper/corruption (malformed
+  //                      bytes, or opened-with-the-right-key-but-failed-to-authenticate)
+  //   GUARD_KEY_UNAVAILABLE — sidecar present but its TPM-sealing key could not be opened right
+  //                      now (Windows Update TPM reset, sleep/hibernate/BitLocker hiccup, etc.) —
+  //                      NOT evidence of tampering
+  //   GUARD_MISSING    — the sidecar file itself is absent (could be antivirus/disk cleanup, or a
+  //                      rollback attempt) — treated as a health signal, not a tamper attempt
   //   FINGERPRINT_MISMATCH — signed device binding does not match this device (clone/restore)
   //   LEASE_INVALID    — a Signed Renewable Lease failed signature/binding verification
   //   WINE_DETECTED    — the Windows app is running under Wine/Proton (Linux/Kali) — no genuine
   //                      TPM, so DRM/anti-rollback degrade; a strong reverse-engineering signal
   tamper_status: z
-    .enum(['CLOCK_ROLLBACK', 'STORAGE_TAMPER', 'SIGNATURE_INVALID', 'GUARD_UNSEAL_FAIL', 'FINGERPRINT_MISMATCH', 'LEASE_INVALID', 'WINE_DETECTED'])
+    .enum([
+      'CLOCK_ROLLBACK', 'STORAGE_TAMPER', 'SIGNATURE_INVALID', 'GUARD_UNSEAL_FAIL',
+      'GUARD_CORRUPTED', 'GUARD_KEY_UNAVAILABLE', 'GUARD_MISSING',
+      'FINGERPRINT_MISMATCH', 'LEASE_INVALID', 'WINE_DETECTED',
+    ])
     .optional(),
   // Server-side expiry-tamper detection: the expiry the device currently holds/enforces
   // (from its signed payload), as an ISO string. The panel compares it to signed_expires_at
@@ -318,9 +332,18 @@ export async function POST(req: NextRequest) {
   // someone try to change the expiry on device X?" — the client is the only place that can
   // observe a local edit / clock rollback (a large rollback never even reaches this endpoint
   // because the timestamp-skew gate 401s it, so the device's own report is the signal).
+  //
+  // GUARD_KEY_UNAVAILABLE and GUARD_MISSING are NOT positive evidence of tampering — a
+  // legitimate device's TPM-sealed guard can become unreadable for reasons that have nothing to
+  // do with an attack (see the client's TpmSealing.UnsealOutcome docs). They still get a
+  // timeline entry for visibility, but are classified as a device-health issue rather than the
+  // alarming EXPIRY_TAMPER security alert, so admins can tell "this machine may have a TPM
+  // problem" apart from "this machine shows evidence of tampering."
+  const GUARD_HEALTH_REASONS = new Set(['GUARD_KEY_UNAVAILABLE', 'GUARD_MISSING']);
   if (tamper_status) {
+    const isGenuineTamper = !GUARD_HEALTH_REASONS.has(tamper_status);
     logger.warn({
-      event: 'PING_EXPIRY_TAMPER',
+      event: isGenuineTamper ? 'PING_EXPIRY_TAMPER' : 'PING_GUARD_HEALTH_ISSUE',
       reason: tamper_status,
       device_fingerprint,
       school_id: key.school_id,
@@ -332,12 +355,14 @@ export async function POST(req: NextRequest) {
       device_fingerprint,
       ...entityCols(key),
       product,
-      event_type: 'EXPIRY_TAMPER',
+      event_type: isGenuineTamper ? 'EXPIRY_TAMPER' : 'GUARD_HEALTH_ISSUE',
       detail: { reason: tamper_status, app_version, ip, security_tier: reportedTier || null },
     });
-    await sendSecurityAlert('EXPIRY_TAMPER', `Device reported ${tamper_status} (school ${key.school_id})`, {
-      reason: tamper_status, device_fingerprint, school_id: key.school_id, app_version, ip,
-    });
+    if (isGenuineTamper) {
+      await sendSecurityAlert('EXPIRY_TAMPER', `Device reported ${tamper_status} (school ${key.school_id})`, {
+        reason: tamper_status, device_fingerprint, school_id: key.school_id, app_version, ip,
+      });
+    }
   }
 
   // SERVER-SIDE EXPIRY-TAMPER (the robust, un-spoofable detector) — compare the expiry the

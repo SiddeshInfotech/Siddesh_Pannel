@@ -70,6 +70,7 @@ function eventStyle(type: string): { label: string; Icon: React.ElementType; ton
     case 'OFFLINE':            return { label: 'Went offline',             Icon: WifiOff,       tone: 'info' };
     case 'ACTIVATED':          return { label: 'Device activated',         Icon: CheckCircle2,  tone: 'ok' };
     case 'EXPIRY_TAMPER':      return { label: 'Expiry tamper attempt',    Icon: ShieldAlert,   tone: 'danger' };
+    case 'GUARD_HEALTH_ISSUE': return { label: 'Guard/TPM health issue',   Icon: AlertTriangle, tone: 'warn' };
     case 'CEK_DECRYPT_FAILED': return { label: 'Content key decrypt failed', Icon: KeyRound,    tone: 'warn' };
     default:                   return { label: type.replace(/_/g, ' '),    Icon: Circle,        tone: 'info' };
   }
@@ -80,7 +81,10 @@ const TAMPER_REASON: Record<string, string> = {
   CLOCK_ROLLBACK:       'Device clock was set backwards',
   STORAGE_TAMPER:       'Activation record was edited on disk',
   SIGNATURE_INVALID:    'Stored licence signature no longer valid',
-  GUARD_UNSEAL_FAIL:    'Sealed anti-rollback state was tampered',
+  GUARD_UNSEAL_FAIL:    'Sealed anti-rollback state was tampered',   // legacy — pre-split clients only
+  GUARD_CORRUPTED:      'Sealed anti-rollback state was tampered',
+  GUARD_KEY_UNAVAILABLE:'TPM key temporarily unreadable (not tampering — e.g. Windows Update, sleep/hibernate)',
+  GUARD_MISSING:        'Anti-rollback sidecar file is missing (not necessarily tampering)',
   FINGERPRINT_MISMATCH: 'Licence is bound to a different device',
   LEASE_INVALID:        'Server lease failed verification',
 };
