@@ -35,13 +35,14 @@ function agoFrom(iso: string | null): string {
 }
 
 async function getTelemetry() {
-  // security_tier is a NEW column (scripts/add_security_tier.sql). If it isn't migrated
-  // yet, selecting it 400s the whole query and blanks the device list — so retry without
-  // it on error. Tiers then show "—" until the migration runs. Push order-independent.
+  // security_tier / product_id are NEW columns (scripts/add_security_tier.sql,
+  // product-identity-upgrade.sql). If either isn't migrated yet, selecting it 400s the
+  // whole query and blanks the device list — so retry without both on error. Tiers/product
+  // then show "—"/"Unknown" until the migration runs. Push order-independent.
   const BASE = 'device_fingerprint, activation_key, app_version, first_seen, last_seen, total_online_seconds, last_ip';
   const withTier = await supabaseAdmin
     .from('device_status')
-    .select(`${BASE}, security_tier, schools(id, name, school_id)`)
+    .select(`${BASE}, security_tier, product_id, schools(id, name, school_id)`)
     .order('last_seen', { ascending: false });
   let statuses: any /* eslint-disable-line @typescript-eslint/no-explicit-any */[] | null = withTier.data;
   if (withTier.error) {
@@ -74,6 +75,7 @@ async function getTelemetry() {
       totalOnline: humanDuration(Number(s.total_online_seconds) || 0),
       lastIp: s.last_ip ?? '—',
       securityTier: s.security_tier ?? 'UNREPORTED',
+      productId: s.product_id ?? null,
     };
   });
 

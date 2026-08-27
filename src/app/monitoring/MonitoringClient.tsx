@@ -34,6 +34,7 @@ import GlassCard from '@/components/GlassCard';
 import CustomSelect from '@/components/CustomSelect';
 import { deactivateDevice } from './actions';
 import { useToast } from '@/components/Toast';
+import { PRODUCT_FILTER_OPTIONS } from '@/lib/productIdentity';
 
 interface DeviceRow {
   id: string;
@@ -86,7 +87,7 @@ interface DeviceRow {
   durationDays: number;
   expiresAt?: string | null;
   securityTier: string;
-  product: string;
+  product: string | null; // canonical product id (src/lib/productIdentity.ts), or null if unresolved
   termsAccepted: boolean;
   termsVersion: string | null;
   termsAcceptedAt: string | null;
@@ -130,35 +131,24 @@ function tierStyle(tier: string): { label: string; cls: string } {
   }
 }
 
-// Maps the auto-derived product (src/lib/product.ts) to a short label + badge colour.
-// LMS Lab family in cool tones, the original LMS apps in warmer ones; 'unknown' neutral.
-function productStyle(product: string): { label: string; cls: string } {
+// Maps the canonical product id (src/lib/productIdentity.ts) to a short label + badge
+// colour. LMS Lab family in cool tones, LMS School in warmer ones; unresolved neutral.
+function productStyle(product: string | null): { label: string; cls: string } {
   switch (product) {
-    case 'lms_lab_android':
+    case 'LMS_LAB_ANDROID':
       return { label: 'LMS Lab · Android', cls: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' };
-    case 'lms_lab_windows':
+    case 'LMS_LAB_WINDOWS':
       return { label: 'LMS Lab · Windows', cls: 'bg-sky-500/10 border-sky-500/25 text-sky-400' };
-    case 'lms_lab_linux':
+    case 'LMS_LAB_LINUX':
       return { label: 'LMS Lab · Linux', cls: 'bg-violet-500/10 border-violet-500/25 text-violet-400' };
-    case 'lms_android':
-      return { label: 'LMS · Android', cls: 'bg-teal-500/10 border-teal-500/25 text-teal-400' };
-    case 'lms_windows':
-      return { label: 'LMS · Windows', cls: 'bg-blue-500/10 border-blue-500/25 text-blue-400' };
+    case 'LMS_SCHOOL_ANDROID':
+      return { label: 'LMS School · Android', cls: 'bg-teal-500/10 border-teal-500/25 text-teal-400' };
+    case 'LMS_SCHOOL_WINDOWS':
+      return { label: 'LMS School · Windows', cls: 'bg-blue-500/10 border-blue-500/25 text-blue-400' };
     default:
       return { label: 'Unknown', cls: 'bg-white/5 border-white/10 text-zinc-400' };
   }
 }
-
-// Product filter dropdown options (value must match the DB `product` values).
-const PRODUCT_FILTER_OPTIONS = [
-  { value: 'all', label: 'All products' },
-  { value: 'lms_lab_android', label: 'LMS Lab · Android' },
-  { value: 'lms_lab_windows', label: 'LMS Lab · Windows' },
-  { value: 'lms_lab_linux', label: 'LMS Lab · Linux' },
-  { value: 'lms_android', label: 'LMS · Android' },
-  { value: 'lms_windows', label: 'LMS · Windows' },
-  { value: 'unknown', label: 'Unknown' },
-];
 
 interface MonitoringClientProps {
   initialDevices: DeviceRow[];
@@ -410,7 +400,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                           const p = productStyle(dev.product);
                           return (
                             <span
-                              title={dev.product}
+                              title={dev.product ?? undefined}
                               className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-[10px] font-semibold whitespace-nowrap ${p.cls}`}
                             >
                               {p.label}

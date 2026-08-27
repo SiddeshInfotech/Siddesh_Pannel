@@ -43,7 +43,7 @@ async function getKeysList() {
     .select(`
       id, school_id, vendor_id, parent_id, key, status, duration_days, expires_at, created_at, batch_id,
       device_fingerprint, device_model, device_os, device_brand, device_android_id, activated_at,
-      watermark_code,
+      watermark_code, product_id,
       schools ( name ),
       vendors ( vendor_name ),
       parents ( parent_name )
@@ -77,6 +77,7 @@ async function getKeysList() {
       watermarkCode: k.watermark_code ?? null,
       platform: k.platform ?? null,
       securityTier: k.security_tier ?? null,
+      productId: k.product_id ?? null,
     };
   });
 }

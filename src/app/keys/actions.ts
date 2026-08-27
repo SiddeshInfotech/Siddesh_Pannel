@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { indianAcademicYear } from '@/lib/entity';
+import { PRODUCT_ID_ENUM, DEFAULT_PRODUCT_ID } from '@/lib/productIdentity';
 
 // Activation key format: LMS-<SCHOOLCODE 2..12>-<CODE 10>. Rejects manually-typed
 // junk like "LMS-SCHOOL-MNS7LGUAA4879898" (3rd segment must be exactly 10 chars).
@@ -22,6 +23,9 @@ const ActivationKeySchema = z.object({
     .max(10000, 'Too many keys requested.'),
   durationDays: z.number({ message: 'Duration must be a number.' }).int('Duration must be a whole number.').min(1, 'Duration must be at least 1 day.').max(36500, 'Duration is too large.'),
   expiresAt: z.string().optional(),
+  // Which product this batch of keys is for (src/lib/productIdentity.ts). Defaults to
+  // LMS School Android — the existing production behavior — for any caller that omits it.
+  productId: z.enum(PRODUCT_ID_ENUM).default(DEFAULT_PRODUCT_ID),
 }).refine(data => {
   if (data.entityType === 'School' && !data.schoolId) return false;
   if (data.entityType === 'Vendor' && !data.vendorId) return false;
@@ -86,6 +90,7 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
       academic_year: academicYear,
       status: 'Paid' as const,
       batch_id: batchId,
+      product_id: validData.productId,
     }));
 
     const { data: createdKeys, error } = await supabaseAdmin

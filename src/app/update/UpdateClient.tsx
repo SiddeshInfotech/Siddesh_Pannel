@@ -5,6 +5,8 @@ import {
   DownloadCloud, Circle, Clock, Server, Search,
   Wifi, WifiOff, ShieldAlert, KeyRound, CheckCircle2, AlertTriangle,
 } from 'lucide-react';
+import CustomSelect from '@/components/CustomSelect';
+import { PRODUCT_FILTER_OPTIONS, productDisplayName } from '@/lib/productIdentity';
 
 type Device = {
   fingerprint: string;
@@ -19,6 +21,7 @@ type Device = {
   totalOnline: string;
   lastIp: string;
   securityTier: string;
+  productId: string | null;
 };
 
 // Short label + badge colour per device security tier (KeystoreCrypto taxonomy).
@@ -98,17 +101,20 @@ export default function UpdateClient({
   devices: Device[]; events: Ev[]; onlineCount: number; serverTime: string;
 }) {
   const [q, setQ] = useState('');
+  const [productFilter, setProductFilter] = useState<string>('all');
   const [selectedFingerprint, setSelectedFingerprint] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
+    let list = devices;
+    if (productFilter !== 'all') list = list.filter((d) => d.productId === productFilter);
     const t = q.trim().toLowerCase();
-    if (!t) return devices;
-    return devices.filter(
+    if (!t) return list;
+    return list.filter(
       (d) => d.schoolName.toLowerCase().includes(t) ||
              d.schoolId.toLowerCase().includes(t) ||
              d.activationKey.toLowerCase().includes(t)
     );
-  }, [q, devices]);
+  }, [q, devices, productFilter]);
 
   // Fingerprints that have at least one security event (for the red row marker).
   const flaggedFingerprints = useMemo(() => {
@@ -184,6 +190,13 @@ export default function UpdateClient({
                 className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm outline-none focus:border-sky-500/50"
               />
             </div>
+            <div className="w-[190px] flex-shrink-0">
+              <CustomSelect
+                value={productFilter}
+                onChange={(val) => setProductFilter(val)}
+                options={PRODUCT_FILTER_OPTIONS}
+              />
+            </div>
           </div>
           <div className="rounded-2xl border border-white/10 overflow-hidden">
             <div className="overflow-x-auto">
@@ -194,6 +207,7 @@ export default function UpdateClient({
                     <th className="text-left px-4 py-3 font-semibold">Active key</th>
                     <th className="text-left px-4 py-3 font-semibold">Status</th>
                     <th className="text-left px-4 py-3 font-semibold">Tier</th>
+                    <th className="text-left px-4 py-3 font-semibold">Product</th>
                     <th className="text-left px-4 py-3 font-semibold">Last seen</th>
                     <th className="text-right px-4 py-3 font-semibold">Online time</th>
                     <th className="text-left px-4 py-3 font-semibold">App</th>
@@ -201,7 +215,7 @@ export default function UpdateClient({
                 </thead>
                 <tbody>
                   {filtered.length === 0 && (
-                    <tr><td colSpan={7} className="px-4 py-10 text-center text-zinc-500">
+                    <tr><td colSpan={8} className="px-4 py-10 text-center text-zinc-500">
                       No devices have reported in yet.
                     </td></tr>
                   )}
@@ -248,6 +262,14 @@ export default function UpdateClient({
                             className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${t.cls}`}
                           >
                             {t.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            title={d.productId ?? 'Unknown'}
+                            className="inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap bg-white/5 border-white/10 text-zinc-300"
+                          >
+                            {productDisplayName(d.productId)}
                           </span>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap" title={d.lastSeenExact}>{d.lastSeenAgo}</td>

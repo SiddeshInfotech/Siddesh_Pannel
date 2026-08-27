@@ -23,6 +23,7 @@ import StatusBadge from '@/components/StatusBadge';
 import { createActivationKeys, deleteActivationKey, resetDeviceBinding } from './actions';
 import { useToast } from '@/components/Toast';
 import CustomSelect from '@/components/CustomSelect';
+import { PRODUCT_DEFINITIONS, PRODUCT_FILTER_OPTIONS, DEFAULT_PRODUCT_ID, productDisplayName, ProductId } from '@/lib/productIdentity';
 
 interface SchoolOption {
   id: string;
@@ -51,6 +52,7 @@ interface KeyRow {
   watermarkCode?: string | null;
   platform?: string | null;        // 'android' | 'windows'
   securityTier?: string | null;
+  productId?: string | null;       // canonical product id (src/lib/productIdentity.ts)
 }
 
 interface KeysClientProps {
@@ -66,6 +68,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
   const [keyList, setKeyList] = useState<KeyRow[]>(keys);
   
   const [entityType, setEntityType] = useState<'School' | 'Vendor' | 'Individual'>('School');
+  const [productId, setProductId] = useState<ProductId>(DEFAULT_PRODUCT_ID);
   const [selectedSchoolId, setSelectedSchoolId] = useState('');
   const [selectedVendorId, setSelectedVendorId] = useState('');
   const [selectedParentId, setSelectedParentId] = useState('');
@@ -112,6 +115,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
   // Two-level filter (image 2): first pick the entity TYPE, then a specific entity
   // of that type (or all of that type). filterSchoolId holds the selected entity name.
   const [filterEntityType, setFilterEntityType] = useState<'all' | 'School' | 'Vendor' | 'Parent'>('all');
+  const [filterProductId, setFilterProductId] = useState<string>('all');
   const [filterSchoolId, setFilterSchoolId] = useState('all');
   // Search by activation token OR forensic watermark code (the faint code seen in a
   // leaked recording) — lets an admin trace a leak straight back to the bound tablet.
@@ -232,7 +236,8 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
           parentId: selectedParentId,
           keys: keysToCreate,
           durationDays: calculatedDays,
-          expiresAt: expiresAtParam
+          expiresAt: expiresAtParam,
+          productId,
         });
 
         if (!res.ok) {
@@ -258,7 +263,8 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
           deviceOS: null,
           deviceBrand: null,
           deviceAndroidId: null,
-          activatedAt: null
+          activatedAt: null,
+          productId,
         }));
 
         setKeyList(prev => [...newKeyRows, ...prev]);
@@ -386,8 +392,12 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
         (k.key || '').toUpperCase().includes(q)
       );
     }
+    // No default-to-School fallback here: a legacy key with product_id still unresolved
+    // (e.g. a pre-migration Windows key awaiting self-heal on next activation) must not be
+    // silently counted under a specific product filter — it only shows under "All Products".
+    if (filterProductId !== 'all') list = list.filter(k => k.productId === filterProductId);
     return list;
-  }, [keyList, filterEntityType, filterSchoolId, searchQuery]);
+  }, [keyList, filterEntityType, filterSchoolId, searchQuery, filterProductId]);
 
   const batches = React.useMemo(() => {
     const map: { [key: string]: { id: string; entityName: string; createdAt: string; keys: KeyRow[] } } = {};
@@ -447,6 +457,20 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                 { value: 'Individual', label: 'Normal Individual User' }
               ]}
               placeholder="Select Entity Type"
+            />
+          </div>
+
+          {/* Product Selection — which client build this key activates. Defaults to
+              LMS School Android (existing production behavior); every other product
+              requires the operator to explicitly pick it. */}
+          <div className="w-full md:w-1/3">
+            <label className="text-xs font-bold text-zinc-400 block mb-2">Product</label>
+            <CustomSelect
+              required
+              value={productId}
+              onChange={val => setProductId(val as ProductId)}
+              options={PRODUCT_DEFINITIONS.map(p => ({ value: p.id, label: p.displayName }))}
+              placeholder="Select Product"
             />
           </div>
 
@@ -764,6 +788,13 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                 options={filterOptions}
               />
             </div>
+            <div className="flex items-center gap-2 w-full sm:w-[200px]">
+              <CustomSelect
+                value={filterProductId}
+                onChange={val => setFilterProductId(val)}
+                options={PRODUCT_FILTER_OPTIONS}
+              />
+            </div>
           </div>
         </div>
 
@@ -914,6 +945,9 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                                 <div className="text-[10px] text-zinc-500 font-mono truncate">
                                   OS: {k.deviceOS || 'Android'}{k.securityTier ? ` • ${k.securityTier}` : ''}
                                 </div>
+                                <div className="text-[9px] text-accent-violet font-bold truncate">
+                                  {productDisplayName(k.productId)}
+                                </div>
                                 {k.activatedAt && (
                                   <div className="text-[9px] text-emerald-400 font-bold">
                                     Activated: {k.activatedAt}
@@ -922,9 +956,14 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                               </div>
                             </div>
                           ) : (
-                            <div className="text-zinc-500 font-medium flex items-center gap-2 py-1 text-xs">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500/60 animate-pulse"></span>
-                              <span>Waiting for device activation</span>
+                            <div className="space-y-0.5 py-1">
+                              <div className="text-zinc-500 font-medium flex items-center gap-2 text-xs">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500/60 animate-pulse"></span>
+                                <span>Waiting for device activation</span>
+                              </div>
+                              <div className="text-[9px] text-accent-violet font-bold pl-3.5">
+                                Licensed for: {productDisplayName(k.productId)}
+                              </div>
                             </div>
                           )}
                         </div>

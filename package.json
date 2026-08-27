@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "seed-admin": "node scripts/seed-admin.js",
-    "seed-admins": "node scripts/seed-admins.js"
+    "seed-admins": "node scripts/seed-admins.js",
+    "test": "vitest run"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
@@ -33,6 +34,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^3.2.4"
   }
 }

@@ -5,7 +5,8 @@ import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
 import { signPayload } from '@/lib/licenseSign';
 import { sendSecurityAlert } from '@/lib/alert';
-import { detectProduct } from '@/lib/product';
+import { resolveEffectiveProductId } from '@/lib/product';
+import { PRODUCT_ID_ENUM, isProductId } from '@/lib/productIdentity';
 
 // ============================================================================
 // POST /api/device/ping  — device online heartbeat (Telemetry, Phase 1)
@@ -75,6 +76,10 @@ const PingSchema = z.object({
   // older builds omit it. When present, the heartbeat also stamps the matching per-platform
   // LMS Lab column on device_status (see lms-lab-device-platform.sql). Never affects authZ.
   os_platform: z.enum(['windows', 'linux', 'android']).optional(),
+  // Canonical, compiled-in client product identity (src/lib/productIdentity.ts). Optional +
+  // backward compatible: older/unmigrated clients fall back to resolveEffectiveProductId()'s
+  // legacy heuristic. When present it is checked against the pinned activation_keys.product_id.
+  product_id: z.enum(PRODUCT_ID_ENUM).optional(),
 });
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -124,11 +129,16 @@ export async function POST(req: NextRequest) {
   } catch {
     return generic(400, 'Invalid request.');
   }
-  const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status, tamper_status, reported_expiry, os_platform } = body;
+  const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status, tamper_status, reported_expiry, os_platform, product_id } = body;
   const reportedTier = (security_tier ?? '').trim();
-  // Which product this heartbeat is from. os_platform (LMS Lab only) makes this precise;
-  // written to device_status (authoritative) and every device_timeline event below.
-  const product = detectProduct({ osPlatform: os_platform, securityTier: reportedTier, appVersion: app_version });
+  // Which product this heartbeat is from: the client's own declared product_id if sent
+  // (authoritative), else the legacy heuristic (os_platform / app_version / device_os).
+  const clientProductId = resolveEffectiveProductId({
+    productId: product_id,
+    osPlatform: os_platform,
+    securityTier: reportedTier,
+    appVersion: app_version,
+  });
 
   // Gate 1 — per-device rate limit.
   if (isProd && !(await bump(`ping_fp:${device_fingerprint}`, RL_FP_WIN.win, RL_FP_WIN.max))) {
@@ -150,7 +160,7 @@ export async function POST(req: NextRequest) {
   // Gate 4 — device-bound authorization: key must be Active AND bound to THIS device.
   const { data: key, error: keyErr } = await supabaseAdmin
     .from('activation_keys')
-    .select('id, school_id, vendor_id, parent_id, status, device_fingerprint, expires_at')
+    .select('id, school_id, vendor_id, parent_id, status, device_fingerprint, expires_at, product_id')
     .eq('key', activation_key)
     .maybeSingle();
 
@@ -168,6 +178,18 @@ export async function POST(req: NextRequest) {
     logger.error({ event: 'PING_KEY_LOOKUP_ERROR', error: keyErr.message });
     return generic(503, 'Service unavailable.');
   }
+
+  // Product identity: the license's pin is authoritative once set (matches the hard gate
+  // enforced at /api/activate). A heartbeat reporting a DIFFERENT known product than the
+  // pin is a strong tamper/clone signal — audit-logged, but the heartbeat is still accepted
+  // (the hard reject already happened at activation; a ping mismatch alone must not brick a
+  // legitimately-activated fleet on a flaky/ambiguous legacy signal). Never re-pins here.
+  const pinnedProductId = key && isProductId(key.product_id) ? key.product_id : null;
+  if (pinnedProductId && clientProductId !== 'UNKNOWN' && clientProductId !== pinnedProductId) {
+    logger.warn({ event: 'PING_PRODUCT_MISMATCH', device_fingerprint, pinned: pinnedProductId, reported: clientProductId });
+  }
+  const product = pinnedProductId ?? (clientProductId === 'UNKNOWN' ? null : clientProductId);
+
   // Remote-kill propagation (P4): an admin "Deactivate" flips the key to 'Revoked'. That
   // is a deliberate signal to THIS device — so when the revoked key is presented ON ITS OWN
   // bound fingerprint (no information disclosure: the device is proving it already holds this
@@ -197,7 +219,7 @@ export async function POST(req: NextRequest) {
         const { error: ktErr } = await supabaseAdmin.from('device_timeline').insert({
           device_fingerprint,
           ...entityCols(key),
-          product,
+          product_id: product,
           event_type: 'REMOTE_KILL',
           detail: { reason: 'revoked', app_version, ip },
         });
@@ -269,12 +291,14 @@ export async function POST(req: NextRequest) {
   }, { onConflict: 'device_fingerprint' });
   if (upErr) logger.error({ event: 'PING_STATUS_UPSERT_ERROR', error: upErr.message });
 
-  // Product tag — SEPARATE best-effort write (like security_tier below) so a not-yet-migrated
-  // `product` column (run product-column.sql) can't blackout the whole heartbeat write.
-  {
+  // Canonical product tag — SEPARATE best-effort write (like security_tier below) so a
+  // not-yet-migrated `product_id` column (run product-identity-upgrade.sql) can't blackout
+  // the whole heartbeat write. Skipped when unresolved (null) so we never clobber a
+  // previously-pinned value with "don't know" on a genuinely ambiguous heartbeat.
+  if (product) {
     const { error: prodErr } = await supabaseAdmin
       .from('device_status')
-      .update({ product })
+      .update({ product_id: product })
       .eq('device_fingerprint', device_fingerprint);
     if (prodErr) logger.warn({ event: 'PING_PRODUCT_PERSIST_FAILED', error: prodErr.message });
   }
@@ -321,7 +345,7 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
       ...entityCols(key),
-      product,
+      product_id: product,
       event_type: 'CEK_DECRYPT_FAILED',
       detail: { app_version, ip, security_tier: reportedTier || null },
     });
@@ -354,7 +378,7 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
       ...entityCols(key),
-      product,
+      product_id: product,
       event_type: isGenuineTamper ? 'EXPIRY_TAMPER' : 'GUARD_HEALTH_ISSUE',
       detail: { reason: tamper_status, app_version, ip, security_tier: reportedTier || null },
     });
@@ -404,7 +428,7 @@ export async function POST(req: NextRequest) {
           await supabaseAdmin.from('device_timeline').insert({
             device_fingerprint,
             ...entityCols(key),
-            product,
+            product_id: product,
             event_type: 'EXPIRY_TAMPER',
             detail,
           });
@@ -422,7 +446,7 @@ export async function POST(req: NextRequest) {
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
       ...entityCols(key),
-      product,
+      product_id: product,
       event_type: 'ONLINE',
       detail: { app_version, ip },
     });

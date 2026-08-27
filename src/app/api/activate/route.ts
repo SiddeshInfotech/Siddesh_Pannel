@@ -9,7 +9,8 @@ import { getClientIp } from '@/lib/sanitize';
 import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
 import { signPayload } from '@/lib/licenseSign';
-import { detectProduct } from '@/lib/product';
+import { resolveEffectiveProductId, resolveLegacyProductId, checkProductMatch } from '@/lib/product';
+import { PRODUCT_ID_ENUM, productDisplayName, familyFor, isProductId } from '@/lib/productIdentity';
 import { entityRefFromRow, resolveEntity, isEntitledToAll } from '@/lib/entity';
 
 const ActivationRequestSchema = z.object({
@@ -18,6 +19,11 @@ const ActivationRequestSchema = z.object({
   device_model: z.string().optional(),
   device_os: z.string().optional(),
   app_version: z.string().optional(),
+  // Canonical, compiled-in client product identity (src/lib/productIdentity.ts). Optional
+  // for backward compatibility: older/unmigrated clients (incl. production LMS School
+  // Android, which never sends this) fall back to resolveLegacyProductId() heuristics.
+  // When present it is authoritative and gated against the license's pinned product below.
+  product_id: z.enum(PRODUCT_ID_ENUM).optional(),
   // F6: device_android_id (DPDP-regulated identifier) removed. jhhgkhjb
   // NC-1: base64 SPKI of the device's hardware-backed (TEE/StrongBox) RSA key. CEKs are
   // ALWAYS wrapped to this key, and its hardware key-attestation chain (below) proves the
@@ -131,9 +137,10 @@ async function logHandshake(data: {
   status: 'SUCCESS' | 'FAILED';
   errorMessage?: string;
   ipAddress: string;
-  securityTier?: string | null; // lets the product be derived (WIN_* ⇒ LMS Lab desktop)
-  product?: string; // precomputed product; falls back to deriving from deviceOS + tier
+  securityTier?: string | null; // advisory posture only — NOT a product signal, see src/lib/product.ts
+  productId?: string; // precomputed canonical product id; falls back to the legacy heuristic
 }) {
+  const productId = data.productId ?? resolveLegacyProductId({ deviceOs: data.deviceOS, securityTier: data.securityTier });
   await supabaseAdmin.from('handshake_logs').insert({
     activation_key: data.activationKey,
     device_fingerprint: data.deviceFingerprint,
@@ -142,7 +149,7 @@ async function logHandshake(data: {
     status: data.status,
     error_message: data.errorMessage ?? null,
     ip_address: data.ipAddress,
-    product: data.product ?? detectProduct({ deviceOs: data.deviceOS, securityTier: data.securityTier }),
+    product_id: productId,
   });
 }
 
@@ -330,9 +337,17 @@ export async function POST(req: NextRequest) {
     // and the platform tag persisted on the activation record.
     const platform = detectPlatform(reportedTier, device_os);
     const isWindows = platform === 'windows';
-    // Which product this activation is from (WIN_* tier ⇒ LMS Lab desktop; else by OS).
-    // Persisted on the activation_keys row and the SUCCESS handshake log below.
-    const product = detectProduct({ securityTier: security_tier, deviceOs: device_os, appVersion: app_version });
+    // Canonical product identity this activation is from: the client's own declared
+    // product_id if it sent one (authoritative), else the legacy signal-based heuristic
+    // (production LMS School Android, and any not-yet-updated Windows/Lab client).
+    // Persisted on the activation_keys row and the SUCCESS handshake log below; also
+    // gated against the license's pinned product just after the key is looked up.
+    const clientProductId = resolveEffectiveProductId({
+      productId: validationResult.data.product_id,
+      securityTier: security_tier,
+      deviceOs: device_os,
+      appVersion: app_version,
+    });
 
 
     // Populate the audit/context vars from the validated request. (Bug fix:
@@ -500,6 +515,39 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ── PRODUCT IDENTITY GATE ───────────────────────────────────────────────
+    // A license already pinned to a product (set explicitly at Key Generation, or pinned
+    // by a prior activation) MUST match what this client declares — cross-product
+    // activation (e.g. an LMS Lab Windows key on the LMS School Windows app) is rejected
+    // outright, regardless of how well the device otherwise attests. A legacy key with no
+    // pinned product yet self-heals by pinning to this first genuine contact.
+    const productMatch = checkProductMatch(keyRecord.product_id, clientProductId);
+    if (!productMatch.ok) {
+      await logHandshake({
+        activationKey: requestKey,
+        deviceFingerprint: requestFingerprint,
+        deviceModel: requestModel,
+        deviceOS: requestOS,
+        status: 'FAILED',
+        errorMessage: `Product mismatch: key licensed for ${productDisplayName(keyRecord.product_id)}, client is ${productDisplayName(
+          clientProductId === 'UNKNOWN' ? null : clientProductId
+        )}.`,
+        ipAddress,
+        productId: keyRecord.product_id,
+      });
+      return NextResponse.json(
+        {
+          error: `This activation key is licensed for ${productDisplayName(
+            keyRecord.product_id
+          )} and cannot be used with this application.`,
+        },
+        { status: 403 }
+      );
+    }
+    // Effective product to persist below: either the license's existing pin, or the
+    // newly-computed pin for a previously-unpinned key.
+    const product = productMatch.pin ?? keyRecord.product_id;
+
     // ── Check Revoked ──────────────────────────────────────────────────────
     if (keyRecord.status === 'Revoked') {
       await logHandshake({
@@ -622,16 +670,19 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── 3d-bis. Persist the product identifier (best-effort) ───────────────
-    // lms_lab_windows | lms_lab_android | lms_android | … — separate non-blocking update so a
-    // not-yet-migrated `product` column (run product-column.sql) can never fail the activation.
-    {
+    // ── 3d-bis. Persist the canonical product identifier (best-effort) ─────
+    // LMS_SCHOOL_ANDROID | LMS_SCHOOL_WINDOWS | LMS_LAB_ANDROID | LMS_LAB_WINDOWS | LMS_LAB_LINUX
+    // — separate non-blocking update so a not-yet-migrated `product_id` column (run
+    // product-identity-upgrade.sql) can never fail the activation. Only written when this
+    // activation actually changes the pin (productMatch.pin set) — an already-pinned,
+    // matching license is left untouched.
+    if (productMatch.pin) {
       const { error: prError } = await supabaseAdmin
         .from('activation_keys')
-        .update({ product })
+        .update({ product_id: product })
         .eq('id', keyRecord.id);
       if (prError) {
-        logger.warn({ event: 'PRODUCT_PERSIST_FAILED', keyId: keyRecord.id, error: prError.message });
+        logger.warn({ event: 'PRODUCT_ID_PERSIST_FAILED', keyId: keyRecord.id, error: prError.message });
       }
     }
 
@@ -689,7 +740,7 @@ export async function POST(req: NextRequest) {
       deviceOS: requestOS,
       status: 'SUCCESS',
       ipAddress,
-      product,
+      productId: product,
     });
 
     // V-03: activation succeeded — clear this device's & key's brute-force
@@ -741,15 +792,10 @@ export async function POST(req: NextRequest) {
     // ── LMS School vs LMS Lab key scoping (additive, non-breaking) ────────────
     // LMS School content is class-scoped (class_N/Subject) and is sold to school, vendor AND
     // parent entities — they ALL need class keys. LMS Lab (9 courses) uses course_N scoping.
-    // The WIN_* security tier is NOT a reliable Lab signal: LMS School Windows uses the SAME
-    // TpmSealing WIN_* tier, so detectProduct() mislabels it 'lms_lab_windows'. The canonical
-    // School-vs-Lab distinguisher (see product_registry.sql) is the LAB app_version marker
-    // '-lab-<os>' that only LMS Lab builds send. So course scoping applies ONLY to a
-    // self-identified Lab client; every LMS School activation (any entity) gets class keys.
-    const verMarker = (app_version ?? '').toLowerCase();
-    const isLabClient =
-      verMarker.includes('-lab-android') || verMarker.includes('-lab-win') || verMarker.includes('-lab-linux');
-    const useCourseScopes = isLabClient;
+    // Driven by the canonical product's family (src/lib/productIdentity.ts) — the same
+    // value just validated by the product identity gate above — never by the WIN_* tier
+    // (shared by School and Lab desktop builds, proves nothing about family).
+    const useCourseScopes = isProductId(product) && familyFor(product) === 'lab';
     if (useCourseScopes) {
       for (let i = 1; i <= 9; i++) {
         const scopeId = `course_${i}`;

@@ -5,7 +5,8 @@ import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
 import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
-import { detectProduct } from '@/lib/product';
+import { resolveEffectiveProductId } from '@/lib/product';
+import { PRODUCT_ID_ENUM } from '@/lib/productIdentity';
 
 // ============================================================================
 // POST /api/device/terms-accept — pre-activation consent record
@@ -75,6 +76,10 @@ const TermsSchema = z.object({
   // "terms-accept:<fingerprint>:<version>|nonce|timestamp", made with the wrap private key.
   // Verified against device_wrap_pubkey (see verifyWindowsAttestation). Optional/advisory.
   challenge_signature: z.string().max(1024).optional(),
+  // Canonical, compiled-in client product identity (src/lib/productIdentity.ts). Optional +
+  // backward compatible — no activation key exists yet at this point, so there is nothing
+  // to gate against; this is recorded for monitoring consistency only.
+  product_id: z.enum(PRODUCT_ID_ENUM).optional(),
 });
 
 // Mirror /api/activate's tier staging so enforcement is identical across endpoints.
@@ -129,7 +134,7 @@ export async function POST(req: NextRequest) {
   const {
     device_fingerprint, terms_version, accepted_at, nonce, timestamp,
     device_model, device_os, device_wrap_pubkey, attestation_chain, security_tier,
-    challenge_signature,
+    challenge_signature, product_id,
   } = body;
   const reportedTier = security_tier ?? 'UNREPORTED';
 
@@ -225,8 +230,9 @@ export async function POST(req: NextRequest) {
   })();
 
   const now = new Date().toISOString();
-  // Which product recorded this consent (WIN_*/DESKTOP tier ⇒ LMS Lab desktop; else by OS).
-  const product = detectProduct({ securityTier: reportedTier, deviceOs: device_os });
+  // Which product recorded this consent: explicit product_id if sent, else the legacy
+  // heuristic (device_os only — no app_version at this pre-activation stage).
+  const product = resolveEffectiveProductId({ productId: product_id, securityTier: reportedTier, deviceOs: device_os });
   const { error: upErr } = await supabaseAdmin.from('terms_acceptances').upsert({
     device_fingerprint,
     terms_version,
@@ -244,12 +250,13 @@ export async function POST(req: NextRequest) {
     return generic(503, 'Service unavailable.');
   }
 
-  // Product tag — SEPARATE best-effort write so a not-yet-migrated `product` column
-  // (run product-column.sql) can never fail an otherwise-successful consent record.
-  {
+  // Canonical product tag — SEPARATE best-effort write so a not-yet-migrated `product_id`
+  // column (run product-identity-upgrade.sql) can never fail an otherwise-successful
+  // consent record. Skipped when unresolved.
+  if (product !== 'UNKNOWN') {
     const { error: prodErr } = await supabaseAdmin
       .from('terms_acceptances')
-      .update({ product })
+      .update({ product_id: product })
       .eq('device_fingerprint', device_fingerprint);
     if (prodErr) logger.warn({ event: 'TERMS_PRODUCT_PERSIST_FAILED', error: prodErr.message });
   }
