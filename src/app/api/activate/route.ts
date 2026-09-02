@@ -11,6 +11,12 @@ import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
 import { signPayload } from '@/lib/licenseSign';
 import { detectProduct } from '@/lib/product';
 import { entityRefFromRow, resolveEntity, isEntitledToAll } from '@/lib/entity';
+import { shouldEnforceAttestation, isModelExempt, deriveServerTier, validateAttestationConfig } from '@/lib/attestationPolicy';
+
+// SF-2 remediation: warn loudly at module load (once per server instance) if the
+// deployed env-var combination is dangerous or silently reopens the tier-trust hole
+// this file used to have. See attestationPolicy.ts.
+validateAttestationConfig();
 
 const ActivationRequestSchema = z.object({
   activation_key: z.string().min(1),
@@ -26,11 +32,13 @@ const ActivationRequestSchema = z.object({
   attestation_nonce: z.string().optional(),
   attestation_timestamp: z.string().optional(),
   attestation_chain: z.array(z.string()).optional(),
-  // NC-1/telemetry: the concrete security posture the device reached while provisioning
-  // its wrap key. Advisory (client-supplied, so a downgrade-lie is possible) — it drives
-  // LOGGING and per-tier enforcement STAGING, not the cryptographic gate (which remains
-  // attestation-chain verification + CEKs RSA-wrapped to device_wrap_pubkey). Bounded to
-  // the known enum so a rogue client can't inject arbitrary strings into our logs/DB.
+  // NC-1/telemetry: the concrete security posture the device SELF-REPORTS while
+  // provisioning its wrap key. SF-2: this is client-supplied and a downgrade-lie is
+  // trivial, so it is used for LOGGING/debugging only — it plays NO role in whether
+  // attestation is enforced (see attestationPolicy.ts) or in the persisted
+  // attestation_verified_tier (server-derived from what was actually cryptographically
+  // observed). Bounded to the known enum so a rogue client can't inject arbitrary
+  // strings into our logs/DB.
   security_tier: z
     .enum([
       // Android (KeystoreCrypto) taxonomy — unchanged.
@@ -41,9 +49,7 @@ const ActivationRequestSchema = z.object({
       'ATTESTED_TEE',
       'KEYSTORE_PLAIN',
       'PROVISION_FAILED',
-      // Windows desktop (TpmSealing) taxonomy — advisory/logged only. Deliberately
-      // NOT added to ATTEST_CAPABLE_TIERS: desktop TPM cannot supply a Google-rooted
-      // chain, so it stays in the audit-only lane exactly like a chain-less low tier.
+      // Windows desktop (TpmSealing) taxonomy — advisory/logged only.
       'WIN_TPM_ATTESTED',
       'WIN_TPM_NOATTEST',
       'WIN_SW_ONLY',
@@ -56,15 +62,10 @@ const ActivationRequestSchema = z.object({
 });
 
 // ── security_tier staging (must mirror the app's KeystoreCrypto taxonomy) ─────
-// Enforce (fail-closed on a bad chain) ONLY for devices that reported a hardware-
-// attested tier — those CAN attest, so a failed/absent chain is a genuine red flag.
-// Devices reporting a genuinely non-attestable tier are allowed even with the master
-// switch on. Alert tiers are logged loudly (they should not normally reach /activate).
-const ATTEST_CAPABLE_TIERS = new Set(['ATTESTED_STRONGBOX', 'ATTESTED_TEE', 'WIN_TPM_ATTESTED']); // → ENFORCE
+// security_tier itself is CLIENT-SUPPLIED and is NEVER used to decide enforcement (see
+// attestationPolicy.ts — that decision is now purely env-var + explicit model allowlist
+// driven). It is kept only as an ALERT signal (below) and for admin telemetry.
 const ALERT_TIERS = new Set(['PROVISION_FAILED', 'CEK_DECRYPT_FAILED']);       // Tier 7/8 → ALERT
-// Everything else — SW_ONLY / TEE_LEGACY_NOATTEST / MODEL_SKIP / KEYSTORE_PLAIN, and the
-// Windows WIN_TPM_NOATTEST / WIN_SW_ONLY — is ALLOW: audit-logged but never blocked
-// (device-bound via the wrap key, but genuinely can't produce a HW-attestation proof).
 
 // Platform tag for an activation. WIN_* tiers (or a Windows device_os) => 'windows'.
 function detectPlatform(tier: string, deviceOs?: string): 'android' | 'windows' {
@@ -345,6 +346,11 @@ export async function POST(req: NextRequest) {
     requestModel = device_model || 'Unknown Tablet';
     requestOS = device_os || 'Android';
 
+    // SF-2: server-derived, authoritative tier — computed from what the server itself
+    // cryptographically observed, never from the client's self-reported security_tier.
+    // Persisted separately below (3c-bis) for admin fleet-posture auditing.
+    let serverAttestationTier: ReturnType<typeof deriveServerTier> = 'UNVERIFIED';
+
     // ── NC-1: hardware key-attestation verification (replaces the extractable HMAC
     //    request signature). The device proves its CEK-wrap key is hardware-backed and
     //    minted for THIS request. Staged rollout: set LMS_ENFORCE_ATTESTATION=true (and
@@ -352,37 +358,18 @@ export async function POST(req: NextRequest) {
     //    and AUDIT-LOG only — content stays safe because every CEK is RSA-wrapped to
     //    device_wrap_pubkey regardless. ────────────────────────────────────────────────
     {
-      // Large-format Android monitors/panels (e.g. x301) run low-cost AOSP boards
-      // with NO Google-rooted hardware key attestation — they can never produce a
-      // valid chain, so strict enforcement would permanently block them. Exempt
-      // those specific models: enforcement is downgraded to audit-only for them,
-      // while every real phone/tablet still fails-closed. Configurable via
-      // LMS_ATTEST_EXEMPT_MODELS (comma-separated, case-insensitive); `x301` is the
-      // built-in default so these panels activate with no extra config. Content is
-      // NOT put at risk — every CEK is RSA-wrapped to the device's own wrap key
-      // regardless of attestation. NOTE: device_model is client-supplied, so this
-      // is an availability exemption, not a security boundary; keep the list tight.
-      const exemptModels = (process.env.LMS_ATTEST_EXEMPT_MODELS ?? 'x301')
-        .split(',')
-        .map((m) => m.trim().toLowerCase())
-        .filter((m) => m.length > 0);
-      const modelExempt = exemptModels.includes((requestModel ?? '').trim().toLowerCase());
-      // Staged per tier: with the master switch on we FAIL CLOSED only for devices that
-      // reported an attestation-capable tier (Tier 4/5). Tiers 1/2/3/6 stay audit-only
-      // (they genuinely cannot produce a chain, so blocking them would brick real fleets),
-      // and model-exempt panels are always audit-only. This replaces the old "any chain
-      // failure enforced unless model-exempt", which couldn't tell "can't attest" from
-      // "attestation stripped". NOTE: security_tier is client-supplied and advisory — the
-      // real protection is that every CEK is RSA-wrapped to device_wrap_pubkey regardless.
-      // A device is "attestation-capable" if it reported a hardware-attested tier, OR
-      // it actually presented a chain (≥2 certs) — the latter keeps older app builds
-      // that send a chain but no security_tier under enforcement, so this staging never
-      // weakens the prior posture for chain-senders. Genuinely chain-less low tiers
-      // (SW_ONLY / *_NOATTEST / MODEL_SKIP / KEYSTORE_PLAIN) stay audit-only.
-      const tierCapable =
-        ATTEST_CAPABLE_TIERS.has(reportedTier) || (attestation_chain?.length ?? 0) >= 2;
-      const enforceAttest =
-        process.env.LMS_ENFORCE_ATTESTATION === 'true' && tierCapable && !modelExempt;
+      // SF-2 remediation: enforcement used to be gated on the CLIENT-SUPPLIED
+      // security_tier ("only enforce devices that claim to be attestation-capable") —
+      // a device could simply self-report a low tier (or omit its chain) to make itself
+      // indistinguishable from hardware that genuinely can't attest, and sail through
+      // with an entirely unattested device_wrap_pubkey. Enforcement now applies to
+      // EVERY device by default; the ONLY escape hatch is an EXPLICIT operator-configured
+      // model allowlist (LMS_ATTEST_EXEMPT_MODELS — no built-in default any more, see
+      // attestationPolicy.ts). Content was never solely reliant on this gate (every CEK
+      // is RSA-wrapped to device_wrap_pubkey regardless), but the gate itself must not be
+      // decided by client-controlled input.
+      const modelExempt = isModelExempt(requestModel);
+      const enforceAttest = shouldEnforceAttestation(requestModel);
       if (ALERT_TIERS.has(reportedTier)) {
         console.warn('[ATTEST_TIER_ALERT]', JSON.stringify({ tier: reportedTier, model: requestModel, ipAddress }));
       }
@@ -429,6 +416,11 @@ export async function POST(req: NextRequest) {
       const rev = isWindows
         ? { revoked: false as boolean, reason: undefined as string | undefined }
         : await checkRevocation(attestation_chain ?? []);
+
+      serverAttestationTier = deriveServerTier({
+        attestationOk: skewOk && att.ok && nonceOk && !rev.revoked,
+        securityLevel: att.securityLevel,
+      });
 
       // NOTE: the app `logger` is silenced, so these use console.* directly — that is
       // what shows up in Vercel runtime logs (search "ATTEST").
@@ -605,6 +597,22 @@ export async function POST(req: NextRequest) {
         .eq('id', keyRecord.id);
       if (stError) {
         logger.warn({ event: 'SECURITY_TIER_PERSIST_FAILED', keyId: keyRecord.id, error: stError.message });
+      }
+    }
+
+    // ── 3c-bis. Persist the SERVER-DERIVED attestation tier (best-effort) ──────
+    // SF-2: unlike security_tier above (the client's own self-report, kept only for
+    // debugging), this column is what the server itself cryptographically observed —
+    // the value an admin auditing fleet posture should actually trust. Separate,
+    // non-blocking update; run scripts/add_attestation_verified_tier.sql to add the
+    // column (until then this logs and is skipped).
+    {
+      const { error: avtError } = await supabaseAdmin
+        .from('activation_keys')
+        .update({ attestation_verified_tier: serverAttestationTier })
+        .eq('id', keyRecord.id);
+      if (avtError) {
+        logger.warn({ event: 'ATTESTATION_VERIFIED_TIER_PERSIST_FAILED', keyId: keyRecord.id, error: avtError.message });
       }
     }
 

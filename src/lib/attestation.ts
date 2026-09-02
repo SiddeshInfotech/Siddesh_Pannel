@@ -32,6 +32,11 @@ export interface AttestationInput {
 export interface AttestationResult {
   ok: boolean;
   reason?: string;
+  // Hardware security level parsed from the attestation extension, when the extension
+  // was parseable (independent of LMS_ATTEST_STRICT — populated whenever available so
+  // the caller can derive a server-authoritative tier for persistence/telemetry without
+  // trusting the client's self-reported security_tier). See attestationPolicy.ts.
+  securityLevel?: number;
 }
 
 /** Operator-pinned Google hardware-attestation root certificate(s), PEM, newline or
@@ -166,8 +171,19 @@ export function verifyAttestation(input: AttestationInput): AttestationResult {
     if (parsed.securityLevel !== SECURITY_LEVEL.TEE && parsed.securityLevel !== SECURITY_LEVEL.STRONGBOX) {
       return { ok: false, reason: `attestation security level not hardware (${parsed.securityLevel})` };
     }
-    if (parsed.origin === KEY_ORIGIN.IMPORTED) {
-      return { ok: false, reason: 'attested key origin is IMPORTED' };
+    // Hardening (SF-2): a genuine, freshly-provisioned attestation key is always
+    // GENERATED in hardware. IMPORTED means the "attested" private key was handed to
+    // the TEE from outside — i.e. an attacker who knows the private half — and a
+    // present-but-unrecognized/UNKNOWN origin is exactly as untrustworthy as no origin
+    // at all. Strict mode must fail closed on that ambiguity rather than defaulting to
+    // accept, so anything other than a confirmed GENERATED/DERIVED (still HW-resident)
+    // origin is rejected.
+    if (
+      parsed.origin === undefined ||
+      parsed.origin === KEY_ORIGIN.IMPORTED ||
+      parsed.origin === KEY_ORIGIN.UNKNOWN
+    ) {
+      return { ok: false, reason: `attested key origin not confirmed hardware-generated (origin=${parsed.origin ?? 'absent'})` };
     }
   } else {
     // Diagnostics only — confirm these all look right for your real fleet, THEN
@@ -185,7 +201,7 @@ export function verifyAttestation(input: AttestationInput): AttestationResult {
     });
   }
 
-  return { ok: true };
+  return { ok: true, securityLevel: parsed?.securityLevel };
 }
 
 /**
@@ -195,7 +211,7 @@ export function verifyAttestation(input: AttestationInput): AttestationResult {
  * serial is positively listed as revoked. Returns { revoked, reason }.
  */
 const REVOCATION_URL = 'https://android.googleapis.com/attestation/status';
-let revocationCache: { fetchedAt: number; entries: Record<string, { status?: string }> } | null = null;
+let revocationCache: { fetchedAt: number; entries: Record<string, { status?: string; reason?: string }> } | null = null;
 const REVOCATION_TTL = 60 * 60 * 1000; // 1h
 
 export async function checkRevocation(chainB64: string[]): Promise<{ revoked: boolean; reason?: string }> {
@@ -207,20 +223,42 @@ export async function checkRevocation(chainB64: string[]): Promise<{ revoked: bo
       const res = await fetch(REVOCATION_URL, { signal: ctrl.signal, cache: 'no-store' });
       clearTimeout(t);
       if (!res.ok) return { revoked: false }; // fail open
-      const json = (await res.json()) as { entries?: Record<string, { status?: string }> };
+      const json = (await res.json()) as { entries?: Record<string, { status?: string; reason?: string }> };
       revocationCache = { fetchedAt: Date.now(), entries: json.entries ?? {} };
     }
     for (const b64 of chainB64) {
-      let serialHex = '';
+      let cert: crypto.X509Certificate;
       try {
-        serialHex = new crypto.X509Certificate(Buffer.from(b64, 'base64')).serialNumber.toLowerCase().replace(/^0+/, '');
+        cert = new crypto.X509Certificate(Buffer.from(b64, 'base64'));
       } catch {
         continue;
       }
-      const entry = revocationCache.entries[serialHex];
-      if (entry) {
-        logger.warn({ event: 'ATTEST_CERT_REVOKED', serialHex, status: entry.status });
-        return { revoked: true, reason: `attestation cert revoked (${entry.status ?? 'listed'})` };
+      // Google's published revocation list keys entries by BOTH a plain decimal serial
+      // string AND a lowercase-hex serial (observed both forms in the live list) — the
+      // previous code only ever tried one hex normalization and silently missed every
+      // decimal-keyed entry. Probe every plausible encoding of this cert's serial;
+      // trying extra candidates can only ever INCREASE detection, never cause a false
+      // match (each candidate is a re-encoding of this cert's own serial, so a hit
+      // means the map genuinely contains this cert — it cannot spuriously match a
+      // different certificate's entry).
+      const rawHex = cert.serialNumber || '0';
+      const strippedHex = rawHex.toLowerCase().replace(/^0+/, '') || '0';
+      let decimal = strippedHex;
+      try {
+        decimal = BigInt('0x' + rawHex).toString(10);
+      } catch {
+        /* non-numeric serial (shouldn't happen for a real cert) — decimal candidate skipped */
+      }
+      const candidates = new Set([strippedHex, decimal, rawHex.toLowerCase(), strippedHex.padStart(32, '0')]);
+      for (const key of candidates) {
+        const entry = revocationCache.entries[key];
+        if (entry) {
+          logger.warn({ event: 'ATTEST_CERT_REVOKED', serial: key, status: entry.status, reason: entry.reason });
+          return {
+            revoked: true,
+            reason: `attestation cert revoked (${entry.status ?? 'listed'}${entry.reason ? `: ${entry.reason}` : ''})`,
+          };
+        }
       }
     }
     return { revoked: false };

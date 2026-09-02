@@ -5,7 +5,13 @@ import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
 import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
+<<<<<<< Updated upstream
 import { detectProduct } from '@/lib/product';
+=======
+import { resolveEffectiveProductId } from '@/lib/product';
+import { PRODUCT_ID_ENUM } from '@/lib/productIdentity';
+import { shouldEnforceAttestation, isModelExempt } from '@/lib/attestationPolicy';
+>>>>>>> Stashed changes
 
 // ============================================================================
 // POST /api/device/terms-accept — pre-activation consent record
@@ -44,10 +50,10 @@ const TermsSchema = z.object({
   device_os: z.string().max(60).optional(),
   // NC-1 hardware key-attestation (same scheme as /api/activate).
   // [WINDOWS] Desktop has no Android Keystore/StrongBox: it provisions a TPM (or DPAPI
-  // software) wrap key via DrmPolicy and reports a WIN_* tier — WIN_TPM_ATTESTED carries a
-  // TPM platform claim (attestation-capable → enforced), WIN_TPM_NOATTEST / WIN_SW_ONLY do
-  // not (audit-only). The obsolete "DESKTOP" tier (empty pubkey) is still accepted for
-  // backward compatibility and stays audit-only. Android enforcement is unchanged.
+  // software) wrap key via DrmPolicy and reports a WIN_* tier for telemetry only — SF-2:
+  // it plays no role in whether enforcement applies (attestationPolicy.ts decides that
+  // purely from LMS_ENFORCE_ATTESTATION + the explicit model allowlist). The obsolete
+  // "DESKTOP" tier (empty pubkey) is still accepted for backward compatibility.
   device_wrap_pubkey: z.string().max(4096).optional().default(''),
   attestation_chain: z.array(z.string()).optional(),
   security_tier: z
@@ -60,9 +66,7 @@ const TermsSchema = z.object({
       'ATTESTED_TEE',
       'KEYSTORE_PLAIN',
       'PROVISION_FAILED',
-      // Windows desktop (TpmSealing) taxonomy — advisory/logged only. Deliberately
-      // NOT added to ATTEST_CAPABLE_TIERS: desktop TPM cannot supply a Google-rooted
-      // chain, so it stays in the audit-only lane exactly like a chain-less low tier.
+      // Windows desktop (TpmSealing) taxonomy — advisory/logged only.
       'WIN_TPM_ATTESTED',
       'WIN_TPM_NOATTEST',
       'WIN_SW_ONLY',
@@ -77,13 +81,10 @@ const TermsSchema = z.object({
   challenge_signature: z.string().max(1024).optional(),
 });
 
-// Mirror /api/activate's tier staging so enforcement is identical across endpoints.
-// Attestation-capable (→ FAIL CLOSED under LMS_ENFORCE_ATTESTATION): Android StrongBox/TEE,
-// and Windows WIN_TPM_ATTESTED (has a TPM platform claim). Genuinely non-attestable tiers —
-// Android SW_ONLY / TEE_LEGACY_NOATTEST / MODEL_SKIP / KEYSTORE_PLAIN and Windows
-// WIN_TPM_NOATTEST / WIN_SW_ONLY / DESKTOP — stay ALLOW (audit-only) so legitimate older
-// Android and non-TPM/Wine Windows devices are never locked out of recording consent.
-const ATTEST_CAPABLE_TIERS = new Set(['ATTESTED_STRONGBOX', 'ATTESTED_TEE', 'WIN_TPM_ATTESTED']);
+// SF-2: enforcement is decided by attestationPolicy.ts (shared with /api/activate) so
+// the two endpoints can never drift onto different postures — security_tier is
+// client-supplied and plays no role in that decision any more. ALERT_TIERS is still
+// used here purely for logging.
 const ALERT_TIERS = new Set(['PROVISION_FAILED', 'CEK_DECRYPT_FAILED']);
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -150,22 +151,15 @@ export async function POST(req: NextRequest) {
     return generic(401, 'Request rejected.');
   }
 
-  // ── Gate 4 — NC-1 hardware key-attestation. Identical staging to /api/activate:
-  //    fail CLOSED only for devices that reported an attestation-capable tier (or
-  //    actually sent a chain), audit-only for genuinely chain-less low tiers and
-  //    model-exempt panels, all gated behind LMS_ENFORCE_ATTESTATION. The challenge
-  //    binds to the same token the app used to provision its wrap key. ─────────────
+  // ── Gate 4 — NC-1 hardware key-attestation. Identical staging to /api/activate (via
+  //    the shared attestationPolicy.ts): FAIL CLOSED for every device once
+  //    LMS_ENFORCE_ATTESTATION=true, audit-only only for an EXPLICITLY model-exempt
+  //    panel. The challenge binds to the same token the app used to provision its
+  //    wrap key. ──────────────────────────────────────────────────────────────────
   {
     const requestModel = device_model || 'Unknown Tablet';
-    const exemptModels = (process.env.LMS_ATTEST_EXEMPT_MODELS ?? 'x301')
-      .split(',')
-      .map((m) => m.trim().toLowerCase())
-      .filter((m) => m.length > 0);
-    const modelExempt = exemptModels.includes(requestModel.trim().toLowerCase());
-    const tierCapable =
-      ATTEST_CAPABLE_TIERS.has(reportedTier) || (attestation_chain?.length ?? 0) >= 2;
-    const enforceAttest =
-      process.env.LMS_ENFORCE_ATTESTATION === 'true' && tierCapable && !modelExempt;
+    const modelExempt = isModelExempt(requestModel);
+    const enforceAttest = shouldEnforceAttestation(requestModel);
 
     if (ALERT_TIERS.has(reportedTier)) {
       console.warn('[TERMS_ATTEST_TIER_ALERT]', JSON.stringify({ tier: reportedTier, model: requestModel, ip }));

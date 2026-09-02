@@ -41,6 +41,10 @@ export interface WindowsAttestationInput {
 export interface WindowsAttestationResult {
   ok: boolean;
   reason?: string;
+  // Always undefined on this platform (no Android-style attestation extension to parse)
+  // — present only so callers can read `att.securityLevel` uniformly across both
+  // verifiers when computing a server-derived tier. See attestationPolicy.ts.
+  securityLevel?: number;
 }
 
 export function computeChallenge(activationKey: string, nonce: string, timestamp: string): Buffer {
