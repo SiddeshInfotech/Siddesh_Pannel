@@ -129,12 +129,19 @@ export function validateAttestationConfig(): void {
       JSON.stringify({ message: 'LMS_ATTEST_STRICT=true has no effect while LMS_ENFORCE_ATTESTATION is not "true".' })
     );
   }
-  if (process.env.LMS_WIN_ATTEST_STRICT === 'true' && !process.env.LMS_WIN_ATTEST_AIK_ROOTS?.trim()) {
-    console.warn(
-      '[ATTEST_CONFIG_NOTE]',
+  // No managed TPM/AIK verifier exists yet (see windowsAttestation.ts) — strict mode fails
+  // closed unconditionally for WIN_TPM_ATTESTED, regardless of LMS_WIN_ATTEST_AIK_ROOTS. This
+  // is CRITICAL, not a NOTE: it means every attestation-capable Windows device will be
+  // rejected outright the moment this flag is set, until real managed verification ships.
+  if (process.env.LMS_WIN_ATTEST_STRICT === 'true') {
+    console.error(
+      '[ATTEST_CONFIG_CRITICAL]',
       JSON.stringify({
         message:
-          'LMS_WIN_ATTEST_STRICT=true but LMS_WIN_ATTEST_AIK_ROOTS is not set — every WIN_TPM_ATTESTED request will be rejected under strict.',
+          'LMS_WIN_ATTEST_STRICT=true but no managed TPM/AIK verifier is implemented yet — ' +
+          'every WIN_TPM_ATTESTED Windows activation/heartbeat will be REJECTED, not verified. ' +
+          'Leave this unset (Windows stays on the lenient VERIFIED_PLATFORM_CLAIM path) until ' +
+          'real AD CS / Intune / MDM-backed AIK verification is implemented.',
       })
     );
   }

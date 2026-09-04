@@ -110,15 +110,23 @@ export function verifyWindowsAttestation(input: WindowsAttestationInput): Window
   }
 
   if (strict) {
-    // Managed deployments: require the real request-binding signature AND the pinned AIK/EK
-    // roots (LMS_WIN_ATTEST_AIK_ROOTS) for full TPM-quote / key-residency verification. Fail
-    // closed so "strict" never silently downgrades to the lenient path.
-    if (!signatureValid) return { ok: false, reason: 'strict: request signature required/invalid' };
-    if (!process.env.LMS_WIN_ATTEST_AIK_ROOTS) {
-      return { ok: false, reason: 'LMS_WIN_ATTEST_STRICT set but no AIK roots configured' };
-    }
-    logger.info({ event: 'WIN_ATTEST_STRICT_TODO', note: 'AIK-signature verify runs in managed deployments' });
-    return { ok: true };
+    // NOT YET IMPLEMENTED: real managed-device attestation (AIK/EK certificate-chain +
+    // TPM-quote verification) requires a trusted enrollment source this deployment does not
+    // have today — AD CS TPM-attested cert issuance, Intune/Graph device-attestation status,
+    // or an equivalent enterprise CA. Until one of those exists there is nothing genuine to
+    // verify here beyond what the lenient path below already checks (wrap-key self-consistency
+    // + request-binding signature) — so strict FAILS CLOSED unconditionally rather than claim a
+    // hardware guarantee it cannot back up.
+    //
+    // Do NOT resurrect the old shape that treated a merely non-empty LMS_WIN_ATTEST_AIK_ROOTS
+    // string as proof and returned ok:true — that let an operator paste a placeholder value and
+    // get a false "managed TPM verified" result. See validateAttestationConfig() in
+    // attestationPolicy.ts for the matching startup warning.
+    logger.warn({ event: 'WIN_ATTEST_STRICT_UNIMPLEMENTED', tier, reason: 'no managed TPM/AIK verifier exists yet' });
+    return {
+      ok: false,
+      reason: 'LMS_WIN_ATTEST_STRICT requires managed TPM/AIK verification, which is not implemented yet',
+    };
   }
 
   // Lenient (unmanaged fleets): a present platform claim + a valid RSA wrap key, plus a VALID
