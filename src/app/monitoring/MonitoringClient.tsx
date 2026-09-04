@@ -203,12 +203,30 @@ function attestationReasonLabel(reasonCode: string): string {
   return KNOWN[reasonCode] ?? 'Attestation problem';
 }
 
-// Maps the resolved product (canonical product_id from src/lib/productIdentity.ts, or the
-// auto-detected fallback from src/lib/product.ts — see the `product` field above) to a short
-// label + badge colour. LMS Lab family in cool tones, LMS School/original apps in warmer
-// ones; null/unresolved neutral.
+// This column has carried TWO different naming schemes over time: the current canonical
+// UPPERCASE ProductId (src/lib/productIdentity.ts, e.g. LMS_SCHOOL_WINDOWS — written by
+// every route today) and the older lowercase auto-detected scheme production-ready-1Sep26
+// briefly wrote (src/lib/product.ts's now-superseded Product type, e.g. lms_windows) that
+// historical rows may still carry. A plain case-fold does NOT unify them: the legacy scheme
+// named the School family bare (lms_android/lms_windows/lms_linux, no "school"), while the
+// canonical one is explicit (LMS_SCHOOL_ANDROID/LMS_SCHOOL_WINDOWS) and doesn't include a
+// School-Linux product at all. Map the legacy names explicitly so old rows still render a
+// real badge instead of silently falling to "Unknown".
+const LEGACY_PRODUCT_ALIASES: Record<string, string> = {
+  lms_lab_android: 'LMS_LAB_ANDROID',
+  lms_lab_windows: 'LMS_LAB_WINDOWS',
+  lms_lab_linux: 'LMS_LAB_LINUX',
+  lms_android: 'LMS_SCHOOL_ANDROID',
+  lms_windows: 'LMS_SCHOOL_WINDOWS',
+  lms_linux: 'LMS_SCHOOL_LINUX', // legacy-only: canonical ProductId has no School-Linux product
+};
+
+// Maps the resolved product (either naming scheme above — see the `product` field comment)
+// to a short label + badge colour. LMS Lab family in cool tones, LMS School/original apps in
+// warmer ones; null/unresolved neutral.
 function productStyle(product: string | null): { label: string; cls: string } {
-  switch (product) {
+  const key = product ? (LEGACY_PRODUCT_ALIASES[product.toLowerCase()] ?? product.toUpperCase()) : null;
+  switch (key) {
     case 'LMS_LAB_ANDROID':
       return { label: 'LMS Lab · Android', cls: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' };
     case 'LMS_LAB_WINDOWS':
@@ -219,6 +237,8 @@ function productStyle(product: string | null): { label: string; cls: string } {
       return { label: 'LMS School · Android', cls: 'bg-teal-500/10 border-teal-500/25 text-teal-400' };
     case 'LMS_SCHOOL_WINDOWS':
       return { label: 'LMS School · Windows', cls: 'bg-blue-500/10 border-blue-500/25 text-blue-400' };
+    case 'LMS_SCHOOL_LINUX':
+      return { label: 'LMS School · Linux', cls: 'bg-indigo-500/10 border-indigo-500/25 text-indigo-400' };
     default:
       return { label: 'Unknown', cls: 'bg-white/5 border-white/10 text-zinc-400' };
   }

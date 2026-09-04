@@ -5,7 +5,7 @@ import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
 import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
-import { resolveEffectiveProductId, detectProduct } from '@/lib/product';
+import { resolveEffectiveProductId, resolveLegacyProductId } from '@/lib/product';
 import { PRODUCT_ID_ENUM } from '@/lib/productIdentity';
 import { shouldEnforceAttestation, isModelExempt, deriveServerTier } from '@/lib/attestationPolicy';
 import { recordAttestationIssue } from '@/lib/attestationTelemetry';
@@ -223,7 +223,7 @@ export async function POST(req: NextRequest) {
       // returned to the client. See attestationTelemetry.ts.
       await recordAttestationIssue({
         deviceFingerprint: device_fingerprint,
-        product: detectProduct({ securityTier: reportedTier, deviceOs: device_os }),
+        product: resolveLegacyProductId({ securityTier: reportedTier, deviceOs: device_os }),
         tier: serverAttestationTier,
         rawReason: reason,
         enforced: enforceAttest,

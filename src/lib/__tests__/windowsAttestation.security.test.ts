@@ -110,7 +110,7 @@ describe('verifyWindowsAttestation — client-supplied "managed" claims never el
 
   it('the same spoofed fields have zero effect under the lenient path either — result is identical to the unspoofed input', () => {
     const plain = verifyWindowsAttestation(baseInput());
-    const spoofed = verifyWindowsAttestation({ ...baseInput(), isManaged: true, hasEK: true });
+    const spoofed = verifyWindowsAttestation({ ...baseInput(), isManaged: true, hasEK: true } as never);
     expect(spoofed).toEqual(plain);
   });
 });

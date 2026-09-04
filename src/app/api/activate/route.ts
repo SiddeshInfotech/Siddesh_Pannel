@@ -468,7 +468,11 @@ export async function POST(req: NextRequest) {
         // security-vs-health-warning separation).
         await recordAttestationIssue({
           deviceFingerprint: hardware_fingerprint,
-          product,
+          // The license-pin-matched `product` isn't computed until after the key lookup
+          // below — this fires before that, so use the client-declared/heuristic identity
+          // already resolved above (same "raw, unpinned" value terms-accept/route.ts uses
+          // for its own telemetry record).
+          product: clientProductId,
           tier: serverAttestationTier,
           rawReason: reason,
           enforced: enforceAttest,
