@@ -12,6 +12,7 @@ import { signPayload } from '@/lib/licenseSign';
 import { detectProduct } from '@/lib/product';
 import { entityRefFromRow, resolveEntity, isEntitledToAll } from '@/lib/entity';
 import { shouldEnforceAttestation, isModelExempt, deriveServerTier, validateAttestationConfig } from '@/lib/attestationPolicy';
+import { recordAttestationIssue } from '@/lib/attestationTelemetry';
 
 // SF-2 remediation: warn loudly at module load (once per server instance) if the
 // deployed env-var combination is dangerous or silently reopens the tier-trust hole
@@ -349,7 +350,7 @@ export async function POST(req: NextRequest) {
     // SF-2: server-derived, authoritative tier — computed from what the server itself
     // cryptographically observed, never from the client's self-reported security_tier.
     // Persisted separately below (3c-bis) for admin fleet-posture auditing.
-    let serverAttestationTier: ReturnType<typeof deriveServerTier> = 'UNVERIFIED';
+    let serverAttestationTier: ReturnType<typeof deriveServerTier> = 'UNSUPPORTED';
 
     // ── NC-1: hardware key-attestation verification (replaces the extractable HMAC
     //    request signature). The device proves its CEK-wrap key is hardware-backed and
@@ -417,8 +418,19 @@ export async function POST(req: NextRequest) {
         ? { revoked: false as boolean, reason: undefined as string | undefined }
         : await checkRevocation(attestation_chain ?? []);
 
+      // Real evidence presence, independent of whether it verified — Android always
+      // needs >=2 certs; Windows only needs a non-empty claim blob (a single entry).
+      const chainPresent = isWindows
+        ? (attestation_chain?.length ?? 0) >= 1 && !!attestation_chain?.[0]
+        : (attestation_chain?.length ?? 0) >= 2;
+
       serverAttestationTier = deriveServerTier({
-        attestationOk: skewOk && att.ok && nonceOk && !rev.revoked,
+        isWindows,
+        chainPresent,
+        attestationOk: att.ok,
+        revoked: rev.revoked,
+        skewOk,
+        nonceOk,
         securityLevel: att.securityLevel,
       });
 
@@ -432,6 +444,24 @@ export async function POST(req: NextRequest) {
           : rev.revoked
           ? rev.reason
           : att.reason;
+
+        // Admin-only diagnostic: record WHICH device failed WHY, so the monitoring panel
+        // can show it instead of only Vercel's server logs. Detailed reasons are not
+        // intentionally returned in the API response below — the client gets the same
+        // generic message either way, enforced or not. See attestationTelemetry.ts for
+        // the full safeguard list (bounded reason codes, deduplication, best-effort,
+        // security-vs-health-warning separation).
+        await recordAttestationIssue({
+          deviceFingerprint: hardware_fingerprint,
+          product,
+          tier: serverAttestationTier,
+          rawReason: reason,
+          enforced: enforceAttest,
+          deviceModel: requestModel,
+          ip: ipAddress,
+          stage: 'activate',
+        });
+
         if (enforceAttest) {
           console.warn('[ATTEST_FAILED_ENFORCED]', JSON.stringify({ tier: reportedTier, reason, ipAddress }));
           await logHandshake({

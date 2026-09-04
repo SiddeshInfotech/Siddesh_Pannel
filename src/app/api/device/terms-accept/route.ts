@@ -5,13 +5,9 @@ import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
 import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
-<<<<<<< Updated upstream
 import { detectProduct } from '@/lib/product';
-=======
-import { resolveEffectiveProductId } from '@/lib/product';
-import { PRODUCT_ID_ENUM } from '@/lib/productIdentity';
-import { shouldEnforceAttestation, isModelExempt } from '@/lib/attestationPolicy';
->>>>>>> Stashed changes
+import { shouldEnforceAttestation, isModelExempt, deriveServerTier } from '@/lib/attestationPolicy';
+import { recordAttestationIssue } from '@/lib/attestationTelemetry';
 
 // ============================================================================
 // POST /api/device/terms-accept — pre-activation consent record
@@ -199,8 +195,37 @@ export async function POST(req: NextRequest) {
       ? { revoked: false as boolean, reason: undefined as string | undefined }
       : await checkRevocation(attestation_chain ?? []);
 
+    // Real evidence presence, independent of whether it verified — same computation as
+    // /api/activate. Gate 2/3 above already 401 skew/replay before this block runs, so
+    // both are unconditionally "ok" here.
+    const chainPresent = isWindows
+      ? (attestation_chain?.length ?? 0) >= 1 && !!attestation_chain?.[0]
+      : (attestation_chain?.length ?? 0) >= 2;
+    const serverAttestationTier = deriveServerTier({
+      isWindows,
+      chainPresent,
+      attestationOk: att.ok,
+      revoked: rev.revoked,
+      skewOk: true,
+      nonceOk: true,
+      securityLevel: att.securityLevel,
+    });
+
     if (!att.ok || rev.revoked) {
       const reason = rev.revoked ? rev.reason : att.reason;
+      // Admin-only diagnostic — same safeguards as /api/activate (bounded reason codes,
+      // deduplication, best-effort, security-vs-health-warning separation): never
+      // returned to the client. See attestationTelemetry.ts.
+      await recordAttestationIssue({
+        deviceFingerprint: device_fingerprint,
+        product: detectProduct({ securityTier: reportedTier, deviceOs: device_os }),
+        tier: serverAttestationTier,
+        rawReason: reason,
+        enforced: enforceAttest,
+        deviceModel: requestModel,
+        ip,
+        stage: 'terms-accept',
+      });
       if (enforceAttest) {
         console.warn('[TERMS_ATTEST_FAILED_ENFORCED]', JSON.stringify({ tier: reportedTier, reason, ip }));
         return generic(401, 'Request verification failed.');

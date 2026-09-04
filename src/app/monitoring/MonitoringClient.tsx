@@ -86,6 +86,20 @@ interface DeviceRow {
   durationDays: number;
   expiresAt?: string | null;
   securityTier: string;
+  // Server-derived, trusted tier (attestationPolicy.deriveServerTier) — the primary
+  // security indicator; securityTier above is the device's own untrusted self-report.
+  verifiedTier: string;
+  // Most recent GENUINE attestation problem for this device (never the routine
+  // no-hardware case) — null when none is on record.
+  attestationIssue: {
+    tier: string;
+    reasonCode: string;
+    reasonDetail: string;
+    count: number;
+    enforced: boolean;
+    action: string;
+    at: string;
+  } | null;
   product: string;
   termsAccepted: boolean;
   termsVersion: string | null;
@@ -128,6 +142,61 @@ function tierStyle(tier: string): { label: string; cls: string } {
     default:
       return { label: 'Unreported', cls: 'bg-white/5 border-white/10 text-zinc-400' };
   }
+}
+
+// Maps the SERVER-DERIVED verified tier (attestationPolicy.ServerAttestationTier) to a
+// short label + badge colour. This is the trusted value — unlike tierStyle() above,
+// which colours the device's own unverified self-report. Kept visually distinct so an
+// operator never mistakes a green "reported" badge for genuine hardware proof.
+function verifiedTierStyle(tier: string): { label: string; cls: string } {
+  switch (tier) {
+    case 'VERIFIED_STRONGBOX':
+      return { label: 'Verified · StrongBox', cls: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' };
+    case 'VERIFIED_TEE':
+      return { label: 'Verified · TEE', cls: 'bg-green-500/10 border-green-500/25 text-green-400' };
+    case 'VERIFIED_PLATFORM_CLAIM':
+      return { label: 'Verified · Platform claim', cls: 'bg-yellow-500/10 border-yellow-500/25 text-yellow-400' };
+    case 'VERIFIED_UNSPECIFIED_HW':
+      return { label: 'Verified · Unspecified HW', cls: 'bg-sky-500/10 border-sky-500/25 text-sky-400' };
+    case 'UNSUPPORTED':
+      return { label: 'Unsupported (no HW)', cls: 'bg-white/5 border-white/10 text-zinc-400' };
+    case 'INVALID':
+      return { label: 'Invalid evidence', cls: 'bg-rose-500/10 border-rose-500/25 text-rose-400' };
+    case 'REVOKED':
+      return { label: 'Revoked cert', cls: 'bg-red-600/10 border-red-600/30 text-red-400' };
+    case 'REPLAY_OR_SKEW':
+      return { label: 'Replay / clock skew', cls: 'bg-orange-500/10 border-orange-500/25 text-orange-400' };
+    case 'TEMPORARY_ERROR':
+      return { label: 'Temporary error', cls: 'bg-amber-500/10 border-amber-500/25 text-amber-400' };
+    default:
+      return { label: 'Not verified yet', cls: 'bg-white/5 border-white/10 text-zinc-400' };
+  }
+}
+
+// Bounded reason-code → admin-facing label (attestationTelemetry.AttestationReasonCode).
+// Keying off the ENUM rather than the raw verifier string is deliberate: the raw string
+// is diagnostic-only and not guaranteed to stay a small fixed set forever, so the UI's
+// primary label must never depend on it. UNKNOWN (or any future code not yet added
+// here) falls back to a generic label — never hides that *something* was flagged.
+function attestationReasonLabel(reasonCode: string): string {
+  const KNOWN: Record<string, string> = {
+    CHAIN_MISSING: 'No chain sent',
+    CHAIN_INVALID: 'Broken chain',
+    ROOT_UNTRUSTED: 'Untrusted root',
+    PUBKEY_MISSING: 'No wrap key sent',
+    PUBKEY_MISMATCH: 'Key mismatch',
+    CHALLENGE_MISMATCH: 'Challenge mismatch',
+    SECURITY_LEVEL_INVALID: 'Not hardware-backed',
+    ORIGIN_INVALID: 'Untrusted key origin',
+    EXTENSION_UNPARSEABLE: 'Unparseable evidence',
+    CLAIM_MISSING: 'Claimed TPM, sent none',
+    SIGNATURE_INVALID: 'Bad signature',
+    CERT_REVOKED: 'Revoked cert',
+    NONCE_REPLAY: 'Replayed request',
+    CLOCK_SKEW: 'Clock skew',
+    SERVER_MISCONFIGURED: 'Server misconfigured',
+  };
+  return KNOWN[reasonCode] ?? 'Attestation problem';
 }
 
 // Maps the auto-derived product (src/lib/product.ts) to a short label + badge colour.
@@ -343,7 +412,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                 <th className="py-4 px-3">Device (Model + OS)</th>
                 <th className="py-4 px-3">Hardware Fingerprint</th>
                 <th className="py-4 px-3">{entityFilter === 'Vendors' ? 'Vendor Name' : entityFilter === 'Users' ? 'Student Name' : entityFilter === 'All' ? 'Entity Name' : 'School Name'}</th>
-                <th className="py-4 px-3">Security Tier</th>
+                <th className="py-4 px-3">Security Tier (Verified / Reported)</th>
                 <th className="py-4 px-3">Product</th>
                 <th className="py-4 px-3">Consent</th>
                 <th className="py-4 px-3">Activation</th>
@@ -393,17 +462,39 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                         </div>
                       </td>
                       <td className="py-4 px-3">
-                        {(() => {
-                          const t = tierStyle(dev.securityTier);
-                          return (
+                        <div className="flex flex-col gap-1 items-start">
+                          {(() => {
+                            const v = verifiedTierStyle(dev.verifiedTier);
+                            return (
+                              <span
+                                title={`Server-verified tier (trusted): ${dev.verifiedTier}`}
+                                className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-[10px] font-semibold whitespace-nowrap ${v.cls}`}
+                              >
+                                {v.label}
+                              </span>
+                            );
+                          })()}
+                          {(() => {
+                            const t = tierStyle(dev.securityTier);
+                            return (
+                              <span
+                                title={`Device-reported tier (untrusted self-report): ${dev.securityTier}`}
+                                className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[9px] font-medium whitespace-nowrap opacity-70 ${t.cls}`}
+                              >
+                                reported: {t.label}
+                              </span>
+                            );
+                          })()}
+                          {dev.attestationIssue && (
                             <span
-                              title={dev.securityTier}
-                              className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-[10px] font-semibold whitespace-nowrap ${t.cls}`}
+                              title={`Attestation issue (${dev.attestationIssue.action}) ×${dev.attestationIssue.count}: ${dev.attestationIssue.reasonDetail}`}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[9px] font-semibold whitespace-nowrap bg-rose-500/10 border-rose-500/30 text-rose-400"
                             >
-                              {t.label}
+                              <ShieldAlert className="w-2.5 h-2.5" /> {attestationReasonLabel(dev.attestationIssue.reasonCode)}
+                              {dev.attestationIssue.count > 1 && ` ×${dev.attestationIssue.count}`}
                             </span>
-                          );
-                        })()}
+                          )}
+                        </div>
                       </td>
                       <td className="py-4 px-3">
                         {(() => {
@@ -610,17 +701,47 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                     </div>
                     <div>
                       <span className="block text-[10px] text-zinc-500 uppercase font-bold flex items-center gap-1 mt-1">
-                        <Shield className="w-3 h-3 text-zinc-500" /> Security Tier
+                        <Shield className="w-3 h-3 text-zinc-500" /> Server Verified (trusted)
+                      </span>
+                      {(() => {
+                        const v = verifiedTierStyle(selectedDevice.verifiedTier);
+                        return (
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg border text-[10px] font-semibold mt-0.5 ${v.cls}`}>
+                            {v.label}
+                          </span>
+                        );
+                      })()}
+                      <code className="block text-[10px] text-zinc-500 font-mono mt-1">{selectedDevice.verifiedTier}</code>
+                      <span className="block text-[10px] text-zinc-500 uppercase font-bold flex items-center gap-1 mt-2">
+                        <Shield className="w-3 h-3 text-zinc-600" /> Device Reported (untrusted)
                       </span>
                       {(() => {
                         const t = tierStyle(selectedDevice.securityTier);
                         return (
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg border text-[10px] font-semibold mt-0.5 ${t.cls}`}>
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-lg border text-[10px] font-semibold mt-0.5 opacity-70 ${t.cls}`}>
                             {t.label}
                           </span>
                         );
                       })()}
                       <code className="block text-[10px] text-zinc-500 font-mono mt-1">{selectedDevice.securityTier}</code>
+                      {selectedDevice.attestationIssue && (
+                        <div className="mt-2 p-2 rounded-lg border border-rose-500/25 bg-rose-500/5">
+                          <span className="block text-[10px] text-rose-400 uppercase font-bold flex items-center gap-1">
+                            <ShieldAlert className="w-3 h-3" /> Attestation Issue
+                            {selectedDevice.attestationIssue.count > 1 && ` (×${selectedDevice.attestationIssue.count})`}
+                          </span>
+                          <span className="block text-xs text-rose-200/90 mt-1">
+                            {attestationReasonLabel(selectedDevice.attestationIssue.reasonCode)}
+                          </span>
+                          <code className="block text-[9px] text-zinc-500 font-mono mt-1 break-all">
+                            {selectedDevice.attestationIssue.reasonDetail}
+                          </code>
+                          <span className="block text-[10px] text-zinc-500 mt-1">
+                            {selectedDevice.attestationIssue.enforced ? 'Rejected (401)' : 'Allowed, audit-only'} · last seen{' '}
+                            {new Date(selectedDevice.attestationIssue.at).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     <div>
                       <span className="block text-[10px] text-zinc-500 uppercase font-bold flex items-center gap-1 mt-1">

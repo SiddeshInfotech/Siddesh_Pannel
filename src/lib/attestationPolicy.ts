@@ -25,19 +25,81 @@ export function shouldEnforceAttestation(deviceModel: string | null | undefined)
 }
 
 // Server-derived, authoritative tier for persistence/telemetry — computed ENTIRELY from
-// what the server itself cryptographically observed (chain-verification result, plus the
-// hardware security level parsed from the attestation extension when available). This is
-// what an admin should trust when auditing fleet posture. The raw client-reported
-// security_tier is still persisted separately (existing security_tier column) purely as
-// the client's own self-diagnosis — never as a trust signal.
+// what the server itself cryptographically observed. This is what an admin should trust
+// when auditing fleet posture. The raw client-reported security_tier is still persisted
+// separately (existing security_tier column) purely as the client's own self-diagnosis —
+// never as a trust signal.
+//
+// Distinct outcomes are kept SEPARATE on purpose (never collapsed into one "unverified"
+// bucket) so an admin/incident-responder can tell "this device genuinely has no hardware
+// security" from "this device presented evidence that was actively wrong/revoked/replayed" —
+// those are very different situations even though both currently result in the SAME
+// enforcement outcome (audit-only or reject, decided independently in route.ts).
+//
+//   VERIFIED_STRONGBOX     Android, hardware security level confirmed STRONGBOX.
+//   VERIFIED_TEE           Android, hardware security level confirmed TEE.
+//   VERIFIED_UNSPECIFIED_HW  Chain verified ok, but the hardware security level wasn't
+//                            parsed (e.g. LMS_ATTEST_STRICT off, or the extension parser
+//                            couldn't read it) — evidence is real, just not classified.
+//   VERIFIED_PLATFORM_CLAIM  Windows only. A TPM platform claim was present and the
+//                            request was self-consistently signed by the claimed wrap
+//                            key. This is DELIBERATELY NOT equated with VERIFIED_TEE/
+//                            VERIFIED_STRONGBOX: without AIK/EK enrollment (see
+//                            windowsAttestation.ts), the server cannot cryptographically
+//                            confirm the claim actually originates from silicon TPM
+//                            rather than a well-behaved software impostor. Treat this as
+//                            "device asserted a platform claim, self-consistently," not
+//                            as parity with Android's hardware proof.
+//   UNSUPPORTED            No evidence was presented, and none was expected/required —
+//                          the genuinely-non-attestable path (old Android hardware,
+//                          Windows without a usable TPM). Not a failure.
+//   INVALID                Evidence was presented (or, on Windows, was claimed-required
+//                          but omitted) and failed verification — wrong root, bad
+//                          signature, wrong challenge, wrong pubkey, bad key origin, or a
+//                          WIN_TPM_ATTESTED claim that provided no actual claim bytes.
+//   REVOKED                The presented certificate is on Google's revocation list.
+//   REPLAY_OR_SKEW         Timestamp outside the allowed skew, or the nonce was reused.
+//   TEMPORARY_ERROR        Reserved for a distinguishable infra-side failure (e.g. the
+//                          nonce-replay or revocation checks themselves erroring out,
+//                          which today fail OPEN and are indistinguishable from a clean
+//                          pass at the call site) — not yet produced by any current code
+//                          path. Kept in the enum so a future infra-error signal doesn't
+//                          need a schema/taxonomy change to report through.
 export type ServerAttestationTier =
   | 'VERIFIED_STRONGBOX'
   | 'VERIFIED_TEE'
-  | 'VERIFIED_UNSPECIFIED_HW' // chain verified, but extension security level unavailable (e.g. Windows, or strict off)
-  | 'UNVERIFIED';
+  | 'VERIFIED_PLATFORM_CLAIM'
+  | 'VERIFIED_UNSPECIFIED_HW'
+  | 'UNSUPPORTED'
+  | 'INVALID'
+  | 'REVOKED'
+  | 'REPLAY_OR_SKEW'
+  | 'TEMPORARY_ERROR';
 
-export function deriveServerTier(input: { attestationOk: boolean; securityLevel?: number }): ServerAttestationTier {
-  if (!input.attestationOk) return 'UNVERIFIED';
+export function deriveServerTier(input: {
+  isWindows: boolean;
+  // Whether real evidence (Android: a >=2-cert chain; Windows: a non-empty platform
+  // claim blob) was actually present in the request — independent of whether it verified.
+  chainPresent: boolean;
+  attestationOk: boolean;
+  revoked: boolean;
+  skewOk: boolean;
+  nonceOk: boolean;
+  securityLevel?: number;
+}): ServerAttestationTier {
+  if (input.revoked) return 'REVOKED';
+  if (!input.skewOk || !input.nonceOk) return 'REPLAY_OR_SKEW';
+  if (!input.chainPresent) {
+    // Android's verifier requires a chain unconditionally, so "no chain" is the normal
+    // shape of a genuinely non-attestable Android device (SW_ONLY/TEE_LEGACY_NOATTEST/
+    // KEYSTORE_PLAIN) — never itself a red flag. Windows' lenient verifier only demands a
+    // claim when the device claims WIN_TPM_ATTESTED, so "no claim" with attestationOk
+    // already false there specifically means "claimed capable, produced nothing."
+    if (input.isWindows && !input.attestationOk) return 'INVALID';
+    return 'UNSUPPORTED';
+  }
+  if (!input.attestationOk) return 'INVALID';
+  if (input.isWindows) return 'VERIFIED_PLATFORM_CLAIM';
   if (input.securityLevel === SECURITY_LEVEL.STRONGBOX) return 'VERIFIED_STRONGBOX';
   if (input.securityLevel === SECURITY_LEVEL.TEE) return 'VERIFIED_TEE';
   return 'VERIFIED_UNSPECIFIED_HW';

@@ -138,12 +138,53 @@ describe('attestationPolicy — enforcement no longer trusts client security_tie
     expect(shouldEnforceAttestation('anything')).toBe(false);
   });
 
-  it('deriveServerTier ignores attestationOk-independent input and reflects only crypto evidence', async () => {
+});
+
+describe('attestationPolicy.deriveServerTier — richer taxonomy (priority 2)', () => {
+  // A fully "clean success" baseline; each test overrides only the field(s) under test.
+  const base = {
+    isWindows: false,
+    chainPresent: true,
+    attestationOk: true,
+    revoked: false,
+    skewOk: true,
+    nonceOk: true,
+  };
+
+  it('never collapses distinct failure reasons into one bucket', async () => {
     const { deriveServerTier } = await import('@/lib/attestationPolicy');
-    expect(deriveServerTier({ attestationOk: false })).toBe('UNVERIFIED');
-    expect(deriveServerTier({ attestationOk: true, securityLevel: SECURITY_LEVEL.STRONGBOX })).toBe('VERIFIED_STRONGBOX');
-    expect(deriveServerTier({ attestationOk: true, securityLevel: SECURITY_LEVEL.TEE })).toBe('VERIFIED_TEE');
-    expect(deriveServerTier({ attestationOk: true })).toBe('VERIFIED_UNSPECIFIED_HW');
+    // Revoked takes priority over everything else.
+    expect(deriveServerTier({ ...base, revoked: true, attestationOk: false })).toBe('REVOKED');
+    // Replay/skew takes priority over evidence presence/validity.
+    expect(deriveServerTier({ ...base, skewOk: false })).toBe('REPLAY_OR_SKEW');
+    expect(deriveServerTier({ ...base, nonceOk: false })).toBe('REPLAY_OR_SKEW');
+    // Android: no chain at all is the NORMAL shape of genuinely non-attestable hardware —
+    // never itself a red flag, regardless of attestationOk (Android's verifier always
+    // fails without a chain, so this combination is the common legitimate case).
+    expect(deriveServerTier({ ...base, isWindows: false, chainPresent: false, attestationOk: false })).toBe('UNSUPPORTED');
+    // Windows: no claim + a genuinely non-attestable tier (lenient verifier passes with
+    // no evidence) is ALSO the normal legitimate case.
+    expect(deriveServerTier({ ...base, isWindows: true, chainPresent: false, attestationOk: true })).toBe('UNSUPPORTED');
+    // Windows: no claim BUT attestationOk=false only happens when the device claimed
+    // WIN_TPM_ATTESTED and produced nothing — that's suspicious, not "unsupported."
+    expect(deriveServerTier({ ...base, isWindows: true, chainPresent: false, attestationOk: false })).toBe('INVALID');
+    // Evidence WAS presented but failed verification (bad root/signature/challenge/origin).
+    expect(deriveServerTier({ ...base, chainPresent: true, attestationOk: false })).toBe('INVALID');
+  });
+
+  it('classifies genuine hardware-verified success by security level', async () => {
+    const { deriveServerTier } = await import('@/lib/attestationPolicy');
+    expect(deriveServerTier({ ...base, securityLevel: SECURITY_LEVEL.STRONGBOX })).toBe('VERIFIED_STRONGBOX');
+    expect(deriveServerTier({ ...base, securityLevel: SECURITY_LEVEL.TEE })).toBe('VERIFIED_TEE');
+    expect(deriveServerTier({ ...base })).toBe('VERIFIED_UNSPECIFIED_HW');
+  });
+
+  it('never equates a Windows platform claim with Android hardware proof (priority 4)', async () => {
+    const { deriveServerTier } = await import('@/lib/attestationPolicy');
+    // Even with a "securityLevel" accidentally supplied, Windows must map to its own
+    // conservative bucket, never VERIFIED_STRONGBOX/VERIFIED_TEE.
+    expect(deriveServerTier({ ...base, isWindows: true, securityLevel: SECURITY_LEVEL.TEE })).toBe('VERIFIED_PLATFORM_CLAIM');
+    expect(deriveServerTier({ ...base, isWindows: true })).toBe('VERIFIED_PLATFORM_CLAIM');
   });
 });
 

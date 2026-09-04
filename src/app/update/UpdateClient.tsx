@@ -72,6 +72,10 @@ function eventStyle(type: string): { label: string; Icon: React.ElementType; ton
     case 'EXPIRY_TAMPER':      return { label: 'Expiry tamper attempt',    Icon: ShieldAlert,   tone: 'danger' };
     case 'GUARD_HEALTH_ISSUE': return { label: 'Guard/TPM health issue',   Icon: AlertTriangle, tone: 'warn' };
     case 'CEK_DECRYPT_FAILED': return { label: 'Content key decrypt failed', Icon: KeyRound,    tone: 'warn' };
+    case 'ATTESTATION_ISSUE': return { label: 'Attestation issue',          Icon: ShieldAlert,   tone: 'danger' };
+    // Deliberately NOT a security tone — an infra-side verification hiccup must never
+    // read as an attack on the fleet. See attestationTelemetry.ts.
+    case 'ATTESTATION_HEALTH_WARNING': return { label: 'Attestation health warning', Icon: AlertTriangle, tone: 'warn' };
     default:                   return { label: type.replace(/_/g, ' '),    Icon: Circle,        tone: 'info' };
   }
 }
@@ -90,7 +94,7 @@ const TAMPER_REASON: Record<string, string> = {
 };
 
 // Event types that represent a SECURITY concern (drive the alert count + row markers).
-const SECURITY_EVENTS = new Set(['EXPIRY_TAMPER', 'CEK_DECRYPT_FAILED']);
+const SECURITY_EVENTS = new Set(['EXPIRY_TAMPER', 'CEK_DECRYPT_FAILED', 'ATTESTATION_ISSUE']);
 
 export default function UpdateClient({
   devices, events, onlineCount, serverTime,
@@ -283,7 +287,13 @@ export default function UpdateClient({
                   const isLast = index === filteredEvents.length - 1;
                   const { label, Icon, tone } = eventStyle(e.type);
                   const c = TONE[tone];
-                  const reason = typeof e.detail?.reason === 'string' ? e.detail.reason : null;
+                  const reason =
+                    typeof e.detail?.reason === 'string'
+                      ? e.detail.reason
+                      : typeof e.detail?.reason_detail === 'string'
+                      ? e.detail.reason_detail
+                      : null;
+                  const occurrenceCount = typeof e.detail?.count === 'number' ? e.detail.count : null;
                   const appV = typeof e.detail?.app_version === 'string' ? e.detail.app_version : null;
                   const ip = typeof e.detail?.ip === 'string' ? e.detail.ip : null;
                   return (
@@ -310,6 +320,9 @@ export default function UpdateClient({
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {appV && <span className={`px-1.5 py-0.5 rounded border text-[10px] ${c.chip}`}>app {appV}</span>}
                           {ip && <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">{ip}</span>}
+                          {occurrenceCount && occurrenceCount > 1 && (
+                            <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">×{occurrenceCount}</span>
+                          )}
                         </div>
                         <div className="text-[10px] font-medium text-zinc-500 mt-2">{e.when}</div>
                       </div>

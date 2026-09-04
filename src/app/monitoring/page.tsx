@@ -34,8 +34,13 @@ const KEY_COLS_BASE = `id, key, status, duration_days, expires_at, activated_at,
       device_device, device_manufacturer, device_android_id`;
 
 async function fetchActivatedKeys(includeTier: boolean) {
+  // attestation_verified_tier (scripts/add_attestation_verified_tier.sql) is the
+  // SERVER-DERIVED, trusted tier — security_tier is the client's own untrusted
+  // self-report. Selected together since they're expected to migrate together; if
+  // either column is missing, PostgREST 400s the whole query and the caller retries
+  // without both, same graceful-degradation as before.
   const sel = includeTier
-    ? `${KEY_COLS_BASE}, security_tier, product, ${SCHOOL_COLS}, ${VENDOR_COLS}, ${PARENT_COLS}`
+    ? `${KEY_COLS_BASE}, security_tier, attestation_verified_tier, product, ${SCHOOL_COLS}, ${VENDOR_COLS}, ${PARENT_COLS}`
     : `${KEY_COLS_BASE}, ${SCHOOL_COLS}, ${VENDOR_COLS}, ${PARENT_COLS}`;
   return supabaseAdmin
     .from('activation_keys')
@@ -77,6 +82,49 @@ async function fetchTamperFlags(keyIds: string[]): Promise<Map<string, { flag: b
   return map;
 }
 
+// Most recent genuine attestation SECURITY problem per device, keyed by fingerprint
+// (ATTESTATION_ISSUE only — ATTESTATION_HEALTH_WARNING, e.g. TEMPORARY_ERROR, is a
+// distinct, deliberately non-alarming event type, never surfaced as a security issue
+// here — see attestationTelemetry.ts). Best-effort + isolated: a query error or empty
+// result just means every device shows no issue, never blanks the device list. Rows
+// are deduplicated server-side (same device + reason code within 15 min updates one
+// row's count instead of appending), so this is already bounded, not raw event volume.
+type AttestationIssue = {
+  tier: string;
+  reasonCode: string;
+  reasonDetail: string;
+  count: number;
+  enforced: boolean;
+  action: string;
+  at: string;
+};
+async function fetchAttestationIssues(fingerprints: string[]): Promise<Map<string, AttestationIssue>> {
+  const map = new Map<string, AttestationIssue>();
+  if (fingerprints.length === 0) return map;
+  const { data, error } = await supabaseAdmin
+    .from('device_timeline')
+    .select('device_fingerprint, detail, created_at')
+    .eq('event_type', 'ATTESTATION_ISSUE')
+    .in('device_fingerprint', fingerprints)
+    .order('created_at', { ascending: false });
+  if (error) return map;
+  for (const row of data ?? []) {
+    // Rows arrive newest-first; keep only the first (= most recent) per fingerprint.
+    if (map.has(row.device_fingerprint)) continue;
+    const d = (row.detail ?? {}) as Record<string, unknown>;
+    map.set(row.device_fingerprint, {
+      tier: typeof d.tier === 'string' ? d.tier : 'UNKNOWN',
+      reasonCode: typeof d.reason_code === 'string' ? d.reason_code : 'UNKNOWN',
+      reasonDetail: typeof d.reason_detail === 'string' ? d.reason_detail : 'unknown',
+      count: typeof d.count === 'number' ? d.count : 1,
+      enforced: d.enforced === true,
+      action: typeof d.action === 'string' ? d.action : 'UNKNOWN',
+      at: typeof d.last_seen_at === 'string' ? d.last_seen_at : row.created_at,
+    });
+  }
+  return map;
+}
+
 async function getDevicesData() {
   let { data: keys, error } = await fetchActivatedKeys(true);
   if (error) {
@@ -91,10 +139,12 @@ async function getDevicesData() {
   const tamperById = await fetchTamperFlags(
     ((keys ?? []) as unknown as Array<{ id: string }>).map((k) => k.id).filter((id) => !!id)
   );
+  const attestationIssueByFp = await fetchAttestationIssues(fingerprints);
 
   return (keys ?? []).map((k: any ) => {
     const terms = k.device_fingerprint ? termsByFp.get(k.device_fingerprint) : undefined;
     const tamper = tamperById.get(k.id);
+    const attestationIssue = k.device_fingerprint ? attestationIssueByFp.get(k.device_fingerprint) ?? null : null;
     // Calculate remaining time
     let remainingTime = 'N/A';
     if (k.expires_at) {
@@ -161,6 +211,12 @@ async function getDevicesData() {
       manufacturer: k.device_manufacturer || 'N/A',
       androidId: k.device_android_id || 'N/A',
       securityTier: k.security_tier || 'UNREPORTED',
+      // Server-derived, trusted tier (attestationPolicy.deriveServerTier) — this, not
+      // securityTier above, is what should drive an operator's actual trust judgement.
+      verifiedTier: k.attestation_verified_tier || 'UNSUPPORTED',
+      // Most recent GENUINE attestation problem (never the routine no-hardware case —
+      // see fetchAttestationIssues). null = no known issue for this device.
+      attestationIssue,
       product: k.product || 'unknown',
       activationDate: k.activated_at
         ? new Date(k.activated_at).toLocaleDateString('en-IN', { timeZone: IST })
