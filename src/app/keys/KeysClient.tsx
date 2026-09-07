@@ -16,6 +16,8 @@ import {
   AlertTriangle,
   RotateCcw,
   Search,
+  ChevronDown,
+  ChevronUp,
   X
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
@@ -24,6 +26,7 @@ import { createActivationKeys, deleteActivationKey, resetDeviceBinding } from '.
 import { useToast } from '@/components/Toast';
 import CustomSelect from '@/components/CustomSelect';
 import { PRODUCT_DEFINITIONS, PRODUCT_FILTER_OPTIONS, DEFAULT_PRODUCT_ID, productDisplayName, ProductId } from '@/lib/productIdentity';
+import { downloadActivationKeysPdf } from '@/lib/keysPdf';
 
 interface SchoolOption {
   id: string;
@@ -62,10 +65,26 @@ interface KeysClientProps {
   parents: SchoolOption[];
 }
 
+// DOM budget for the two lists that can be fed a 10,000-key vendor batch. Neither list
+// is virtualized, so both mount a bounded slice and grow on demand instead of rendering
+// every key up front (which froze the page once batch generation became possible).
+const RESULTS_PAGE_SIZE = 100;
+const BATCH_KEYS_PAGE_SIZE = 25;
+
 export default function KeysClient({ schools, keys, vendors, parents }: KeysClientProps) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [keyList, setKeyList] = useState<KeyRow[]>(keys);
+  // Re-sync when the server sends a fresh list (revalidatePath after generate/delete/
+  // reset). Without this the optimistic local list is the ONLY source after mount, so
+  // anything the server committed that the client didn't add itself — e.g. the earlier
+  // chunks of a batch whose later chunk failed — stayed invisible until a hard reload.
+  // Same pattern PaymentsClient uses for initialPayments.
+  const [prevKeys, setPrevKeys] = useState(keys);
+  if (keys !== prevKeys) {
+    setPrevKeys(keys);
+    setKeyList(keys);
+  }
   
   const [entityType, setEntityType] = useState<'School' | 'Vendor' | 'Individual'>('School');
   const [productId, setProductId] = useState<ProductId>(DEFAULT_PRODUCT_ID);
@@ -110,7 +129,29 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
   const setKeyInput = keyInputState[1];
   const [keyManuallyEdited, setKeyManuallyEdited] = useState(false);
   const [keyCount, setKeyCount] = useState(1);
+  // NC-1: Vendor-only choice between the existing 1-10 dropdown ("single") and a
+  // free-form bulk count ("batch", 11-10,000) — School/Individual always behave as
+  // "single" and are otherwise completely unaffected by this state.
+  const [vendorKeyMode, setVendorKeyMode] = useState<'single' | 'batch'>('single');
+  // String state (not number) so the field can be freely cleared/retyped while editing,
+  // matching the existing "Keys Issued Count" numeric input pattern in the Payments tab.
+  const [batchKeyCount, setBatchKeyCount] = useState('100');
   const [generatedKeys, setGeneratedKeys] = useState<string[]>([]);
+  // Captured at generation time (not re-derived from current form state), so switching
+  // entity/mode afterward can't retroactively change how the results below are shown.
+  const [wasBatchGeneration, setWasBatchGeneration] = useState(false);
+  const [lastBatchMeta, setLastBatchMeta] = useState<{
+    entityName: string; batchId: string | null; productLabel: string; durationLabel: string;
+  } | null>(null);
+  // How many freshly-generated keys are actually mounted. A batch can be 10,000 keys;
+  // rendering every row at once locks the browser up, so only a slice is in the DOM and
+  // the full list is delivered by the PDF.
+  const [resultsVisibleCount, setResultsVisibleCount] = useState(RESULTS_PAGE_SIZE);
+  // Per-batch expansion in the history list below, keyed by batch id.
+  const [batchVisibleCounts, setBatchVisibleCounts] = useState<Record<string, number>>({});
+  // Per-batch collapse (chevron in the batch header). Absent = expanded, so every batch
+  // still opens by default exactly as before.
+  const [collapsedBatches, setCollapsedBatches] = useState<Record<string, boolean>>({});
   const [copiedKeyIndex, setCopiedKeyIndex] = useState<number | null>(null);
   // Two-level filter (image 2): first pick the entity TYPE, then a specific entity
   // of that type (or all of that type). filterSchoolId holds the selected entity name.
@@ -195,13 +236,26 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
       toast('Please select an entity first.', 'error');
       return;
     }
-    if (keyCount === 1 && !keyInput) {
+    // NC-1: Vendor "Batch key generation" replaces the 1-10 dropdown with a free-form
+    // count (11-10,000) and always auto-generates every key — there is no single manual
+    // key field in that mode (same reason the manual field already hides whenever the
+    // existing dropdown's keyCount > 1).
+    const isVendorBatch = entityType === 'Vendor' && vendorKeyMode === 'batch';
+    const parsedBatchCount = parseInt(batchKeyCount);
+    const requestedCount = isVendorBatch ? parsedBatchCount : keyCount;
+
+    if (!isVendorBatch && requestedCount === 1 && !keyInput) {
       toast('Please input an Activation Key.', 'error');
+      return;
+    }
+    if (isVendorBatch && (!Number.isFinite(parsedBatchCount) || parsedBatchCount < 11 || parsedBatchCount > 10000)) {
+      toast('Batch count must be between 11 and 10,000.', 'error');
       return;
     }
 
     let calculatedDays = 365;
     let expiresAtParam = undefined;
+    let durationLabel = `${calculatedDays} Days (until ${oneYearDateStr})`;
     if (durationMode === 'custom') {
       if (!customDate) {
         toast('Please select a custom policy expiration date and time.', 'error');
@@ -210,6 +264,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
       const diffTime = new Date(customDate).getTime() - new Date().getTime();
       calculatedDays = Math.max(1, Math.ceil(diffTime / (1000 * 60 * 60 * 24)));
       expiresAtParam = new Date(customDate).toISOString();
+      durationLabel = new Date(customDate).toLocaleString('en-IN');
     }
 
     let entityName = 'ENTITY';
@@ -217,13 +272,19 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
     else if (entityType === 'Vendor') entityName = selectedVendor?.name || 'VENDOR';
     else if (entityType === 'Individual') entityName = selectedParent?.name || 'INDIVIDUAL';
 
+    // Batch mode sends only the COUNT — the server mints the key values with its own
+    // CSPRNG, so thousands of credentials never originate in (or are predictable to)
+    // the browser. The existing single/small-run path still sends explicit keys, so the
+    // operator-typed key and Auto-Suggest behave exactly as before.
     const keysToCreate: string[] = [];
 
-    if (keyCount === 1) {
-      keysToCreate.push(keyInput);
-    } else {
-      for (let i = 0; i < keyCount; i++) {
-        keysToCreate.push(generateRandomKey(entityName));
+    if (!isVendorBatch) {
+      if (requestedCount === 1) {
+        keysToCreate.push(keyInput);
+      } else {
+        for (let i = 0; i < requestedCount; i++) {
+          keysToCreate.push(generateRandomKey(entityName));
+        }
       }
     }
 
@@ -234,7 +295,9 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
           schoolId: selectedSchoolId,
           vendorId: selectedVendorId,
           parentId: selectedParentId,
-          keys: keysToCreate,
+          ...(isVendorBatch
+            ? { generateCount: requestedCount }
+            : { keys: keysToCreate }),
           durationDays: calculatedDays,
           expiresAt: expiresAtParam,
           productId,
@@ -267,12 +330,24 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
           productId,
         }));
 
+        // In batch mode the key VALUES come back from the server (it minted them), so the
+        // results list and the PDF are both driven by what was actually persisted.
+        const issuedKeys = isVendorBatch ? res.data.map(r => r.key) : keysToCreate;
+
         setKeyList(prev => [...newKeyRows, ...prev]);
-        setGeneratedKeys(keysToCreate);
+        setGeneratedKeys(issuedKeys);
+        setResultsVisibleCount(RESULTS_PAGE_SIZE); // fresh batch — start from the top slice again
+        setWasBatchGeneration(isVendorBatch);
+        setLastBatchMeta(isVendorBatch ? {
+          entityName,
+          batchId: res.data[0]?.batchId ?? null,
+          productLabel: productDisplayName(productId),
+          durationLabel,
+        } : null);
         // Re-enable auto-fill so the next single-key submit gets a fresh, unique key
         // (submitting the same token again would collide on the unique constraint).
         setKeyManuallyEdited(false);
-        toast(`${keysToCreate.length} Activation key(s) generated successfully!`, 'success');
+        toast(`${issuedKeys.length} Activation key(s) generated successfully!`, 'success');
       } catch {
         toast('Something went wrong. Please try again.', 'error');
       }
@@ -638,6 +713,41 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
             </span>
           </div>
 
+          {/* NC-1: Vendor-only choice — the existing 1-10 dropdown ("Single number"), or a
+              free-form bulk count ("Batch key generation", 11-10,000) for reseller-scale
+              issuance. School/Individual never see this toggle and keep today's UI exactly. */}
+          {entityType === 'Vendor' && (
+            <div className="space-y-2">
+              <span className="text-xs font-bold text-zinc-400 flex items-center gap-2">
+                🔢 Key Generation Mode
+              </span>
+              <div className="flex items-center gap-4 bg-white/5 border border-white/10 rounded-xl p-1 w-fit">
+                <button
+                  type="button"
+                  onClick={() => setVendorKeyMode('single')}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    vendorKeyMode === 'single'
+                      ? 'bg-accent-violet text-white shadow-md'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  Single Number (1–10)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVendorKeyMode('batch')}
+                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    vendorKeyMode === 'batch'
+                      ? 'bg-accent-violet text-white shadow-md'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  Batch Key Generation
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Key Count & Activation Key input row */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             {/* Key Count */}
@@ -645,42 +755,63 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
               <label className="text-xs font-bold text-zinc-400 flex items-center gap-2">
                 🔢 Key Generation Count
               </label>
-              <CustomSelect
-                value={String(keyCount)}
-                onChange={val => setKeyCount(Number(val))}
-                options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => ({
-                  value: String(n),
-                  label: `${n} ${n === 1 ? 'Key' : 'Keys'}`
-                }))}
-              />
+              {entityType === 'Vendor' && vendorKeyMode === 'batch' ? (
+                <input
+                  type="number"
+                  min={11}
+                  max={10000}
+                  required
+                  value={batchKeyCount}
+                  onChange={e => setBatchKeyCount(e.target.value)}
+                  placeholder="e.g. 500"
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm font-bold text-white placeholder-zinc-500 focus:outline-none transition-all"
+                />
+              ) : (
+                <CustomSelect
+                  value={String(keyCount)}
+                  onChange={val => setKeyCount(Number(val))}
+                  options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => ({
+                    value: String(n),
+                    label: `${n} ${n === 1 ? 'Key' : 'Keys'}`
+                  }))}
+                />
+              )}
             </div>
 
-            {/* Activation Key Identifier */}
+            {/* Activation Key Identifier — not applicable in Vendor batch mode: every key
+                is auto-generated, same reasoning as the manual field already disabling
+                itself whenever the single-mode dropdown's keyCount > 1. */}
             <div className="md:col-span-2 space-y-2">
               <label className="text-xs font-bold text-zinc-400 flex items-center gap-2">
                 🔒 Activation Key Identifier
               </label>
               <div className="flex gap-4 items-stretch">
-                <div className="relative flex-1">
-                  <input
-                    type="text"
-                    required={keyCount === 1}
-                    disabled={keyCount > 1}
-                    placeholder={keyCount > 1 ? "Auto-generating keys..." : "LMS-SCHOOL-ABCDEFGHJK"}
-                    value={keyCount > 1 ? "" : keyInput}
-                    onChange={e => { setKeyInput(e.target.value); setKeyManuallyEdited(true); }}
-                    className={`w-full pl-4 ${keyCount === 1 ? 'pr-24' : 'pr-4'} py-3.5 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm font-bold text-white focus:outline-none transition-all tracking-wide font-mono disabled:opacity-50`}
-                  />
-                  {keyCount === 1 && (
-                    <button
-                      type="button"
-                      onClick={handleAutoSuggest}
-                      className="absolute right-3 top-3 px-3 py-1 bg-white/5 hover:bg-white/10 border border-white/10 text-[10px] font-bold text-zinc-400 hover:text-white rounded-lg transition-colors cursor-pointer"
-                    >
-                      Auto-Suggest
-                    </button>
-                  )}
-                </div>
+                {entityType === 'Vendor' && vendorKeyMode === 'batch' ? (
+                  <div className="flex-1 flex items-center px-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-zinc-400">
+                    Auto-generating {batchKeyCount || 0} unique keys for this batch…
+                  </div>
+                ) : (
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      required={keyCount === 1}
+                      disabled={keyCount > 1}
+                      placeholder={keyCount > 1 ? "Auto-generating keys..." : "LMS-SCHOOL-ABCDEFGHJK"}
+                      value={keyCount > 1 ? "" : keyInput}
+                      onChange={e => { setKeyInput(e.target.value); setKeyManuallyEdited(true); }}
+                      className={`w-full pl-4 ${keyCount === 1 ? 'pr-24' : 'pr-4'} py-3.5 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm font-bold text-white focus:outline-none transition-all tracking-wide font-mono disabled:opacity-50`}
+                    />
+                    {keyCount === 1 && (
+                      <button
+                        type="button"
+                        onClick={handleAutoSuggest}
+                        className="absolute right-3 top-3 px-3 py-1 bg-white/5 hover:bg-white/10 border border-white/10 text-[10px] font-bold text-zinc-400 hover:text-white rounded-lg transition-colors cursor-pointer"
+                      >
+                        Auto-Suggest
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 <button
                   type="submit"
@@ -708,37 +839,115 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
         {/* Display Generated Results */}
         {generatedKeys.length > 0 && (
           <div className="mt-8 border-t border-white/5 pt-8 space-y-6 animate-fade-in">
-            <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-emerald-400" />
-              Generated Cryptographic Activation Credentials ({generatedKeys.length})
-            </h4>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {generatedKeys.map((keyVal, idx) => (
-                <div key={keyVal} className="flex flex-col md:flex-row gap-4 items-center bg-black/35 p-5 rounded-2xl border border-white/5 relative">
-                  {/* Copy box */}
-                  <div className="flex-1 w-full space-y-3">
-                    <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block">Activation Token {idx + 1}</span>
-                    <div className="flex items-center justify-between p-3 bg-[#121216]/50 border border-white/10 rounded-xl font-mono text-xs font-bold text-emerald-400 tracking-wider">
-                      <span className="truncate mr-2">{keyVal}</span>
-                      <button
-                        type="button"
-                        onClick={() => handleCopy(keyVal, idx)}
-                        className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer flex-shrink-0"
-                      >
-                        {copiedKeyIndex === idx ? (
-                          <span className="text-[9px] font-bold text-emerald-400">Copied!</span>
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  </div>
-
-
-                </div>
-              ))}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-emerald-400" />
+                Generated Cryptographic Activation Credentials ({generatedKeys.length})
+              </h4>
+              {/* NC-1: only for a Vendor batch — a 500+ card grid is unusable, so this
+                  path renders as a compact table instead, with a PDF export button. */}
+              {wasBatchGeneration && lastBatchMeta && (
+                <button
+                  type="button"
+                  onClick={() => downloadActivationKeysPdf({
+                    entityName: lastBatchMeta.entityName,
+                    batchId: lastBatchMeta.batchId,
+                    productLabel: lastBatchMeta.productLabel,
+                    durationLabel: lastBatchMeta.durationLabel,
+                    generatedAt: new Date(),
+                    keys: generatedKeys,
+                  })}
+                  className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-zinc-200 rounded-xl transition-colors cursor-pointer flex items-center gap-2 w-fit"
+                >
+                  📄 Download PDF ({generatedKeys.length} keys)
+                </button>
+              )}
             </div>
+
+            {wasBatchGeneration ? (
+              <div className="overflow-x-auto rounded-2xl border border-white/5 bg-white/[0.02]">
+                {/* White-alpha background, not black-alpha: globals.css only rewrites the
+                    white-alpha utilities for the light theme, so a black-alpha panel would
+                    stay dark on a light page. */}
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-white/10 bg-white/[0.02]">
+                      <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest w-16">#</th>
+                      <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Activation Key</th>
+                      <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Copy</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-white/5">
+                    {generatedKeys.slice(0, resultsVisibleCount).map((keyVal, idx) => (
+                      <tr key={keyVal} className="hover:bg-white/[0.02] transition-colors">
+                        <td className="py-2.5 px-4 text-xs text-zinc-500 font-mono">{idx + 1}</td>
+                        {/* activation-token: globals.css darkens this text in light mode
+                            (.light .activation-token), same as the batch history list —
+                            emerald-400 alone is unreadable on a light background. */}
+                        <td className="py-2.5 px-4 font-mono text-xs font-bold text-emerald-400 tracking-wider activation-token">{keyVal}</td>
+                        <td className="py-2.5 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(keyVal, idx)}
+                            className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer inline-flex"
+                          >
+                            {copiedKeyIndex === idx ? (
+                              <span className="text-[9px] font-bold text-emerald-400">Copied!</span>
+                            ) : (
+                              <Copy className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {/* Only a slice is mounted: a batch can be 10,000 keys, and rendering a
+                    row (plus its copy button) for each would lock the browser up. The
+                    complete list always goes out via the PDF above. */}
+                {generatedKeys.length > resultsVisibleCount && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-t border-white/10">
+                    <span className="text-[11px] font-bold text-zinc-400">
+                      Showing {resultsVisibleCount} of {generatedKeys.length} keys — the PDF contains all of them.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setResultsVisibleCount(c => c + RESULTS_PAGE_SIZE)}
+                      className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-zinc-200 rounded-xl transition-colors cursor-pointer w-fit"
+                    >
+                      Show {Math.min(RESULTS_PAGE_SIZE, generatedKeys.length - resultsVisibleCount)} more
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {generatedKeys.map((keyVal, idx) => (
+                  <div key={keyVal} className="flex flex-col md:flex-row gap-4 items-center bg-black/35 p-5 rounded-2xl border border-white/5 relative">
+                    {/* Copy box */}
+                    <div className="flex-1 w-full space-y-3">
+                      <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block">Activation Token {idx + 1}</span>
+                      <div className="flex items-center justify-between p-3 bg-[#121216]/50 border border-white/10 rounded-xl font-mono text-xs font-bold text-emerald-400 tracking-wider">
+                        <span className="truncate mr-2">{keyVal}</span>
+                        <button
+                          type="button"
+                          onClick={() => handleCopy(keyVal, idx)}
+                          className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer flex-shrink-0"
+                        >
+                          {copiedKeyIndex === idx ? (
+                            <span className="text-[9px] font-bold text-emerald-400">Copied!</span>
+                          ) : (
+                            <Copy className="w-3.5 h-3.5" />
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </GlassCard>
@@ -802,7 +1011,14 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
           batches.map((batch) => {
             const activeCount = batch.keys.filter(k => k.status?.toLowerCase() === 'active').length;
             const isBatchActive = activeCount > 0;
-            
+            // Each key below renders a full detail card (token, watermark, policy, device
+            // binding, actions). That was fine when a batch could only hold up to 10 keys,
+            // but a vendor batch can hold thousands — so mount a bounded slice per batch
+            // and let the operator expand on demand.
+            const visibleKeyCount = batchVisibleCounts[batch.id] ?? BATCH_KEYS_PAGE_SIZE;
+            const visibleKeys = batch.keys.slice(0, visibleKeyCount);
+            const isCollapsed = collapsedBatches[batch.id] ?? false;
+
             return (
               <GlassCard key={batch.id} className="/30 border border-white/5 p-6 space-y-4 hover:border-white/10 transition-all">
                 {/* Batch Header */}
@@ -829,12 +1045,26 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                     }`}>
                       📱 {activeCount} / {batch.keys.length} Activated
                     </span>
+
+                    {/* Collapse / expand this batch. Defaults to expanded, so a batch that
+                        isn't touched behaves exactly as it did before. */}
+                    <button
+                      type="button"
+                      onClick={() => setCollapsedBatches(prev => ({ ...prev, [batch.id]: !isCollapsed }))}
+                      aria-expanded={!isCollapsed}
+                      aria-label={isCollapsed ? `Expand batch ${batch.id}` : `Collapse batch ${batch.id}`}
+                      title={isCollapsed ? 'Expand batch' : 'Collapse batch'}
+                      className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                    >
+                      {isCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                    </button>
                   </div>
                 </div>
 
                 {/* Batch Keys List - Flex row cards for maximum contrast and legibility */}
+                {!isCollapsed && (
                 <div className="space-y-3 pt-2">
-                  {batch.keys.map((k) => {
+                  {visibleKeys.map((k) => {
                     const expiryDate = k.expiresAt ? new Date(k.expiresAt) : null;
                     let daysLeftText = 'Not Activated';
                     let isExpired = false;
@@ -995,7 +1225,26 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                       </div>
                     );
                   })}
+
+                  {batch.keys.length > visibleKeyCount && (
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+                      <span className="text-[11px] font-bold text-zinc-400">
+                        Showing {visibleKeyCount} of {batch.keys.length} keys in this batch
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setBatchVisibleCounts(prev => ({
+                          ...prev,
+                          [batch.id]: visibleKeyCount + RESULTS_PAGE_SIZE,
+                        }))}
+                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-zinc-200 rounded-xl transition-colors cursor-pointer w-fit"
+                      >
+                        Show {Math.min(RESULTS_PAGE_SIZE, batch.keys.length - visibleKeyCount)} more
+                      </button>
+                    </div>
+                  )}
                 </div>
+                )}
               </GlassCard>
             );
           })

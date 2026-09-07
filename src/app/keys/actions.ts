@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { revalidatePath } from 'next/cache';
 import { getAdminSession } from '@/lib/auth';
 import { z } from 'zod';
+import { randomInt } from 'crypto';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { indianAcademicYear } from '@/lib/entity';
@@ -13,14 +14,40 @@ import { PRODUCT_ID_ENUM, DEFAULT_PRODUCT_ID } from '@/lib/productIdentity';
 // junk like "LMS-SCHOOL-MNS7LGUAA4879898" (3rd segment must be exactly 10 chars).
 const KEY_FORMAT = /^LMS-[A-Z0-9]{2,12}-[A-Z0-9]{10}$/;
 
+// Activation keys are CREDENTIALS. For a bulk batch the SERVER mints them here with a
+// CSPRNG (crypto.randomInt is unbiased over this 32-symbol alphabet ≈ 50 bits of
+// entropy) — identical scheme to payments/actions.ts — so thousands of credentials are
+// never sourced from, or predictable to, anything running in the operator's browser.
+const KEY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function generateActivationCode(len = 10): string {
+  let s = '';
+  for (let i = 0; i < len; i++) s += KEY_ALPHABET[randomInt(KEY_ALPHABET.length)];
+  return s;
+}
+
+/** Entity-name prefix for a minted key, constrained to KEY_FORMAT's [A-Z0-9]{2,12}. */
+function keyPrefixFor(entityName: string): string {
+  const cleaned = entityName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 8);
+  return cleaned.length >= 2 ? cleaned : 'ENTITY';
+}
+
 const ActivationKeySchema = z.object({
   entityType: z.enum(['School', 'Vendor', 'Individual']),
   schoolId: z.string().optional(),
   vendorId: z.string().optional(),
   parentId: z.string().optional(),
+  // Explicit keys — the operator-typed single key, and the existing small auto-filled
+  // runs. Unchanged.
   keys: z.array(z.string().trim().regex(KEY_FORMAT, 'Invalid activation key format.'))
     .min(1, 'Provide at least one key.')
-    .max(10000, 'Too many keys requested.'),
+    .max(10000, 'Too many keys requested.')
+    .optional(),
+  // Bulk batch — the client sends only HOW MANY; the server mints the key values.
+  generateCount: z.number({ message: 'Batch count must be a number.' })
+    .int('Batch count must be a whole number.')
+    .min(1, 'Generate at least 1 key.')
+    .max(10000, 'Too many keys requested.')
+    .optional(),
   durationDays: z.number({ message: 'Duration must be a number.' }).int('Duration must be a whole number.').min(1, 'Duration must be at least 1 day.').max(36500, 'Duration is too large.'),
   expiresAt: z.string().optional(),
   // Which product this batch of keys is for (src/lib/productIdentity.ts). Defaults to
@@ -31,7 +58,42 @@ const ActivationKeySchema = z.object({
   if (data.entityType === 'Vendor' && !data.vendorId) return false;
   if (data.entityType === 'Individual' && !data.parentId) return false;
   return true;
-}, { message: 'Select an entity.' });
+}, { message: 'Select an entity.' }).refine(
+  data => (data.keys !== undefined) !== (data.generateCount !== undefined),
+  { message: 'Provide exactly one of: explicit keys, or a batch count.' }
+);
+
+// Batch key generation (Vendor) can request up to the schema's 10,000-row cap in one
+// call. A single INSERT statement that large risks the request/response payload size
+// and statement-complexity limits Supabase/PostgREST impose — a failure there would
+// surface as an opaque 500 with no rows created. Chunking removes that risk entirely.
+// For every EXISTING caller (School/Individual/small Vendor batches, always well under
+// this size) this is still exactly one INSERT, so there is no behavioral change today.
+const INSERT_CHUNK_SIZE = 500;
+
+async function insertKeysInChunks(
+  rows: any[] /* eslint-disable-line @typescript-eslint/no-explicit-any */
+): Promise<{ data: any[] | null; error: { code?: string; message: string } | null }> /* eslint-disable-line @typescript-eslint/no-explicit-any */ {
+  const created: any[] = []; /* eslint-disable-line @typescript-eslint/no-explicit-any */
+  for (let i = 0; i < rows.length; i += INSERT_CHUNK_SIZE) {
+    const chunk = rows.slice(i, i + INSERT_CHUNK_SIZE);
+    // Select only what the caller actually maps back (CreatedKey). A bare .select()
+    // returns every column of every row — ~25 columns x up to 10,000 rows of pure
+    // transfer cost for 7 fields of use.
+    const { data, error } = await supabaseAdmin
+      .from('activation_keys')
+      .insert(chunk)
+      .select('id, key, status, duration_days, expires_at, batch_id');
+    if (error) {
+      // Rows from earlier chunks in this same call are already committed (each INSERT
+      // is its own transaction) — surfacing the error is correct; the caller's existing
+      // unique-violation handling (error.code === '23505') still applies per-chunk.
+      return { data: created.length > 0 ? created : null, error };
+    }
+    if (data) created.push(...data);
+  }
+  return { data: created, error: null };
+}
 
 type CreatedKey = {
   id: string;
@@ -80,7 +142,28 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
     // show & maintain the year the operator picked (used for the vendor's "Year").
     const academicYear = indianAcademicYear(validData.expiresAt ? new Date(validData.expiresAt) : new Date());
 
-    const insertRows = validData.keys.map(keyVal => ({
+    // Batch mode: mint the key values HERE, from the entity's real name as recorded in
+    // the database — never from a client-supplied name or client-supplied key values.
+    let keyValues: string[];
+    if (validData.generateCount !== undefined) {
+      let entityName = 'ENTITY';
+      if (validData.entityType === 'School') {
+        const { data: school } = await supabaseAdmin.from('schools').select('name').eq('id', validData.schoolId).single();
+        if (school?.name) entityName = school.name;
+      } else if (validData.entityType === 'Vendor') {
+        const { data: vendor } = await supabaseAdmin.from('vendors').select('vendor_name').eq('vendor_id', validData.vendorId).single();
+        if (vendor?.vendor_name) entityName = vendor.vendor_name;
+      } else if (validData.entityType === 'Individual') {
+        const { data: parent } = await supabaseAdmin.from('parents').select('parent_name').eq('id', validData.parentId).single();
+        if (parent?.parent_name) entityName = parent.parent_name;
+      }
+      const prefix = keyPrefixFor(entityName);
+      keyValues = Array.from({ length: validData.generateCount }, () => `LMS-${prefix}-${generateActivationCode()}`);
+    } else {
+      keyValues = validData.keys ?? [];
+    }
+
+    const insertRows = keyValues.map(keyVal => ({
       school_id: validData.entityType === 'School' ? validData.schoolId : null,
       vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
       parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
@@ -93,13 +176,17 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
       product_id: validData.productId,
     }));
 
-    const { data: createdKeys, error } = await supabaseAdmin
-      .from('activation_keys')
-      .insert(insertRows)
-      .select();
+    const { data: createdKeys, error } = await insertKeysInChunks(insertRows);
 
     if (error) {
-      logger.error({ event: 'CREATE_KEYS_DB_ERROR', code: error.code }, error);
+      logger.error({ event: 'CREATE_KEYS_DB_ERROR', code: error.code, created: createdKeys?.length ?? 0 }, error);
+      // A large batch chunks into several INSERTs — if an earlier chunk already
+      // committed before a later one failed, those rows are real and already in the
+      // database, so still make them visible instead of leaving the admin unsure.
+      if (createdKeys && createdKeys.length > 0) {
+        revalidatePath('/keys');
+        revalidatePath('/data');
+      }
       if (error.code === '23505') return fail('One or more of these keys already exist.');
       return fail(GENERIC_ERROR);
     }
@@ -112,7 +199,13 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
       await supabaseAdmin.from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
     }
 
-    logger.info({ event: 'ACTIVATION_KEYS_CREATED', batchId, keysCount: validData.keys.length, adminEmail: session.email });
+    logger.info({
+      event: 'ACTIVATION_KEYS_CREATED',
+      batchId,
+      keysCount: keyValues.length,
+      serverMinted: validData.generateCount !== undefined,
+      adminEmail: session.email,
+    });
     revalidatePath('/keys');
     revalidatePath('/data');
 

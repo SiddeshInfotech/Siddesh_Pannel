@@ -27,7 +27,11 @@ const PaymentSchema = z.object({
   vendorId: z.string().optional(),
   parentId: z.string().optional(),
   amount: z.number({ message: 'Amount must be a number.' }).min(0, 'Amount cannot be negative.').max(100000000, 'Amount is too large.').optional(),
-  keysCount: z.number({ message: 'Keys count must be a number.' }).int('Keys count must be a whole number.').min(1, 'Generate at least 1 key.').max(10000, 'Keys count is too large.'),
+  // Not applicable to Vendor: a vendor's payment is a licensing agreement, not a
+  // fixed pre-paid key count — vendors generate keys separately in the Keys tab
+  // (Single / Batch). See the entityType refine below for the School/Individual
+  // requirement this optionality carves an exception out of.
+  keysCount: z.number({ message: 'Keys count must be a number.' }).int('Keys count must be a whole number.').min(1, 'Generate at least 1 key.').max(10000, 'Keys count is too large.').optional(),
   bankName: z.string().trim().max(120, 'Bank name is too long.').optional(),
   transactionId: z.string().trim().max(120, 'Transaction ID is too long.').optional(),
   paymentDate: z.string().min(1, 'Select a payment date.'),
@@ -37,7 +41,10 @@ const PaymentSchema = z.object({
   if (data.entityType === 'Vendor' && !data.vendorId) return false;
   if (data.entityType === 'Individual' && !data.parentId) return false;
   return true;
-}, { message: 'Select an entity.' });
+}, { message: 'Select an entity.' }).refine(data => {
+  if (data.entityType !== 'Vendor' && (data.keysCount === undefined || data.keysCount === null)) return false;
+  return true;
+}, { message: 'Generate at least 1 key.', path: ['keysCount'] });
 
 export async function createPayment(formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult> {
   const session = await getAdminSession();
@@ -63,7 +70,8 @@ export async function createPayment(formData: any /* eslint-disable-line @typesc
         vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
         parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
         amount: validData.amount || 0,
-        keys_count: validData.keysCount,
+        // Vendor: not applicable — NULL (see vendor_payments_optional_keys_count.sql).
+        keys_count: validData.entityType === 'Vendor' ? null : validData.keysCount,
         bank_name: sanitize(validData.bankName || '') || 'Bank Transfer',
         transaction_id: sanitize(generatedTxnId),
         payment_date: new Date(validData.paymentDate).toISOString(),
@@ -91,11 +99,15 @@ export async function createPayment(formData: any /* eslint-disable-line @typesc
 
     const sanitizedEntityName = entityName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 8);
 
-    // Auto-provision activation keys linked to this payment
+    // Auto-provision activation keys linked to this payment. Vendor is excluded: its
+    // keys_count is not applicable (validated null above) — a vendor generates its own
+    // keys later, in bulk, via the Keys tab (Single / Batch), gated on this payment
+    // being 'Paid', the same way School/Individual keys are gated when using that tab.
     const keyStatus = validData.status === 'Paid' ? 'Paid' : 'Unpaid';
     // Academic year of issuance — served back at activation as the entity's "year".
     const academicYear = indianAcademicYear();
-    const keyRows = Array.from({ length: validData.keysCount }, () => {
+    const keysToProvision = validData.entityType === 'Vendor' ? 0 : (validData.keysCount ?? 0);
+    const keyRows = Array.from({ length: keysToProvision }, () => {
       return {
         school_id: validData.entityType === 'School' ? validData.schoolId : null,
         vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
@@ -154,7 +166,8 @@ export async function updatePayment(id: string, formData: any /* eslint-disable-
         vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
         parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
         amount: validData.amount || 0,
-        keys_count: validData.keysCount,
+        // Vendor: not applicable — NULL (see vendor_payments_optional_keys_count.sql).
+        keys_count: validData.entityType === 'Vendor' ? null : validData.keysCount,
         bank_name: sanitize(validData.bankName || '') || 'Bank Transfer',
         transaction_id:
           sanitize(validData.transactionId || '') ||
