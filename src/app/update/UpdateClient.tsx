@@ -53,6 +53,7 @@ type Ev = {
   schoolName: string;
   fingerprint: string;
   detail: Record<string, unknown>;
+  createdAt: string | null;
   when: string;
   whenAgo: string;
 };
@@ -99,6 +100,11 @@ const TAMPER_REASON: Record<string, string> = {
 // Event types that represent a SECURITY concern (drive the alert count + row markers).
 const SECURITY_EVENTS = new Set(['EXPIRY_TAMPER', 'CEK_DECRYPT_FAILED', 'ATTESTATION_ISSUE']);
 
+// Every other timestamp on this page (page.tsx) is formatted in IST — the day dividers
+// in the timeline popup must bucket events into the same calendar days, not the
+// viewing browser's local timezone.
+const IST = 'Asia/Kolkata';
+
 export default function UpdateClient({
   devices, events, onlineCount, serverTime,
 }: {
@@ -136,6 +142,30 @@ export default function UpdateClient({
     if (!selectedFingerprint) return [];
     return events.filter((e) => e.fingerprint === selectedFingerprint);
   }, [events, selectedFingerprint]);
+
+  // Day-grouped for the timeline popup: one date divider per calendar day (IST, matching
+  // every other timestamp on this page) instead of repeating the full date on every
+  // event. Events already arrive newest-first from the query, and Object grouping
+  // preserves that first-seen order, so no re-sort is needed.
+  const eventsByDay = useMemo(() => {
+    const groups: { dayKey: string; dayLabel: string; events: Ev[] }[] = [];
+    const indexByKey = new Map<string, number>();
+    for (const e of filteredEvents) {
+      const d = e.createdAt ? new Date(e.createdAt) : null;
+      const dayKey = d ? d.toLocaleDateString('en-CA', { timeZone: IST }) : 'unknown';
+      const dayLabel = d
+        ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: IST })
+        : 'Date unknown';
+      let idx = indexByKey.get(dayKey);
+      if (idx === undefined) {
+        idx = groups.length;
+        indexByKey.set(dayKey, idx);
+        groups.push({ dayKey, dayLabel, events: [] });
+      }
+      groups[idx].events.push(e);
+    }
+    return groups;
+  }, [filteredEvents]);
 
   const selectedDevice = useMemo(
     () => devices.find((d) => d.fingerprint === selectedFingerprint) ?? null,
@@ -292,18 +322,20 @@ export default function UpdateClient({
 
       </div>
 
-      {/* Timeline drawer — opens on row click, closes on backdrop / Close / re-clicking
-          the same row (the table already toggles selectedFingerprint that way). */}
+      {/* Timeline popup — a centered rectangle, not an edge drawer, so it reads as its
+          own focused view rather than a sidebar; same backdrop blur as the rest of the
+          panel's modals. Closes on backdrop / Close / re-clicking the same row (the
+          table already toggles selectedFingerprint that way). */}
       {selectedFingerprint && (
-        <div className="fixed inset-0 z-50 flex justify-end">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"
             aria-label="Close timeline"
             onClick={() => setSelectedFingerprint(null)}
             className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-default"
           />
-          <aside className="relative w-full max-w-md h-full bg-[#0e0e12]/95 border-l border-white/10 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-            <div className="flex items-start justify-between gap-3 p-5 border-b border-white/5 bg-white/[0.02]">
+          <div className="relative w-full max-w-xl max-h-[85vh] bg-[#0e0e12]/95 border border-white/10 rounded-2xl shadow-2xl flex flex-col animate-in zoom-in-95 fade-in duration-200">
+            <div className="flex items-start justify-between gap-3 p-5 border-b border-white/5 bg-white/[0.02] rounded-t-2xl">
               <div className="min-w-0">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">Activity Timeline</h2>
                 {selectedDevice && (
@@ -324,60 +356,81 @@ export default function UpdateClient({
             </div>
 
             <div className="flex-1 overflow-y-auto p-5">
-              {filteredEvents.length === 0 ? (
+              {eventsByDay.length === 0 ? (
                 <div className="text-zinc-500 text-sm">No events for this device yet.</div>
               ) : (
-                /* One continuous rail behind every node, time in its own left column —
-                   the previous version boxed each event in its own card, which broke the
-                   line into disconnected fragments. */
-                <ol className="relative">
-                  <span className="absolute left-[72px] top-2 bottom-2 w-px bg-white/10" aria-hidden="true" />
-                  {filteredEvents.map((e) => {
-                    const { label, Icon, tone } = eventStyle(e.type);
-                    const c = TONE[tone];
-                    const reason =
-                      typeof e.detail?.reason === 'string'
-                        ? e.detail.reason
-                        : typeof e.detail?.reason_detail === 'string'
-                        ? e.detail.reason_detail
-                        : null;
-                    const occurrenceCount = typeof e.detail?.count === 'number' ? e.detail.count : null;
-                    const appV = typeof e.detail?.app_version === 'string' ? e.detail.app_version : null;
-                    const ip = typeof e.detail?.ip === 'string' ? e.detail.ip : null;
-                    return (
-                      <li key={e.id} className="relative flex gap-4 pb-7 last:pb-0">
-                        <span className="w-[56px] shrink-0 text-right text-[10px] font-mono text-zinc-500 pt-1 leading-tight">
-                          {e.whenAgo}
-                        </span>
-                        <span
-                          className={`relative z-10 w-[33px] h-[33px] shrink-0 rounded-full border-2 ${c.ring} bg-[#0e0e12] flex items-center justify-center`}
-                          aria-hidden="true"
-                        >
-                          <Icon className={`w-3.5 h-3.5 ${c.text}`} />
-                        </span>
-                        <div className="min-w-0 flex-1 pt-1">
-                          <div className={`font-semibold text-sm ${c.text}`}>{label}</div>
-                          {reason && (
-                            <div className="text-xs text-zinc-400 mt-0.5 break-words">
-                              {TAMPER_REASON[reason] ?? reason}
-                            </div>
-                          )}
-                          <div className="flex flex-wrap gap-1.5 mt-2">
-                            {appV && <span className={`px-1.5 py-0.5 rounded border text-[10px] ${c.chip}`}>app {appV}</span>}
-                            {ip && <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">{ip}</span>}
-                            {occurrenceCount && occurrenceCount > 1 && (
-                              <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">×{occurrenceCount}</span>
-                            )}
-                          </div>
-                          <div className="text-[10px] font-medium text-zinc-500 mt-1.5">{e.when}</div>
+                /* One rail runs the full height of the popup — behind the day dividers
+                   AND every event node — so it reads as one unbroken line with the day
+                   labels threaded through it, not separate boxed timelines per day. */
+                <div className="relative">
+                  <span className="absolute left-4 top-2 bottom-2 w-px bg-white/10" aria-hidden="true" />
+                  <div className="space-y-6">
+                    {eventsByDay.map((group) => (
+                      <div key={group.dayKey}>
+                        {/* Day divider — sits ON the rail (same left offset as the event
+                            icons below), matching the "day-wise" grouping. */}
+                        <div className="relative flex items-center gap-3 mb-4">
+                          <span className="relative z-10 w-[33px] h-[33px] shrink-0 rounded-full border-2 border-white/15 bg-[#0e0e12] flex items-center justify-center">
+                            <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                          </span>
+                          <span className="text-xs font-bold text-zinc-200 uppercase tracking-wide">
+                            {group.dayLabel}
+                          </span>
                         </div>
-                      </li>
-                    );
-                  })}
-                </ol>
+
+                        <ol className="space-y-6">
+                          {group.events.map((e) => {
+                            const { label, Icon, tone } = eventStyle(e.type);
+                            const c = TONE[tone];
+                            const reason =
+                              typeof e.detail?.reason === 'string'
+                                ? e.detail.reason
+                                : typeof e.detail?.reason_detail === 'string'
+                                ? e.detail.reason_detail
+                                : null;
+                            const occurrenceCount = typeof e.detail?.count === 'number' ? e.detail.count : null;
+                            const appV = typeof e.detail?.app_version === 'string' ? e.detail.app_version : null;
+                            const ip = typeof e.detail?.ip === 'string' ? e.detail.ip : null;
+                            const timeOfDay = e.createdAt
+                              ? new Date(e.createdAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST })
+                              : e.when;
+                            return (
+                              <li key={e.id} className="relative flex gap-3">
+                                <span
+                                  className={`relative z-10 w-[33px] h-[33px] shrink-0 rounded-full border-2 ${c.ring} bg-[#0e0e12] flex items-center justify-center`}
+                                  aria-hidden="true"
+                                >
+                                  <Icon className={`w-3.5 h-3.5 ${c.text}`} />
+                                </span>
+                                <div className="min-w-0 flex-1 pt-1">
+                                  <div className="flex items-baseline justify-between gap-2">
+                                    <span className={`font-semibold text-sm ${c.text}`}>{label}</span>
+                                    <span className="text-[10px] font-mono text-zinc-500 whitespace-nowrap">{timeOfDay}</span>
+                                  </div>
+                                  {reason && (
+                                    <div className="text-xs text-zinc-400 mt-0.5 break-words">
+                                      {TAMPER_REASON[reason] ?? reason}
+                                    </div>
+                                  )}
+                                  <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {appV && <span className={`px-1.5 py-0.5 rounded border text-[10px] ${c.chip}`}>app {appV}</span>}
+                                    {ip && <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">{ip}</span>}
+                                    {occurrenceCount && occurrenceCount > 1 && (
+                                      <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">×{occurrenceCount}</span>
+                                    )}
+                                  </div>
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               )}
             </div>
-          </aside>
+          </div>
         </div>
       )}
     </div>

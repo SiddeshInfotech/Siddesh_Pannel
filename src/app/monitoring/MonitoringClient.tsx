@@ -612,9 +612,11 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
           </table>
         </div>
 
-        {/* Pagination — hidden entirely when everything already fits on one page, so a
-            small fleet sees exactly what it saw before. */}
-        {filteredDevices.length > DEVICES_PER_PAGE && (
+        {/* Pagination — always shown alongside real rows (even a single page), so the
+            control is visibly present rather than appearing only once a fleet grows past
+            one page. Hidden only for the genuinely-empty result set, which already has
+            its own "no devices" message above. */}
+        {filteredDevices.length > 0 && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-white/5 bg-white/[0.02]">
             <span className="text-[11px] font-bold text-zinc-400">
               Showing <span className="text-zinc-200">{pageStart + 1}–{Math.min(pageStart + DEVICES_PER_PAGE, filteredDevices.length)}</span> of{' '}

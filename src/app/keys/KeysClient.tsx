@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
 import StatusBadge from '@/components/StatusBadge';
+import AppleDatePicker from '@/components/AppleDatePicker';
 import { createActivationKeys, deleteActivationKey, resetDeviceBinding } from './actions';
 import { useToast } from '@/components/Toast';
 import CustomSelect from '@/components/CustomSelect';
@@ -653,17 +654,18 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                   </div>
                 ) : (
                   <div className="flex flex-col md:flex-row gap-3 items-center">
-                    {/* Date Selector */}
-                    <div className="flex-1 w-full relative">
-                       <input
-                         type="date"
-                         required={durationMode === 'custom'}
+                    {/* Date Selector — the themed popover calendar used everywhere else in
+                        the panel (Payments' Payment Date), not the browser's native
+                        `<input type="date">` picker, which renders in the OS's own light
+                        chrome and clashes with the dark form around it. */}
+                    <div className="flex-1 w-full">
+                       <AppleDatePicker
                          value={customDateOnly}
-                         onChange={e => setCustomDateOnly(e.target.value)}
-                         className="w-full px-4 py-3 bg-[#121216]/60 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-zinc-300 focus:outline-none transition-all"
+                         onChange={setCustomDateOnly}
+                         placeholder="mm/dd/yyyy"
                        />
                     </div>
-                    
+
                     {/* Hour Dropdown */}
                     <div className="w-full md:w-[110px] relative">
                        <select

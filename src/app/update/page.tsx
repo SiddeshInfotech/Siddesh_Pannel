@@ -85,6 +85,9 @@ async function getTelemetry() {
     schoolName: e.schools?.name ?? 'Unknown School',
     fingerprint: e.device_fingerprint,
     detail: e.detail ?? {},
+    // Raw ISO timestamp, kept alongside the pre-formatted strings below, so the client
+    // can group events by IST calendar day without re-deriving it from a locale string.
+    createdAt: e.created_at ?? null,
     when: e.created_at ? new Date(e.created_at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: IST }) : '—',
     whenAgo: agoFrom(e.created_at),
   }));
