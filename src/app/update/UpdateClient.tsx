@@ -3,7 +3,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   DownloadCloud, Circle, Clock, Server, Search,
-  Wifi, WifiOff, ShieldAlert, KeyRound, CheckCircle2, AlertTriangle,
+  Wifi, WifiOff, ShieldAlert, KeyRound, CheckCircle2, AlertTriangle, X,
 } from 'lucide-react';
 import CustomSelect from '@/components/CustomSelect';
 import { PRODUCT_FILTER_OPTIONS, productDisplayName } from '@/lib/productIdentity';
@@ -181,9 +181,11 @@ export default function UpdateClient({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Devices table */}
-        <div className="lg:col-span-2">
+      {/* The table now owns the full width — the timeline used to occupy a third of the
+          page permanently while showing "Select a device" most of the time. It opens as a
+          drawer on row click instead. */}
+      <div>
+        <div>
           <div className="flex items-center gap-2 mb-3">
             <div className="relative flex-1">
               <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -204,7 +206,7 @@ export default function UpdateClient({
           </div>
           <div className="rounded-2xl border border-white/10 overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-sm min-w-[780px]">
+              <table className="w-full text-sm min-w-[900px]">
                 <thead className="bg-white/5 text-zinc-400 text-[11px] uppercase tracking-wide">
                   <tr>
                     <th className="text-left px-4 py-3 font-semibold">School</th>
@@ -288,74 +290,96 @@ export default function UpdateClient({
           </div>
         </div>
 
-        {/* Timeline */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-400">Timeline</h2>
-            {selectedDevice && (
-              <span className="text-xs text-zinc-500 truncate max-w-[160px]" title={selectedDevice.schoolName}>
-                {selectedDevice.schoolName}
-              </span>
-            )}
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-4 max-h-[560px] overflow-y-auto">
-            {!selectedFingerprint ? (
-              <div className="text-zinc-500 text-sm">Select a device from the table to view its timeline.</div>
-            ) : filteredEvents.length === 0 ? (
-              <div className="text-zinc-500 text-sm">No events for this device yet.</div>
-            ) : (
-              <div className="relative mt-1">
-                {filteredEvents.map((e, index) => {
-                  const isLast = index === filteredEvents.length - 1;
-                  const { label, Icon, tone } = eventStyle(e.type);
-                  const c = TONE[tone];
-                  const reason =
-                    typeof e.detail?.reason === 'string'
-                      ? e.detail.reason
-                      : typeof e.detail?.reason_detail === 'string'
-                      ? e.detail.reason_detail
-                      : null;
-                  const occurrenceCount = typeof e.detail?.count === 'number' ? e.detail.count : null;
-                  const appV = typeof e.detail?.app_version === 'string' ? e.detail.app_version : null;
-                  const ip = typeof e.detail?.ip === 'string' ? e.detail.ip : null;
-                  return (
-                    <div key={e.id} className="relative flex items-start gap-3 pb-6 last:pb-0">
-                      {/* Rail: icon-in-circle + connecting line */}
-                      <div className="relative flex flex-col items-center shrink-0">
-                        <div className={`w-7 h-7 rounded-full border-2 ${c.ring} bg-background z-10 flex items-center justify-center`}>
-                          <Icon className={`w-3.5 h-3.5 ${c.text}`} />
-                        </div>
-                        {!isLast && <div className="absolute top-7 bottom-[-24px] w-px bg-white/15" />}
-                      </div>
-
-                      {/* Card */}
-                      <div className={`flex-1 rounded-xl p-3 border ${tone === 'danger' ? 'bg-rose-500/5 border-rose-500/25' : 'bg-white/5 border-white/10'}`}>
-                        <div className="flex items-center justify-between gap-2">
-                          <div className={`font-semibold text-sm ${c.text}`}>{label}</div>
-                          <div className="text-[10px] text-zinc-500 whitespace-nowrap">{e.whenAgo}</div>
-                        </div>
-                        {reason && (
-                          <div className="text-xs text-rose-200/90 mt-1">
-                            {TAMPER_REASON[reason] ?? reason}
-                          </div>
-                        )}
-                        <div className="flex flex-wrap gap-1.5 mt-2">
-                          {appV && <span className={`px-1.5 py-0.5 rounded border text-[10px] ${c.chip}`}>app {appV}</span>}
-                          {ip && <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">{ip}</span>}
-                          {occurrenceCount && occurrenceCount > 1 && (
-                            <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">×{occurrenceCount}</span>
-                          )}
-                        </div>
-                        <div className="text-[10px] font-medium text-zinc-500 mt-2">{e.when}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
       </div>
+
+      {/* Timeline drawer — opens on row click, closes on backdrop / Close / re-clicking
+          the same row (the table already toggles selectedFingerprint that way). */}
+      {selectedFingerprint && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <button
+            type="button"
+            aria-label="Close timeline"
+            onClick={() => setSelectedFingerprint(null)}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-default"
+          />
+          <aside className="relative w-full max-w-md h-full bg-[#0e0e12]/95 border-l border-white/10 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+            <div className="flex items-start justify-between gap-3 p-5 border-b border-white/5 bg-white/[0.02]">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">Activity Timeline</h2>
+                {selectedDevice && (
+                  <>
+                    <p className="text-sm font-bold text-white truncate mt-1">{selectedDevice.schoolName}</p>
+                    <p className="text-[11px] font-mono text-zinc-500 truncate">{selectedDevice.activationKey}</p>
+                  </>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedFingerprint(null)}
+                className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer shrink-0"
+                aria-label="Close timeline"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              {filteredEvents.length === 0 ? (
+                <div className="text-zinc-500 text-sm">No events for this device yet.</div>
+              ) : (
+                /* One continuous rail behind every node, time in its own left column —
+                   the previous version boxed each event in its own card, which broke the
+                   line into disconnected fragments. */
+                <ol className="relative">
+                  <span className="absolute left-[72px] top-2 bottom-2 w-px bg-white/10" aria-hidden="true" />
+                  {filteredEvents.map((e) => {
+                    const { label, Icon, tone } = eventStyle(e.type);
+                    const c = TONE[tone];
+                    const reason =
+                      typeof e.detail?.reason === 'string'
+                        ? e.detail.reason
+                        : typeof e.detail?.reason_detail === 'string'
+                        ? e.detail.reason_detail
+                        : null;
+                    const occurrenceCount = typeof e.detail?.count === 'number' ? e.detail.count : null;
+                    const appV = typeof e.detail?.app_version === 'string' ? e.detail.app_version : null;
+                    const ip = typeof e.detail?.ip === 'string' ? e.detail.ip : null;
+                    return (
+                      <li key={e.id} className="relative flex gap-4 pb-7 last:pb-0">
+                        <span className="w-[56px] shrink-0 text-right text-[10px] font-mono text-zinc-500 pt-1 leading-tight">
+                          {e.whenAgo}
+                        </span>
+                        <span
+                          className={`relative z-10 w-[33px] h-[33px] shrink-0 rounded-full border-2 ${c.ring} bg-[#0e0e12] flex items-center justify-center`}
+                          aria-hidden="true"
+                        >
+                          <Icon className={`w-3.5 h-3.5 ${c.text}`} />
+                        </span>
+                        <div className="min-w-0 flex-1 pt-1">
+                          <div className={`font-semibold text-sm ${c.text}`}>{label}</div>
+                          {reason && (
+                            <div className="text-xs text-zinc-400 mt-0.5 break-words">
+                              {TAMPER_REASON[reason] ?? reason}
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {appV && <span className={`px-1.5 py-0.5 rounded border text-[10px] ${c.chip}`}>app {appV}</span>}
+                            {ip && <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">{ip}</span>}
+                            {occurrenceCount && occurrenceCount > 1 && (
+                              <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">×{occurrenceCount}</span>
+                            )}
+                          </div>
+                          <div className="text-[10px] font-medium text-zinc-500 mt-1.5">{e.when}</div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </div>
+          </aside>
+        </div>
+      )}
     </div>
   );
 }

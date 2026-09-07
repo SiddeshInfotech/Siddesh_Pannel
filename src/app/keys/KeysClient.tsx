@@ -18,6 +18,7 @@ import {
   Search,
   ChevronDown,
   ChevronUp,
+  FileDown,
   X
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
@@ -70,6 +71,9 @@ interface KeysClientProps {
 // every key up front (which froze the page once batch generation became possible).
 const RESULTS_PAGE_SIZE = 100;
 const BATCH_KEYS_PAGE_SIZE = 25;
+// Past this size a batch isn't practical to read on screen, so its PDF export is always
+// offered — not just for the batch that happens to have been generated this session.
+const PDF_EXPORT_MIN_KEYS = 10;
 
 export default function KeysClient({ schools, keys, vendors, parents }: KeysClientProps) {
   const { toast } = useToast();
@@ -508,50 +512,49 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
       </div>
 
       {/* Main card matching layout */}
-      <GlassCard className="/40 border border-white/5 p-8 relative overflow-visible">
+      <GlassCard className="/40 border border-white/5 p-6 relative overflow-visible">
         <div className="absolute top-0 right-0 w-[200px] h-[200px] bg-accent-violet/5 rounded-full blur-[80px] pointer-events-none"></div>
 
-        <form onSubmit={handleGenerate} className="space-y-8">
-          {/* Entity Type Selection */}
-          <div className="w-full md:w-1/3">
-            <label className="text-xs font-bold text-zinc-400 block mb-2">Entity Type</label>
-            <CustomSelect
-              required
-              value={entityType}
-              onChange={val => {
+        <form onSubmit={handleGenerate} className="space-y-6">
+          {/* Identity row — who the licence is for and which client build it activates.
+              These were three stacked third-width blocks, which left two thirds of the
+              card empty and pushed the actual controls below the fold. */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-400 block">Entity Type</label>
+              <CustomSelect
+                required
+                value={entityType}
+                onChange={val => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                setEntityType(val as any);
-                setSelectedSchoolId('');
-                setSelectedVendorId('');
-                setSelectedParentId('');
-                setKeyManuallyEdited(false); // re-enable auto-fill for the new entity type
-              }}
-              options={[
-                { value: 'School', label: 'School' },
-                { value: 'Vendor', label: 'Vendor' },
-                { value: 'Individual', label: 'Normal Individual User' }
-              ]}
-              placeholder="Select Entity Type"
-            />
-          </div>
+                  setEntityType(val as any);
+                  setSelectedSchoolId('');
+                  setSelectedVendorId('');
+                  setSelectedParentId('');
+                  setKeyManuallyEdited(false); // re-enable auto-fill for the new entity type
+                }}
+                options={[
+                  { value: 'School', label: 'School' },
+                  { value: 'Vendor', label: 'Vendor' },
+                  { value: 'Individual', label: 'Normal Individual User' }
+                ]}
+                placeholder="Select Entity Type"
+              />
+            </div>
 
-          {/* Product Selection — which client build this key activates. Defaults to
-              LMS School Android (existing production behavior); every other product
-              requires the operator to explicitly pick it. */}
-          <div className="w-full md:w-1/3">
-            <label className="text-xs font-bold text-zinc-400 block mb-2">Product</label>
-            <CustomSelect
-              required
-              value={productId}
-              onChange={val => setProductId(val as ProductId)}
-              options={PRODUCT_DEFINITIONS.map(p => ({ value: p.id, label: p.displayName }))}
-              placeholder="Select Product"
-            />
-          </div>
+            {/* Which client build this key activates. Defaults to LMS School Android
+                (existing production behavior); anything else must be picked explicitly. */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-400 block">Product</label>
+              <CustomSelect
+                required
+                value={productId}
+                onChange={val => setProductId(val as ProductId)}
+                options={PRODUCT_DEFINITIONS.map(p => ({ value: p.id, label: p.displayName }))}
+                placeholder="Select Product"
+              />
+            </div>
 
-          {/* Top details columns */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            
             {/* Entity Selection Dropdown */}
             {entityType === 'School' && (
               <div className="space-y-2">
@@ -601,8 +604,12 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
               </div>
             )}
 
-            {/* Policy Duration */}
-            <div className="space-y-2">
+          </div>
+
+          {/* Policy Duration — full width so the custom date/time selectors sit on one
+              line instead of stacking inside a half-width column. */}
+          <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
+            <div className="space-y-3">
               <span className="text-xs font-bold text-zinc-400 flex items-center gap-2">
                 <Calendar className="w-3.5 h-3.5 text-zinc-500" />
                 Policy Duration *
@@ -697,20 +704,21 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                   </div>
                 )}
               </div>
-            </div>
-          </div>
 
-          {/* Academic year captured on the key at generation (served back at activation).
-              Most relevant for a Vendor key, whose Information tab shows only ID + year. */}
-          <div className="flex items-center gap-2 text-[11px] font-bold text-zinc-400">
-            <Calendar className="w-3.5 h-3.5 text-accent-violet" />
-            <span>
-              Academic Year on key:{' '}
-              <span className="text-accent-violet font-mono">{licenseAcademicYear}</span>
-              {entityType === 'Vendor' && (
-                <span className="text-zinc-500 font-normal"> — shown as the vendor’s “Year” after activation</span>
-              )}
-            </span>
+              {/* Academic year captured on the key at generation (served back at
+                  activation) — it belongs with the validity window it is derived from,
+                  not floating on its own line further down the form. */}
+              <div className="flex items-center gap-2 text-[11px] font-bold text-zinc-400 pt-1">
+                <Calendar className="w-3.5 h-3.5 text-accent-violet" />
+                <span>
+                  Academic Year on key:{' '}
+                  <span className="text-accent-violet font-mono">{licenseAcademicYear}</span>
+                  {entityType === 'Vendor' && (
+                    <span className="text-zinc-500 font-normal"> — shown as the vendor’s “Year” after activation</span>
+                  )}
+                </span>
+              </div>
+            </div>
           </div>
 
           {/* NC-1: Vendor-only choice — the existing 1-10 dropdown ("Single number"), or a
@@ -954,55 +962,72 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
 
       {/* Batch-wise Activation Credentials View */}
       <div className="space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="space-y-0.5">
-            <h3 className="text-lg font-extrabold text-white tracking-tight">Generated Activation Credentials</h3>
-            <span className="text-xs font-bold text-zinc-400">
-              Total Batches: {batches.length} • Total Keys: {filteredKeyList.length}
-            </span>
+        {/* Title row and toolbar row are separate: cramming the heading and four controls
+            onto one flex line forced the title to wrap a word per line on narrow screens. */}
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="space-y-1 min-w-0">
+              <h3 className="text-lg font-extrabold text-white tracking-tight whitespace-nowrap">
+                Generated Activation Credentials
+              </h3>
+              <p className="text-xs text-zinc-400">
+                Every provisioned batch, its licence policy, and the device each key is bound to.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[10px] font-bold text-zinc-300">
+                {batches.length} {batches.length === 1 ? 'Batch' : 'Batches'}
+              </span>
+              <span className="px-3 py-1.5 bg-accent-violet/10 border border-accent-violet/20 rounded-lg text-[10px] font-bold text-accent-violet">
+                {filteredKeyList.length} {filteredKeyList.length === 1 ? 'Key' : 'Keys'}
+              </span>
+            </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full md:w-auto">
-            <div className="relative w-full sm:w-[230px]">
+          {/* Toolbar: search takes the slack, the three filters keep a stable width so they
+              don't resize as their labels change. */}
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3 p-3 bg-white/[0.02] border border-white/5 rounded-2xl">
+            <div className="relative flex-1 min-w-0">
               <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search token or WM code…"
-                className="w-full pl-9 pr-3 py-2.5 bg-[#121216]/60 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-xs text-zinc-200 focus:outline-none transition-all font-mono tracking-wide"
+                placeholder="Search activation token or forensic WM code…"
+                className="w-full pl-9 pr-3 py-2.5 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-xs text-zinc-200 focus:outline-none transition-all font-mono tracking-wide"
               />
             </div>
-            <div className="flex items-center gap-2 w-full sm:w-[180px]">
-              <span className="text-xs font-bold text-zinc-400 whitespace-nowrap">Filter:</span>
-              <CustomSelect
-                value={filterEntityType}
-                onChange={val => {
+            <div className="flex flex-col sm:flex-row items-stretch gap-3 lg:shrink-0">
+              <div className="w-full sm:w-[150px]">
+                <CustomSelect
+                  value={filterEntityType}
+                  onChange={val => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  setFilterEntityType(val as any);
-                  setFilterSchoolId('all'); // reset the dependent entity dropdown
-                }}
-                options={[
-                  { value: 'all', label: 'All Types' },
-                  { value: 'School', label: 'School' },
-                  { value: 'Vendor', label: 'Vendor' },
-                  { value: 'Parent', label: 'Parent' },
-                ]}
-              />
-            </div>
-            <div className="flex items-center gap-2 w-full sm:w-[230px]">
-              <CustomSelect
-                value={filterSchoolId}
-                onChange={val => setFilterSchoolId(val)}
-                options={filterOptions}
-              />
-            </div>
-            <div className="flex items-center gap-2 w-full sm:w-[200px]">
-              <CustomSelect
-                value={filterProductId}
-                onChange={val => setFilterProductId(val)}
-                options={PRODUCT_FILTER_OPTIONS}
-              />
+                    setFilterEntityType(val as any);
+                    setFilterSchoolId('all'); // reset the dependent entity dropdown
+                  }}
+                  options={[
+                    { value: 'all', label: 'All Types' },
+                    { value: 'School', label: 'School' },
+                    { value: 'Vendor', label: 'Vendor' },
+                    { value: 'Parent', label: 'Parent' },
+                  ]}
+                />
+              </div>
+              <div className="w-full sm:w-[200px]">
+                <CustomSelect
+                  value={filterSchoolId}
+                  onChange={val => setFilterSchoolId(val)}
+                  options={filterOptions}
+                />
+              </div>
+              <div className="w-full sm:w-[190px]">
+                <CustomSelect
+                  value={filterProductId}
+                  onChange={val => setFilterProductId(val)}
+                  options={PRODUCT_FILTER_OPTIONS}
+                />
+              </div>
             </div>
           </div>
         </div>
@@ -1045,6 +1070,29 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                     }`}>
                       📱 {activeCount} / {batch.keys.length} Activated
                     </span>
+
+                    {/* Persistent export for any batch big enough that reading it on screen
+                        isn't practical — not just the one just generated in this session. */}
+                    {batch.keys.length > PDF_EXPORT_MIN_KEYS && (
+                      <button
+                        type="button"
+                        onClick={() => downloadActivationKeysPdf({
+                          entityName: batch.entityName,
+                          batchId: batch.id.startsWith('BATCH-') ? batch.id : null,
+                          productLabel: productDisplayName(batch.keys[0]?.productId),
+                          durationLabel: batch.keys[0]?.expiresAt
+                            ? new Date(batch.keys[0].expiresAt as string).toLocaleString('en-IN')
+                            : `${batch.keys[0]?.durationDays ?? 365} Days`,
+                          generatedAt: new Date(),
+                          keys: batch.keys.map(k => k.key),
+                        })}
+                        title={`Download all ${batch.keys.length} keys in this batch as PDF`}
+                        className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold text-zinc-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5"
+                      >
+                        <FileDown className="w-3.5 h-3.5" />
+                        PDF
+                      </button>
+                    )}
 
                     {/* Collapse / expand this batch. Defaults to expanded, so a batch that
                         isn't touched behaves exactly as it did before. */}

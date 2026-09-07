@@ -48,8 +48,14 @@ interface DeviceRow {
   androidId?: string;
   activationDate: string;
   exactActivationDate: string;
+  // Raw ISO twin of exactActivationDate/exactLastSync/termsAcceptedAt/expiryTamperAt
+  // below — those are pre-formatted for display (toLocaleString) and cannot be
+  // reliably re-parsed by `new Date(...)`. Used only for chronological sorting in the
+  // device lifecycle timeline.
+  activatedAtIso: string | null;
   lastSync: string;
   exactLastSync: string;
+  lastSyncIso: string | null;
   remainingTime: string;
   status: 'Active' | 'Inactive' | 'Revoked' | 'Unpaid' | 'Paid';
   // Entity ownership (school | vendor | student). Drives the Schools/Vendors/Users filter.
@@ -108,9 +114,11 @@ interface DeviceRow {
   termsAccepted: boolean;
   termsVersion: string | null;
   termsAcceptedAt: string | null;
+  termsAcceptedAtIso: string | null;
   // Server-side expiry-tamper: flagged when the device reported an expiry later than signed.
   expiryTamper: boolean;
   expiryTamperAt: string | null;
+  expiryTamperAtIso: string | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   expiryTamperDetail: any;
 }
@@ -249,6 +257,10 @@ interface MonitoringClientProps {
   totalDevicesCount: number;
 }
 
+// Rows per page in the device table. Each row is wide and detail-heavy, so a page of 10
+// fills the viewport without forcing an endless scroll on a large fleet.
+const DEVICES_PER_PAGE = 10;
+
 export default function MonitoringClient({ initialDevices, totalDevicesCount }: MonitoringClientProps) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -256,6 +268,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
   const [entityFilter, setEntityFilter] = useState<'All' | 'Schools' | 'Vendors' | 'Users'>('All');
   const [productFilter, setProductFilter] = useState<string>('all');
   const [selectedDevice, setSelectedDevice] = useState<DeviceRow | null>(null);
+  const [page, setPage] = useState(1);
   const [devicesList, setDevicesList] = useState<DeviceRow[]>(initialDevices);
 
   // Dynamic ticking countdown for remaining time in real time
@@ -356,66 +369,83 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
       (dev.entityName || dev.schoolName).toLowerCase().includes(q);
   });
 
+  // Pagination — a fleet of a few thousand tablets makes an unbounded table both slow to
+  // render and impossible to navigate. Clamped so an active page can never point past the
+  // end after a filter narrows the result set.
+  const totalPages = Math.max(1, Math.ceil(filteredDevices.length / DEVICES_PER_PAGE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * DEVICES_PER_PAGE;
+  const pagedDevices = filteredDevices.slice(pageStart, pageStart + DEVICES_PER_PAGE);
+
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
       {/* Spacer to maintain layout height */}
       <div className="h-10"></div>
 
-      {/* Header and Controls */}
-      <div className="flex justify-between items-center flex-wrap gap-4">
-        <div>
-          <h2 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
-            <Globe className="w-8 h-8 text-accent-violet animate-pulse" />
-            Device Monitoring
-          </h2>
-          <p className="text-xs text-zinc-400 mt-1">Real-time hardware fingerprint validation and device states.</p>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <div className="w-[180px]">
-            <CustomSelect
-              value={entityFilter}
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              onChange={val => setEntityFilter(val as any)}
-              options={[
-                { value: 'All', label: 'All Entities' },
-                { value: 'Schools', label: 'Schools' },
-                { value: 'Vendors', label: 'Vendors' },
-                { value: 'Users', label: 'Users' }
-              ]}
-            />
-          </div>
-          <div className="w-[190px]">
-            <CustomSelect
-              value={productFilter}
-              onChange={val => setProductFilter(val)}
-              options={PRODUCT_FILTER_OPTIONS}
-            />
-          </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-2.5 w-4.5 h-4.5 text-zinc-500" />
-            <input
-              type="text"
-              placeholder="Search by fingerprints, model, school..."
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-10 pr-4 py-2 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none w-[320px] transition-all"
-            />
-          </div>
-        </div>
+      {/* Header */}
+      <div>
+        <h2 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
+          <Globe className="w-8 h-8 text-accent-violet animate-pulse" />
+          Device Monitoring
+        </h2>
+        <p className="text-xs text-zinc-400 mt-1">Real-time hardware fingerprint validation and device states.</p>
       </div>
 
-      {/* Stats row */}
-      <div className="max-w-sm">
-        <MetricCard
-          title="Total Devices"
-          value={totalDevicesCount.toString()}
-          badgeText="Active DB Nodes"
-          badgeType="stable"
-          icon={Laptop}
-          sparklineType="progress"
-          progress={totalDevicesCount > 0 ? Math.min(100, (totalDevicesCount / 100) * 100) : 0}
-        />
+      {/* Count on the left, the controls that narrow it on the right — one row, so the
+          number and the filters acting on it read as a single unit. */}
+      <div className="flex flex-col xl:flex-row xl:items-stretch gap-4">
+        <div className="w-full xl:w-[320px] xl:shrink-0">
+          <MetricCard
+            title="Total Devices"
+            value={totalDevicesCount.toString()}
+            badgeText="Active DB Nodes"
+            badgeType="stable"
+            icon={Laptop}
+            sparklineType="progress"
+            progress={totalDevicesCount > 0 ? Math.min(100, (totalDevicesCount / 100) * 100) : 0}
+          />
+        </div>
+
+        <div className="flex-1 min-w-0 flex flex-col justify-center gap-3 p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Filter devices</span>
+            <span className="text-[10px] font-bold text-zinc-300 px-3 py-1 bg-white/5 border border-white/10 rounded-lg">
+              {filteredDevices.length} shown
+            </span>
+          </div>
+          <div className="flex flex-col sm:flex-row items-stretch gap-3">
+            <div className="relative flex-1 min-w-0">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search by fingerprint, model, entity…"
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1); }}
+                className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
+              />
+            </div>
+            <div className="w-full sm:w-[170px] shrink-0">
+              <CustomSelect
+                value={entityFilter}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                onChange={val => { setEntityFilter(val as any); setPage(1); }}
+                options={[
+                  { value: 'All', label: 'All Entities' },
+                  { value: 'Schools', label: 'Schools' },
+                  { value: 'Vendors', label: 'Vendors' },
+                  { value: 'Users', label: 'Users' }
+                ]}
+              />
+            </div>
+            <div className="w-full sm:w-[185px] shrink-0">
+              <CustomSelect
+                value={productFilter}
+                onChange={val => { setProductFilter(val); setPage(1); }}
+                options={PRODUCT_FILTER_OPTIONS}
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Main Table list */}
@@ -438,8 +468,8 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
               </tr>
             </thead>
             <tbody className="divide-y divide-card-border">
-              {filteredDevices.length > 0 ? (
-                filteredDevices.map(dev => {
+              {pagedDevices.length > 0 ? (
+                pagedDevices.map(dev => {
                   const Icon = getDeviceIcon(dev.model, dev.os);
                   return (
                     <tr 
@@ -581,6 +611,60 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
             </tbody>
           </table>
         </div>
+
+        {/* Pagination — hidden entirely when everything already fits on one page, so a
+            small fleet sees exactly what it saw before. */}
+        {filteredDevices.length > DEVICES_PER_PAGE && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-white/5 bg-white/[0.02]">
+            <span className="text-[11px] font-bold text-zinc-400">
+              Showing <span className="text-zinc-200">{pageStart + 1}–{Math.min(pageStart + DEVICES_PER_PAGE, filteredDevices.length)}</span> of{' '}
+              <span className="text-zinc-200">{filteredDevices.length}</span> devices
+            </span>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[11px] font-bold text-zinc-300 hover:text-white transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Prev
+              </button>
+
+              {/* A sliding window of page numbers — a fleet with 80 pages must not render
+                  80 buttons. Always shows the current page with its neighbours. */}
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+                .map((p, idx, arr) => (
+                  <React.Fragment key={p}>
+                    {idx > 0 && p - arr[idx - 1] > 1 && (
+                      <span className="px-1 text-[11px] font-bold text-zinc-600">…</span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setPage(p)}
+                      className={`min-w-[32px] px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                        p === currentPage
+                          ? 'bg-accent-violet text-white shadow-md'
+                          : 'bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  </React.Fragment>
+                ))}
+
+              <button
+                type="button"
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[11px] font-bold text-zinc-300 hover:text-white transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </GlassCard>
 
       {/* Modern Premium Glassmorphic Modal overlay */}
@@ -795,6 +879,128 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                   </div>
                 </div>
               </div>
+
+              {/* 2b. Device lifecycle timeline — a device can carry a red attestation
+                  badge AND be perfectly active, because the rejection happened BEFORE the
+                  successful activation. Two isolated badges can't express that ordering;
+                  a single chronological line can. Built from what's already on the row,
+                  ordered oldest → newest. */}
+              {(() => {
+                type Ev = { at: Date | null; kind: 'ok' | 'warn' | 'error'; title: string; detail?: string; meta?: string };
+                const parse = (v?: string | null): Date | null => {
+                  if (!v) return null;
+                  const d = new Date(v);
+                  return isNaN(d.getTime()) ? null : d;
+                };
+                const events: Ev[] = [];
+                if (selectedDevice.termsAccepted) {
+                  events.push({
+                    at: parse(selectedDevice.termsAcceptedAtIso),
+                    kind: 'ok',
+                    title: 'Terms & privacy accepted',
+                    detail: selectedDevice.termsVersion ? `Consent v${selectedDevice.termsVersion} recorded` : 'Consent recorded',
+                  });
+                }
+                if (selectedDevice.attestationIssue) {
+                  const ai = selectedDevice.attestationIssue;
+                  events.push({
+                    at: parse(ai.at),
+                    kind: ai.enforced ? 'error' : 'warn',
+                    title: attestationReasonLabel(ai.reasonCode),
+                    detail: ai.reasonDetail,
+                    meta: `${ai.enforced ? 'Rejected (401)' : 'Allowed · audit-only'}${ai.count > 1 ? ` · ${ai.count} occurrences` : ''}`,
+                  });
+                }
+                if (selectedDevice.expiryTamper) {
+                  events.push({
+                    at: parse(selectedDevice.expiryTamperAtIso),
+                    kind: 'error',
+                    title: 'Expiry tamper detected',
+                    detail: 'Device reported an expiry later than the signed licence.',
+                  });
+                }
+                events.push({
+                  at: parse(selectedDevice.activatedAtIso),
+                  kind: 'ok',
+                  title: 'Licence activated',
+                  detail: `Bound to this hardware for ${selectedDevice.durationDays} days`,
+                });
+                events.push({
+                  at: parse(selectedDevice.lastSyncIso),
+                  kind: 'ok',
+                  title: 'Last monotonic sync',
+                  detail: selectedDevice.remainingTime ? `${selectedDevice.remainingTime} remaining` : undefined,
+                });
+
+                const ordered = events.sort((a, b) => (a.at?.getTime() ?? 0) - (b.at?.getTime() ?? 0));
+                const dot = {
+                  ok: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400',
+                  warn: 'bg-amber-500/15 border-amber-500/40 text-amber-400',
+                  error: 'bg-rose-500/15 border-rose-500/40 text-rose-400',
+                };
+
+                return (
+                  <div>
+                    <h4 className="text-xs font-extrabold uppercase text-accent-violet tracking-wider mb-3 flex items-center gap-2">
+                      <Clock className="w-4 h-4" /> Device Lifecycle
+                    </h4>
+                    <div className="relative pl-6">
+                      {/* One continuous rail behind every node */}
+                      <span className="absolute left-[9px] top-1 bottom-1 w-px bg-white/10" aria-hidden="true" />
+                      <ol className="space-y-4">
+                        {ordered.map((e, i) => (
+                          <li key={`${e.title}-${i}`} className="relative">
+                            <span
+                              className={`absolute -left-6 top-0.5 w-[19px] h-[19px] rounded-full border flex items-center justify-center ${dot[e.kind]}`}
+                              aria-hidden="true"
+                            >
+                              {e.kind === 'ok'
+                                ? <CheckCircle2 className="w-3 h-3" />
+                                : <ShieldAlert className="w-3 h-3" />}
+                            </span>
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                              <span className={`text-xs font-bold ${
+                                e.kind === 'error' ? 'text-rose-400' : e.kind === 'warn' ? 'text-amber-400' : 'text-zinc-200'
+                              }`}>
+                                {e.title}
+                              </span>
+                              <span className="text-[10px] font-mono text-zinc-500">
+                                {e.at ? e.at.toLocaleString('en-IN') : 'Time not recorded'}
+                              </span>
+                            </div>
+                            {e.detail && (
+                              <p className="text-[11px] text-zinc-400 mt-0.5 break-words">{e.detail}</p>
+                            )}
+                            {e.meta && (
+                              <code className="inline-block text-[10px] font-mono text-zinc-500 mt-1">{e.meta}</code>
+                            )}
+                          </li>
+                        ))}
+                        {/* Terminal node: where the device stands right now */}
+                        <li className="relative">
+                          <span
+                            className={`absolute -left-6 top-0.5 w-[19px] h-[19px] rounded-full border flex items-center justify-center ${
+                              selectedDevice.status === 'Active' ? dot.ok : 'bg-white/5 border-white/15 text-zinc-400'
+                            }`}
+                            aria-hidden="true"
+                          >
+                            <Shield className="w-3 h-3" />
+                          </span>
+                          <div className="flex flex-wrap items-baseline justify-between gap-2">
+                            <span className="text-xs font-bold text-zinc-200">Current state</span>
+                            <StatusBadge status={selectedDevice.status} />
+                          </div>
+                          <p className="text-[11px] text-zinc-400 mt-0.5">
+                            {selectedDevice.attestationIssue && selectedDevice.status === 'Active'
+                              ? 'The attestation rejection above predates this activation — the licence is live and the earlier failures are historical.'
+                              : 'Live status as recorded by the panel.'}
+                          </p>
+                        </li>
+                      </ol>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* 3. Entity Profile Binding (School / Vendor / Student) */}
               <div>

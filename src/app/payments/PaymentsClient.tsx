@@ -338,42 +338,67 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
       </form>
 
       {/* Filters */}
-      <div className="space-y-3">
-      {/* Entity Filter — All / School / Vendor / Parent */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {(['All', 'School', 'Vendor', 'Parent'] as const).map(t => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setEntityTab(t)}
-            className={`px-5 py-2 rounded-full text-xs font-bold transition-all border cursor-pointer ${
-              entityTab === t
-                ? 'bg-accent-blue/10 text-accent-blue border-accent-blue/30'
-                : 'bg-white/5 text-zinc-400 border-transparent hover:bg-white/10 hover:text-zinc-200'
-            }`}
-          >
-            {t}
-          </button>
-        ))}
-      </div>
+      {/* Filter bar — the two dimensions (entity, status) were two loose rows of pills
+          that read as one undifferentiated block of eight buttons. They're now labelled
+          segmented controls in a single toolbar, so it's obvious they are independent
+          axes and which axis each selection belongs to. */}
+      <div className="flex flex-col xl:flex-row xl:items-center gap-4 p-3 bg-white/[0.02] border border-white/5 rounded-2xl">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest shrink-0">Entity</span>
+          <div className="flex items-center gap-1 p-1 bg-white/5 border border-white/10 rounded-xl overflow-x-auto">
+            {(['All', 'School', 'Vendor', 'Parent'] as const).map(t => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setEntityTab(t)}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  entityTab === t
+                    ? 'bg-accent-blue text-white shadow-md'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
 
-      {/* Status Filter — Paid / Unpaid / Pending (applies within the entity above) */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {(['All', 'Unpaid', 'Paid', 'Pending'] as const).map(f => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => setFilter(f)}
-            className={`px-5 py-2 rounded-full text-xs font-bold transition-all border cursor-pointer ${
-              filter === f
-                ? 'bg-accent-violet/10 text-accent-violet border-accent-violet/30'
-                : 'bg-white/5 text-zinc-400 border-transparent hover:bg-white/10 hover:text-zinc-200'
-            }`}
-          >
-            {f}
-          </button>
-        ))}
-      </div>
+        <div className="hidden xl:block w-px h-8 bg-white/10 shrink-0" />
+
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest shrink-0">Status</span>
+          <div className="flex items-center gap-1 p-1 bg-white/5 border border-white/10 rounded-xl overflow-x-auto">
+            {(['All', 'Unpaid', 'Paid', 'Pending'] as const).map(f => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  filter === f
+                    ? 'bg-accent-violet text-white shadow-md'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 xl:ml-auto shrink-0">
+          <span className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[10px] font-bold text-zinc-300">
+            {filteredPayments.length} {filteredPayments.length === 1 ? 'Record' : 'Records'}
+          </span>
+          {(entityTab !== 'All' || filter !== 'All') && (
+            <button
+              type="button"
+              onClick={() => { setEntityTab('All'); setFilter('All'); }}
+              className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            >
+              Clear
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Payment Table Records */}

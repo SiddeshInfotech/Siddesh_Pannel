@@ -231,6 +231,10 @@ async function getDevicesData() {
             timeZone: IST,
           })
         : 'N/A',
+      // Raw ISO alongside the display strings above: those are formatted with
+      // toLocaleString ("7 September 2026 at 1:48 pm"), which `new Date(...)` cannot
+      // reliably re-parse — needed for chronological sorting in the device timeline.
+      activatedAtIso: k.activated_at ?? null,
       lastSync: k.last_known_monotonic_time
         ? new Date(k.last_known_monotonic_time).toLocaleTimeString('en-IN', {
             hour: '2-digit',
@@ -245,6 +249,7 @@ async function getDevicesData() {
             timeZone: IST,
           })
         : 'Just now',
+      lastSyncIso: k.last_known_monotonic_time ?? null,
       remainingTime,
       expiresAt: k.expires_at ?? null,
       status,
@@ -271,11 +276,13 @@ async function getDevicesData() {
             timeZone: IST,
           })
         : null,
+      termsAcceptedAtIso: terms?.accepted_at ?? null,
       // Server-side expiry-tamper: true once this key reported an expiry later than signed.
       expiryTamper: tamper?.flag === true,
       expiryTamperAt: tamper?.at
         ? new Date(tamper.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: IST })
         : null,
+      expiryTamperAtIso: tamper?.at ?? null,
       expiryTamperDetail: tamper?.detail ?? null,
     };
   });
