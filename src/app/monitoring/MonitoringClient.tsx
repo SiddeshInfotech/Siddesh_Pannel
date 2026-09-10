@@ -34,7 +34,8 @@ import GlassCard from '@/components/GlassCard';
 import CustomSelect from '@/components/CustomSelect';
 import { deactivateDevice } from './actions';
 import { useToast } from '@/components/Toast';
-import { PRODUCT_FILTER_OPTIONS } from '@/lib/productIdentity';
+import { PRODUCT_FILTER_OPTIONS, UNRESOLVED_PRODUCT_FILTER_VALUE } from '@/lib/productIdentity';
+import { tierStyle } from '@/lib/tierStyle';
 
 interface DeviceRow {
   id: string;
@@ -121,39 +122,6 @@ interface DeviceRow {
   expiryTamperAtIso: string | null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   expiryTamperDetail: any;
-}
-
-// Maps the device security tier (KeystoreCrypto taxonomy) to a short label + badge
-// colour. Strong hardware attestation → green; can't-attest tiers → amber/blue;
-// failure tiers → red; devices activated before the field existed → neutral.
-function tierStyle(tier: string): { label: string; cls: string } {
-  switch (tier) {
-    case 'ATTESTED_STRONGBOX':
-      return { label: 'StrongBox', cls: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' };
-    case 'ATTESTED_TEE':
-      return { label: 'TEE (attested)', cls: 'bg-green-500/10 border-green-500/25 text-green-400' };
-    case 'KEYSTORE_PLAIN':
-      return { label: 'Keystore (no chain)', cls: 'bg-amber-500/10 border-amber-500/25 text-amber-400' };
-    case 'TEE_LEGACY_NOATTEST':
-      return { label: 'TEE legacy', cls: 'bg-yellow-500/10 border-yellow-500/25 text-yellow-400' };
-    case 'MODEL_SKIP':
-      return { label: 'Model skip', cls: 'bg-sky-500/10 border-sky-500/25 text-sky-400' };
-    case 'SW_ONLY':
-      return { label: 'Software only', cls: 'bg-orange-500/10 border-orange-500/25 text-orange-400' };
-    case 'PROVISION_FAILED':
-      return { label: 'Provision failed', cls: 'bg-rose-500/10 border-rose-500/25 text-rose-400' };
-    case 'CEK_DECRYPT_FAILED':
-      return { label: 'CEK failed', cls: 'bg-rose-500/10 border-rose-500/25 text-rose-400' };
-    // Windows desktop (TpmSealing) tiers.
-    case 'WIN_TPM_ATTESTED':
-      return { label: 'Windows TPM (attested)', cls: 'bg-green-500/10 border-green-500/25 text-green-400' };
-    case 'WIN_TPM_NOATTEST':
-      return { label: 'Windows TPM', cls: 'bg-yellow-500/10 border-yellow-500/25 text-yellow-400' };
-    case 'WIN_SW_ONLY':
-      return { label: 'Windows (software)', cls: 'bg-orange-500/10 border-orange-500/25 text-orange-400' };
-    default:
-      return { label: 'Unreported', cls: 'bg-white/5 border-white/10 text-zinc-400' };
-  }
 }
 
 // Maps the SERVER-DERIVED verified tier (attestationPolicy.ServerAttestationTier) to a
@@ -362,7 +330,11 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
       const entityFilterType = entityFilter === 'Vendors' ? 'vendor' : entityFilter === 'Users' ? 'student' : 'school';
       if ((dev.entityType || 'school') !== entityFilterType) return false;
     }
-    if (productFilter !== 'all' && dev.product !== productFilter) return false;
+    if (productFilter === UNRESOLVED_PRODUCT_FILTER_VALUE) {
+      if (dev.product) return false;
+    } else if (productFilter !== 'all' && dev.product !== productFilter) {
+      return false;
+    }
     const q = search.toLowerCase();
     return dev.model.toLowerCase().includes(q) ||
       dev.fingerprint.toLowerCase().includes(q) ||
@@ -839,7 +811,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                           </code>
                           <span className="block text-[10px] text-zinc-500 mt-1">
                             {selectedDevice.attestationIssue.enforced ? 'Rejected (401)' : 'Allowed, audit-only'} · last seen{' '}
-                            {new Date(selectedDevice.attestationIssue.at).toLocaleString()}
+                            {new Date(selectedDevice.attestationIssue.at).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' })}
                           </span>
                         </div>
                       )}

@@ -51,8 +51,15 @@ export function familyFor(id: ProductId): 'school' | 'lab' {
   return PRODUCT_DEFINITIONS.find((p) => p.id === id)!.family;
 }
 
+// Sentinel filter value for a key/device whose product never resolved (productId is null —
+// e.g. never activated, or activated by a pre-product-identity legacy client). Without this
+// bucket such rows were only reachable under "All Products": picking any specific product
+// silently made them disappear from the list with no way to isolate or even see them.
+export const UNRESOLVED_PRODUCT_FILTER_VALUE = 'unresolved';
+
 /** UI dropdown options, "All Products" first — used by every Product filter. */
 export const PRODUCT_FILTER_OPTIONS = [
   { value: 'all', label: 'All Products' },
   ...PRODUCT_DEFINITIONS.map((p) => ({ value: p.id as string, label: p.displayName })),
+  { value: UNRESOLVED_PRODUCT_FILTER_VALUE, label: 'Unresolved' },
 ];

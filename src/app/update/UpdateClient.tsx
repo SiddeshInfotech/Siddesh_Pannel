@@ -6,7 +6,8 @@ import {
   Wifi, WifiOff, ShieldAlert, KeyRound, CheckCircle2, AlertTriangle, X,
 } from 'lucide-react';
 import CustomSelect from '@/components/CustomSelect';
-import { PRODUCT_FILTER_OPTIONS, productDisplayName } from '@/lib/productIdentity';
+import { PRODUCT_FILTER_OPTIONS, UNRESOLVED_PRODUCT_FILTER_VALUE, productDisplayName } from '@/lib/productIdentity';
+import { tierStyle } from '@/lib/tierStyle';
 
 type DailyOnline = { day: string; totalOnline: string };
 
@@ -15,6 +16,8 @@ type Device = {
   fingerprint: string;
   activationKey: string;
   activatedAtIso: string | null;
+  supersededAtIso: string | null;
+  superseded: boolean;
   schoolName: string;
   schoolId: string;
   appVersion: string;
@@ -29,45 +32,9 @@ type Device = {
   productId: string | null;
 };
 
-// Short label + badge colour per device security tier. Covers BOTH taxonomies a client can
-// report (src/app/api/activate/route.ts's security_tier enum): Android's KeystoreCrypto
-// tiers AND Windows desktop's separate TpmSealing tiers (WIN_*) — monitoring/MonitoringClient
-// .tsx's tierStyle already had the WIN_* cases; this copy was missing them, so every Windows
-// device (the whole LMS Lab Windows fleet) fell through to the default '—' regardless of its
-// real reported tier.
-function tierStyle(tier: string): { label: string; cls: string } {
-  switch (tier) {
-    case 'ATTESTED_STRONGBOX':
-      return { label: 'StrongBox', cls: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' };
-    case 'ATTESTED_TEE':
-      return { label: 'TEE', cls: 'bg-green-500/10 border-green-500/30 text-green-400' };
-    case 'KEYSTORE_PLAIN':
-      return { label: 'No chain', cls: 'bg-amber-500/10 border-amber-500/30 text-amber-400' };
-    case 'TEE_LEGACY_NOATTEST':
-      return { label: 'TEE legacy', cls: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' };
-    case 'MODEL_SKIP':
-      return { label: 'Model skip', cls: 'bg-sky-500/10 border-sky-500/30 text-sky-400' };
-    case 'SW_ONLY':
-      return { label: 'Software', cls: 'bg-orange-500/10 border-orange-500/30 text-orange-400' };
-    case 'PROVISION_FAILED':
-    case 'CEK_DECRYPT_FAILED':
-      return { label: tier === 'CEK_DECRYPT_FAILED' ? 'CEK failed' : 'Failed', cls: 'bg-rose-500/10 border-rose-500/30 text-rose-400' };
-    // Windows desktop (TpmSealing) tiers.
-    case 'WIN_TPM_ATTESTED':
-      return { label: 'Win TPM', cls: 'bg-green-500/10 border-green-500/30 text-green-400' };
-    case 'WIN_TPM_NOATTEST':
-      return { label: 'Win TPM (no chain)', cls: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' };
-    case 'WIN_SW_ONLY':
-      return { label: 'Win software', cls: 'bg-orange-500/10 border-orange-500/30 text-orange-400' };
-    default:
-      return { label: '—', cls: 'bg-white/5 border-white/10 text-zinc-500' };
-  }
-}
-
 type Ev = {
   id: string;
   type: string;
-  schoolName: string;
   fingerprint: string;
   detail: Record<string, unknown>;
   createdAt: string | null;
@@ -136,7 +103,8 @@ export default function UpdateClient({
 
   const filtered = useMemo(() => {
     let list = devices;
-    if (productFilter !== 'all') list = list.filter((d) => d.productId === productFilter);
+    if (productFilter === UNRESOLVED_PRODUCT_FILTER_VALUE) list = list.filter((d) => !d.productId);
+    else if (productFilter !== 'all') list = list.filter((d) => d.productId === productFilter);
     const t = q.trim().toLowerCase();
     if (!t) return list;
     return list.filter(
@@ -171,10 +139,17 @@ export default function UpdateClient({
   const filteredEvents = useMemo(() => {
     if (!selectedDevice) return [];
     const sinceMs = selectedDevice.activatedAtIso ? new Date(selectedDevice.activatedAtIso).getTime() : null;
+    // Upper bound too: once the NEXT key was activated on this device, later events belong to
+    // that key, not this one. Without it a superseded key's timeline kept showing its
+    // successor's "came online" events as if the dead key were still in use.
+    const untilMs = selectedDevice.supersededAtIso ? new Date(selectedDevice.supersededAtIso).getTime() : null;
     return events.filter((e) => {
       if (e.fingerprint !== selectedDevice.fingerprint) return false;
-      if (sinceMs === null || !e.createdAt) return true;
-      return new Date(e.createdAt).getTime() >= sinceMs;
+      if (!e.createdAt) return sinceMs === null;
+      const at = new Date(e.createdAt).getTime();
+      if (sinceMs !== null && at < sinceMs) return false;
+      if (untilMs !== null && at >= untilMs) return false;
+      return true;
     });
   }, [events, selectedDevice]);
 
@@ -327,6 +302,15 @@ export default function UpdateClient({
                           {d.online ? (
                             <span className="inline-flex items-center gap-1.5 text-emerald-400 text-xs font-semibold">
                               <Circle className="w-2.5 h-2.5 fill-emerald-400" /> Online
+                            </span>
+                          ) : d.superseded ? (
+                            /* A newer key took over this device — it can't be online, and its
+                               device's live heartbeat belongs to that newer key, not this one. */
+                            <span
+                              title="Replaced — a newer key was activated on this same device, so this key is no longer in use"
+                              className="inline-flex items-center gap-1.5 text-amber-400/80 text-xs font-semibold"
+                            >
+                              <Circle className="w-2.5 h-2.5 fill-amber-500/60" /> Superseded
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1.5 text-zinc-500 text-xs font-semibold">
