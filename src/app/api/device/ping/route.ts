@@ -267,6 +267,7 @@ export async function POST(req: NextRequest) {
   let newSession = true;
   let sessionStart = new Date(now).toISOString();
   let total = 0;
+  let dailyCreditSeconds = 0; // this ping's inter-heartbeat credit, for device_daily_online below
   if (prev) {
     const lastSeenMs = new Date(prev.last_seen).getTime();
     const gap = now - lastSeenMs;
@@ -274,7 +275,8 @@ export async function POST(req: NextRequest) {
     if (gap <= SESSION_GAP_MS) {
       newSession = false;
       sessionStart = prev.session_start;
-      total += Math.max(0, Math.floor(gap / 1000)); // credit the inter-heartbeat time
+      dailyCreditSeconds = Math.max(0, Math.floor(gap / 1000)); // credit the inter-heartbeat time
+      total += dailyCreditSeconds;
     }
   }
 
@@ -290,6 +292,37 @@ export async function POST(req: NextRequest) {
     updated_at: new Date(now).toISOString(),
   }, { onConflict: 'device_fingerprint' });
   if (upErr) logger.error({ event: 'PING_STATUS_UPSERT_ERROR', error: upErr.message });
+
+  // Per-day online-duration bucket (device_daily_online — run add-device-daily-online.sql
+  // to add the table). Same credit as total_online_seconds above, bucketed by the IST
+  // calendar day of THIS ping. A gap that straddles midnight IST is credited entirely to
+  // the later day — acceptable: real heartbeat intervals are minutes, not hours, so this
+  // only ever misattributes a few seconds at a day boundary. Best-effort + isolated: a
+  // missing table or any error is logged and skipped, never blocks the heartbeat.
+  if (dailyCreditSeconds > 0) {
+    try {
+      const dayKey = new Date(now).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      const { data: dayRow, error: daySelErr } = await supabaseAdmin
+        .from('device_daily_online')
+        .select('seconds')
+        .eq('device_fingerprint', device_fingerprint)
+        .eq('day', dayKey)
+        .maybeSingle();
+      if (!daySelErr) {
+        const { error: dayUpErr } = await supabaseAdmin
+          .from('device_daily_online')
+          .upsert({
+            device_fingerprint,
+            day: dayKey,
+            seconds: (Number(dayRow?.seconds) || 0) + dailyCreditSeconds,
+            updated_at: new Date(now).toISOString(),
+          }, { onConflict: 'device_fingerprint,day' });
+        if (dayUpErr) logger.warn({ event: 'PING_DAILY_ONLINE_PERSIST_FAILED', error: dayUpErr.message });
+      }
+    } catch (e) {
+      logger.warn({ event: 'PING_DAILY_ONLINE_PERSIST_FAILED', error: e instanceof Error ? e.message : String(e) });
+    }
+  }
 
   // Canonical product tag — SEPARATE best-effort write (like security_tier below) so a
   // not-yet-migrated `product_id` column (run product-identity-upgrade.sql) can't blackout

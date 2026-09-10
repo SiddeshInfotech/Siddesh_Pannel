@@ -8,9 +8,13 @@ import {
 import CustomSelect from '@/components/CustomSelect';
 import { PRODUCT_FILTER_OPTIONS, productDisplayName } from '@/lib/productIdentity';
 
+type DailyOnline = { day: string; totalOnline: string };
+
 type Device = {
+  id: string;
   fingerprint: string;
   activationKey: string;
+  activatedAtIso: string | null;
   schoolName: string;
   schoolId: string;
   appVersion: string;
@@ -19,12 +23,18 @@ type Device = {
   lastSeenExact: string;
   firstSeenExact: string;
   totalOnline: string;
+  dailyBreakdown: DailyOnline[];
   lastIp: string;
   securityTier: string;
   productId: string | null;
 };
 
-// Short label + badge colour per device security tier (KeystoreCrypto taxonomy).
+// Short label + badge colour per device security tier. Covers BOTH taxonomies a client can
+// report (src/app/api/activate/route.ts's security_tier enum): Android's KeystoreCrypto
+// tiers AND Windows desktop's separate TpmSealing tiers (WIN_*) — monitoring/MonitoringClient
+// .tsx's tierStyle already had the WIN_* cases; this copy was missing them, so every Windows
+// device (the whole LMS Lab Windows fleet) fell through to the default '—' regardless of its
+// real reported tier.
 function tierStyle(tier: string): { label: string; cls: string } {
   switch (tier) {
     case 'ATTESTED_STRONGBOX':
@@ -42,6 +52,13 @@ function tierStyle(tier: string): { label: string; cls: string } {
     case 'PROVISION_FAILED':
     case 'CEK_DECRYPT_FAILED':
       return { label: tier === 'CEK_DECRYPT_FAILED' ? 'CEK failed' : 'Failed', cls: 'bg-rose-500/10 border-rose-500/30 text-rose-400' };
+    // Windows desktop (TpmSealing) tiers.
+    case 'WIN_TPM_ATTESTED':
+      return { label: 'Win TPM', cls: 'bg-green-500/10 border-green-500/30 text-green-400' };
+    case 'WIN_TPM_NOATTEST':
+      return { label: 'Win TPM (no chain)', cls: 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400' };
+    case 'WIN_SW_ONLY':
+      return { label: 'Win software', cls: 'bg-orange-500/10 border-orange-500/30 text-orange-400' };
     default:
       return { label: '—', cls: 'bg-white/5 border-white/10 text-zinc-500' };
   }
@@ -112,7 +129,10 @@ export default function UpdateClient({
 }) {
   const [q, setQ] = useState('');
   const [productFilter, setProductFilter] = useState<string>('all');
-  const [selectedFingerprint, setSelectedFingerprint] = useState<string | null>(null);
+  // Selects a table ROW (one licence key), not a device: the same device_fingerprint can
+  // legitimately carry more than one Active key, so it can't uniquely identify which row
+  // was clicked — the key's own row id can.
+  const [selectedKeyId, setSelectedKeyId] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     let list = devices;
@@ -138,39 +158,61 @@ export default function UpdateClient({
     [events]
   );
 
+  const selectedDevice = useMemo(
+    () => devices.find((d) => d.id === selectedKeyId) ?? null,
+    [devices, selectedKeyId]
+  );
+
+  // device_timeline events are recorded per physical device (device_fingerprint), not per
+  // licence key — a device can carry several Active keys over time (renewals, re-activation
+  // during testing), so filtering by fingerprint alone would show every OTHER key's history
+  // too. Also require createdAt >= this key's OWN activated_at, so the popup only shows
+  // activity from when THIS key went live, not the device's full cross-key past.
   const filteredEvents = useMemo(() => {
-    if (!selectedFingerprint) return [];
-    return events.filter((e) => e.fingerprint === selectedFingerprint);
-  }, [events, selectedFingerprint]);
+    if (!selectedDevice) return [];
+    const sinceMs = selectedDevice.activatedAtIso ? new Date(selectedDevice.activatedAtIso).getTime() : null;
+    return events.filter((e) => {
+      if (e.fingerprint !== selectedDevice.fingerprint) return false;
+      if (sinceMs === null || !e.createdAt) return true;
+      return new Date(e.createdAt).getTime() >= sinceMs;
+    });
+  }, [events, selectedDevice]);
 
   // Day-grouped for the timeline popup: one date divider per calendar day (IST, matching
   // every other timestamp on this page) instead of repeating the full date on every
   // event. Events already arrive newest-first from the query, and Object grouping
-  // preserves that first-seen order, so no re-sort is needed.
+  // preserves that first-seen order, so no re-sort is needed. Each day also carries its
+  // total online duration (dailyBreakdown, already scoped to this key's activation day
+  // onward by the server) — merged in even for a day with online time but no fresh "Came
+  // online" event (a session that started the day before and ran through midnight logs no
+  // new ONLINE event, so day-grouping by events alone would silently drop that day).
   const eventsByDay = useMemo(() => {
-    const groups: { dayKey: string; dayLabel: string; events: Ev[] }[] = [];
+    const groups: { dayKey: string; dayLabel: string; events: Ev[]; totalOnline: string | null }[] = [];
     const indexByKey = new Map<string, number>();
+    const dayLabelFor = (dayKey: string) =>
+      new Date(`${dayKey}T00:00:00`).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: IST });
+    const dailyByKey = new Map((selectedDevice?.dailyBreakdown ?? []).map((d) => [d.day, d.totalOnline]));
+
     for (const e of filteredEvents) {
       const d = e.createdAt ? new Date(e.createdAt) : null;
       const dayKey = d ? d.toLocaleDateString('en-CA', { timeZone: IST }) : 'unknown';
-      const dayLabel = d
-        ? d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: IST })
-        : 'Date unknown';
+      const dayLabel = d ? dayLabelFor(dayKey) : 'Date unknown';
       let idx = indexByKey.get(dayKey);
       if (idx === undefined) {
         idx = groups.length;
         indexByKey.set(dayKey, idx);
-        groups.push({ dayKey, dayLabel, events: [] });
+        groups.push({ dayKey, dayLabel, events: [], totalOnline: dailyByKey.get(dayKey) ?? null });
       }
       groups[idx].events.push(e);
     }
+    // Days with recorded online duration but no ONLINE event of their own.
+    for (const [dayKey, totalOnline] of dailyByKey) {
+      if (indexByKey.has(dayKey)) continue;
+      groups.push({ dayKey, dayLabel: dayLabelFor(dayKey), events: [], totalOnline });
+    }
+    groups.sort((a, b) => (a.dayKey < b.dayKey ? 1 : a.dayKey > b.dayKey ? -1 : 0)); // newest first
     return groups;
-  }, [filteredEvents]);
-
-  const selectedDevice = useMemo(
-    () => devices.find((d) => d.fingerprint === selectedFingerprint) ?? null,
-    [devices, selectedFingerprint]
-  );
+  }, [filteredEvents, selectedDevice]);
 
   return (
     <div className="p-8 max-w-[1200px] mx-auto text-foreground">
@@ -256,13 +298,13 @@ export default function UpdateClient({
                     </td></tr>
                   )}
                   {filtered.map((d) => {
-                    const isSelected = d.fingerprint === selectedFingerprint;
+                    const isSelected = d.id === selectedKeyId;
                     const flagged = flaggedFingerprints.has(d.fingerprint);
                     const t = tierStyle(d.securityTier);
                     return (
                       <tr
-                        key={d.fingerprint}
-                        onClick={() => setSelectedFingerprint(isSelected ? null : d.fingerprint)}
+                        key={d.id}
+                        onClick={() => setSelectedKeyId(isSelected ? null : d.id)}
                         className={`border-t border-white/5 hover:bg-white/10 cursor-pointer transition-colors ${isSelected ? 'bg-sky-500/10' : ''}`}
                       >
                         <td className="px-4 py-3">
@@ -325,13 +367,13 @@ export default function UpdateClient({
       {/* Timeline popup — a centered rectangle, not an edge drawer, so it reads as its
           own focused view rather than a sidebar; same backdrop blur as the rest of the
           panel's modals. Closes on backdrop / Close / re-clicking the same row (the
-          table already toggles selectedFingerprint that way). */}
-      {selectedFingerprint && (
+          table already toggles selectedKeyId that way). */}
+      {selectedDevice && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <button
             type="button"
             aria-label="Close timeline"
-            onClick={() => setSelectedFingerprint(null)}
+            onClick={() => setSelectedKeyId(null)}
             className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-default"
           />
           <div className="relative w-full max-w-xl max-h-[85vh] bg-[#0e0e12]/95 border border-white/10 rounded-2xl shadow-2xl flex flex-col animate-in zoom-in-95 fade-in duration-200">
@@ -347,7 +389,7 @@ export default function UpdateClient({
               </div>
               <button
                 type="button"
-                onClick={() => setSelectedFingerprint(null)}
+                onClick={() => setSelectedKeyId(null)}
                 className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer shrink-0"
                 aria-label="Close timeline"
               >
@@ -357,7 +399,7 @@ export default function UpdateClient({
 
             <div className="flex-1 overflow-y-auto p-5">
               {eventsByDay.length === 0 ? (
-                <div className="text-zinc-500 text-sm">No events for this device yet.</div>
+                <div className="text-zinc-500 text-sm">No activity recorded since this key was activated.</div>
               ) : (
                 /* One rail runs the full height of the popup — behind the day dividers
                    AND every event node — so it reads as one unbroken line with the day
@@ -376,7 +418,18 @@ export default function UpdateClient({
                           <span className="text-xs font-bold text-zinc-200 uppercase tracking-wide">
                             {group.dayLabel}
                           </span>
+                          {group.totalOnline && (
+                            <span className="px-1.5 py-0.5 rounded border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 text-[10px] font-semibold whitespace-nowrap">
+                              {group.totalOnline} online
+                            </span>
+                          )}
                         </div>
+
+                        {group.events.length === 0 && (
+                          <div className="text-xs text-zinc-500 mb-4 pl-[45px]">
+                            Online this day (session continued from the day before) — no new &quot;came online&quot; event.
+                          </div>
+                        )}
 
                         <ol className="space-y-6">
                           {group.events.map((e) => {
