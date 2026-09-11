@@ -476,6 +476,27 @@ export async function POST(req: NextRequest) {
   }
 
   if (newSession) {
+    // Close the PREVIOUS session first. Nothing else ever records a device going offline — a
+    // silent device simply stops pinging — so the timeline used to show only "Came online"
+    // rows with no end to any session. The previous session really ended at its last
+    // heartbeat (prev.last_seen), so the OFFLINE row is backdated to exactly that moment and
+    // carries the session's length. Best-effort: a failed insert only loses this one row.
+    if (prev?.last_seen) {
+      const endMs = new Date(prev.last_seen).getTime();
+      const startMs = prev.session_start ? new Date(prev.session_start).getTime() : endMs;
+      const { error: offErr } = await supabaseAdmin.from('device_timeline').insert({
+        device_fingerprint,
+        ...entityCols(key),
+        product_id: product,
+        event_type: 'OFFLINE',
+        created_at: new Date(endMs).toISOString(),
+        detail: {
+          session_start: prev.session_start ?? null,
+          duration_seconds: Math.max(0, Math.round((endMs - startMs) / 1000)),
+        },
+      });
+      if (offErr) logger.warn({ event: 'PING_OFFLINE_EVENT_PERSIST_FAILED', error: offErr.message });
+    }
     await supabaseAdmin.from('device_timeline').insert({
       device_fingerprint,
       ...entityCols(key),
