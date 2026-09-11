@@ -13,6 +13,7 @@ import { resolveEffectiveProductId, resolveLegacyProductId, checkProductMatch } 
 import { PRODUCT_ID_ENUM, productDisplayName, familyFor, isProductId } from '@/lib/productIdentity';
 import { entityRefFromRow, resolveEntity, isEntitledToAll } from '@/lib/entity';
 import { shouldEnforceAttestation, isModelExempt, deriveServerTier, validateAttestationConfig } from '@/lib/attestationPolicy';
+import { labScopeIds } from '@/lib/labCourses';
 import { recordAttestationIssue } from '@/lib/attestationTelemetry';
 
 // SF-2 remediation: warn loudly at module load (once per server instance) if the
@@ -863,14 +864,15 @@ export async function POST(req: NextRequest) {
     const wrappedCeks: Record<string, string> = {};
     // ── LMS School vs LMS Lab key scoping (additive, non-breaking) ────────────
     // LMS School content is class-scoped (class_N/Subject) and is sold to school, vendor AND
-    // parent entities — they ALL need class keys. LMS Lab (9 courses) uses course_N scoping.
+    // parent entities — they ALL need class keys. LMS Lab uses course_N scoping: every real
+    // course PLUS the reserved future slots (src/lib/labCourses.ts), so a course added later
+    // plays on devices activated today without re-activation.
     // Driven by the canonical product's family (src/lib/productIdentity.ts) — the same
     // value just validated by the product identity gate above — never by the WIN_* tier
     // (shared by School and Lab desktop builds, proves nothing about family).
     const useCourseScopes = isProductId(product) && familyFor(product) === 'lab';
     if (useCourseScopes) {
-      for (let i = 1; i <= 9; i++) {
-        const scopeId = `course_${i}`;
+      for (const scopeId of labScopeIds()) {
         wrappedCeks[scopeId] = wrapOne(deriveScopePassphrase(masterCek, scopeId));
       }
     } else {
