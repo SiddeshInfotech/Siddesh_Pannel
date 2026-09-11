@@ -130,6 +130,12 @@ function ensureKeyPair() {
 // (gap #2), which doesn't depend on the device clock — not by shrinking this window.
 const ATTEST_MAX_SKEW_MS = 5 * 60 * 1000;
 
+// Shown by the Android app and the Windows desktop app when a one-time key is reused
+// (both surface the server's `error` text as-is). Same text for same/other device so the
+// response doesn't reveal where the key is bound; the handshake log records which.
+const KEY_ALREADY_USED_MESSAGE =
+  'This activation key has already been used and cannot be activated again. Please contact your administrator.';
+
 // Helper: insert handshake log (non-throwing)
 async function logHandshake(data: {
   activationKey: string;
@@ -608,21 +614,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── 2. Enforce one-time tablet binding ─────────────────────────────────
-    if (keyRecord.device_fingerprint && keyRecord.device_fingerprint !== hardware_fingerprint) {
+    // ── 2. Enforce ONE-TIME key use ────────────────────────────────────────
+    // A key is single-use: once an activation has bound it to a device, every later
+    // activation with it is refused — on another device (key sharing) AND on the same
+    // device (reinstall / app-data clear / re-activation from the Android app or the
+    // Windows desktop). An already-activated device is unaffected: it opens from its stored
+    // signed license and only talks to /api/device/ping. To move a key to a repaired or
+    // reinstalled device an admin uses "Reset Device Binding" (keys/actions.ts), which
+    // clears device_fingerprint and makes the key usable exactly once more.
+    if (keyRecord.device_fingerprint) {
+      const sameDevice = keyRecord.device_fingerprint === hardware_fingerprint;
       await logHandshake({
         activationKey: requestKey,
         deviceFingerprint: requestFingerprint,
         deviceModel: requestModel,
         deviceOS: requestOS,
         status: 'FAILED',
-        errorMessage: 'Key sharing blocked. This activation key is strictly locked to another tablet.',
+        errorMessage: sameDevice
+          ? 'Key already used. Re-activation on the same device blocked (one-time key).'
+          : 'Key sharing blocked. This activation key is already used on another device.',
         ipAddress,
       });
-      return NextResponse.json(
-        { error: 'Key sharing blocked. This activation key is strictly locked to another tablet.' },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: KEY_ALREADY_USED_MESSAGE }, { status: 403 });
     }
 
     // ── 3. Mark key as Active & set activation metrics ─────────────────────
@@ -631,7 +644,10 @@ export async function POST(req: NextRequest) {
       ? new Date(keyRecord.expires_at)
       : new Date(activatedAt.getTime() + keyRecord.duration_days * 24 * 60 * 60 * 1000);
 
-    const { error: updateError } = await supabaseAdmin
+    // The `.is('device_fingerprint', null)` filter makes this an atomic CLAIM: if two devices
+    // race to activate the same unused key, only the first UPDATE matches the row — the
+    // other gets zero rows back and is refused below, so a key can never bind twice.
+    const { data: claimedRows, error: updateError } = await supabaseAdmin
       .from('activation_keys')
       .update({
         device_fingerprint: hardware_fingerprint,
@@ -646,10 +662,24 @@ export async function POST(req: NextRequest) {
         expires_at: expiresAt.toISOString(),
         last_known_monotonic_time: activatedAt.toISOString(),
       })
-      .eq('id', keyRecord.id);
+      .eq('id', keyRecord.id)
+      .is('device_fingerprint', null)
+      .select('id');
 
     if (updateError) {
       throw new Error(`Failed to update activation key: ${updateError.message}`);
+    }
+    if (!claimedRows || claimedRows.length === 0) {
+      await logHandshake({
+        activationKey: requestKey,
+        deviceFingerprint: requestFingerprint,
+        deviceModel: requestModel,
+        deviceOS: requestOS,
+        status: 'FAILED',
+        errorMessage: 'Key already used. Lost a concurrent activation race for this key (one-time key).',
+        ipAddress,
+      });
+      return NextResponse.json({ error: KEY_ALREADY_USED_MESSAGE }, { status: 403 });
     }
 
     // ── 3b. Persist forensic watermark code (best-effort) ──────────────────
