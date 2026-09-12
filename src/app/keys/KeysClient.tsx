@@ -33,6 +33,8 @@ import {
   DEVICE_CLASS_OPTIONS,
   DEVICE_CLASS_STANDARD,
   DEVICE_CLASS_MANAGED_PANEL,
+  DEFAULT_PANEL_ACTIVATION_WINDOW_DAYS,
+  MAX_PANEL_ACTIVATION_WINDOW_DAYS,
   deviceClassLabel,
   type DeviceClass,
 } from '@/lib/deviceClass';
@@ -78,6 +80,8 @@ interface KeyRow {
   securityTier?: string | null;
   productId?: string | null;       // canonical product id (src/lib/productIdentity.ts)
   deviceClass?: string | null;     // null = Standard; 'managed_panel' = Interactive panel (src/lib/deviceClass.ts)
+  panelActivateBy?: string | null; // Interactive panel: an unused key dies after this
+  panelReplacedAt?: string | null; // Interactive panel: the same panel later activated a newer key
 }
 
 interface KeysClientProps {
@@ -115,6 +119,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
   const [productId, setProductId] = useState<ProductId>(DEFAULT_PRODUCT_ID);
   // Standard (phones / tablets, full security) vs Interactive panel — Android products only.
   const [deviceClass, setDeviceClass] = useState<DeviceClass>(DEVICE_CLASS_STANDARD);
+  const [activateWithinDays, setActivateWithinDays] = useState<number>(DEFAULT_PANEL_ACTIVATION_WINDOW_DAYS);
   const productIsAndroid = targetOsFor(productId) === 'ANDROID';
   const [selectedSchoolId, setSelectedSchoolId] = useState('');
   const [selectedVendorId, setSelectedVendorId] = useState('');
@@ -330,6 +335,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
           expiresAt: expiresAtParam,
           productId,
           deviceClass: productIsAndroid ? deviceClass : DEVICE_CLASS_STANDARD,
+          activateWithinDays,
         });
 
         if (!res.ok) {
@@ -446,6 +452,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
         toast(res.error, 'error');
         return;
       }
+      const wasPanel = keyList.find(k => k.id === target.id)?.deviceClass === DEVICE_CLASS_MANAGED_PANEL;
       setKeyList(prev => prev.map(k => k.id === target.id ? {
         ...k,
         status: 'Paid',
@@ -456,7 +463,9 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
         deviceAndroidId: null,
         activatedAt: null,
       } : k));
-      toast('Device binding reset. The key can be re-activated on the repaired tablet.', 'success');
+      toast(wasPanel
+        ? 'Panel reset. The old panel is shut off at its next online check-in; the key can now activate the replacement panel.'
+        : 'Device binding reset. The key can be re-activated on the repaired tablet.', 'success');
       setShowResetModal(false);
       setKeyToReset(null);
     });
@@ -632,11 +641,25 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                 </div>
               )}
               {productIsAndroid && deviceClass === DEVICE_CLASS_MANAGED_PANEL && (
-                <p className="text-[11px] leading-relaxed text-amber-400/90">
-                  For interactive classroom panels only (any brand, model or Android version). A panel activated
-                  with this key is accepted without Google hardware attestation and can play video on panel
-                  firmware that ships a root binary. Hand these keys only to panel installations.
-                </p>
+                <>
+                  <p className="text-[11px] leading-relaxed text-amber-400/90">
+                    For interactive classroom panels only. A panel activated with this key needs no Google
+                    hardware attestation: it is bound to that one panel&apos;s device key, must keep proving it on
+                    every check-in, and may play video on panel firmware with a built-in root binary. Hand these
+                    keys only to panel installations — an unused key dies after the activation window below.
+                  </p>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-zinc-400 block">Must be activated within (days)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={MAX_PANEL_ACTIVATION_WINDOW_DAYS}
+                      value={activateWithinDays}
+                      onChange={e => setActivateWithinDays(Math.max(1, Math.min(MAX_PANEL_ACTIVATION_WINDOW_DAYS, Number(e.target.value) || 1)))}
+                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-accent-violet/50"
+                    />
+                  </div>
+                </>
               )}
             </div>
 
@@ -1317,6 +1340,11 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                                     Activated: {k.activatedAt}
                                   </div>
                                 )}
+                                {k.panelReplacedAt && (
+                                  <div className="text-[9px] text-amber-400 font-bold">
+                                    Replaced on this panel by a newer key: {new Date(k.panelReplacedAt).toLocaleDateString('en-IN')}
+                                  </div>
+                                )}
                               </div>
                             </div>
                           ) : (
@@ -1328,6 +1356,13 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                               <div className="text-[9px] text-accent-violet font-bold pl-3.5">
                                 Licensed for: {productWithDeviceClass(k.productId, k.deviceClass)}
                               </div>
+                              {k.deviceClass === DEVICE_CLASS_MANAGED_PANEL && k.panelActivateBy && (
+                                <div className={`text-[9px] font-bold pl-3.5 ${new Date(k.panelActivateBy).getTime() < Date.now() ? 'text-rose-400' : 'text-amber-400'}`}>
+                                  {new Date(k.panelActivateBy).getTime() < Date.now()
+                                    ? 'Panel key expired unused — generate a new panel key'
+                                    : `Activate by: ${new Date(k.panelActivateBy).toLocaleDateString('en-IN')}`}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

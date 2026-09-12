@@ -7,7 +7,7 @@ import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
 import { resolveEffectiveProductId, resolveLegacyProductId } from '@/lib/product';
 import { PRODUCT_ID_ENUM } from '@/lib/productIdentity';
-import { shouldEnforceAttestation, isModelExempt, isManagedPanel, deriveServerTier } from '@/lib/attestationPolicy';
+import { shouldEnforceAttestation, deriveServerTier } from '@/lib/attestationPolicy';
 import { recordAttestationIssue } from '@/lib/attestationTelemetry';
 
 // ============================================================================
@@ -40,7 +40,10 @@ export const dynamic = 'force-dynamic';
 const TermsSchema = z.object({
   device_fingerprint: z.string().min(8).max(256),
   terms_version: z.string().min(1).max(40),
-  accepted_at: z.string().min(1).max(40),   // ISO-8601 UTC from the device
+  // Privacy Policy version accepted on the same consent gate (newer clients). Optional for
+  // backward compatibility; stored best-effort in terms_acceptances.privacy_version.
+  privacy_version: z.string().min(1).max(40).optional(),
+  accepted_at: z.string().min(1).max(40),   // ISO-8601 UTC from the device (advisory; server_received_at is authoritative)
   nonce: z.string().min(8).max(128),
   timestamp: z.string().min(1).max(40),     // epoch millis as string
   device_model: z.string().max(120).optional(),
@@ -129,7 +132,7 @@ export async function POST(req: NextRequest) {
     return generic(400, 'Invalid request.');
   }
   const {
-    device_fingerprint, terms_version, accepted_at, nonce, timestamp,
+    device_fingerprint, terms_version, privacy_version, accepted_at, nonce, timestamp,
     device_model, device_os, device_wrap_pubkey, attestation_chain, security_tier,
     challenge_signature, product_id,
   } = body;
@@ -154,26 +157,17 @@ export async function POST(req: NextRequest) {
 
   // ── Gate 4 — NC-1 hardware key-attestation. Identical staging to /api/activate (via
   //    the shared attestationPolicy.ts): FAIL CLOSED for every device once
-  //    LMS_ENFORCE_ATTESTATION=true, audit-only only for an EXPLICITLY model-exempt
-  //    panel. The challenge binds to the same token the app used to provision its
-  //    wrap key. ──────────────────────────────────────────────────────────────────
+  //    LMS_ENFORCE_ATTESTATION=true — a device model never exempts. An interactive panel
+  //    that fails here carries its consent into /api/activate instead, where its
+  //    Interactive-panel KEY is checked. The challenge binds to the same token the app
+  //    used to provision its wrap key. ────────────────────────────────────────────────
   {
     const requestModel = device_model || 'Unknown Tablet';
     const requestOs = device_os || 'Unknown OS';
-    const modelExempt = isModelExempt(requestModel);
-    // Managed classroom panel (LMS_MANAGED_PANEL_MODELS, model + Android version) — audit-only,
-    // exactly like a model-exempt device. Every other device is unaffected.
-    const managedPanel = isManagedPanel(requestModel, device_os);
-    const enforceAttest = shouldEnforceAttestation(requestModel, device_os);
+    const enforceAttest = shouldEnforceAttestation();
 
     if (ALERT_TIERS.has(reportedTier)) {
       console.warn('[TERMS_ATTEST_TIER_ALERT]', JSON.stringify({ tier: reportedTier, model: requestModel, os: requestOs, ip }));
-    }
-    if (modelExempt) {
-      console.warn('[TERMS_ATTEST_MODEL_EXEMPT]', JSON.stringify({ tier: reportedTier, model: requestModel, ip }));
-    }
-    if (managedPanel) {
-      console.warn('[TERMS_ATTEST_MANAGED_PANEL]', JSON.stringify({ tier: reportedTier, model: requestModel, os: requestOs, ip }));
     }
 
     // Route to the platform's attestation verifier (parity with /api/activate):
@@ -276,6 +270,17 @@ export async function POST(req: NextRequest) {
     // (run scripts/add_terms_acceptances.sql). Log and return a generic 503.
     logger.error({ event: 'TERMS_UPSERT_ERROR', error: upErr.message });
     return generic(503, 'Service unavailable.');
+  }
+
+  // Consent audit — SEPARATE best-effort write (scripts/add_interactive_panel.sql adds the
+  // columns): the Privacy Policy version accepted and the SERVER's own receipt time, which is
+  // the authoritative timestamp (accepted_at above is the device's clock, kept as advisory).
+  {
+    const { error: auditErr } = await supabaseAdmin
+      .from('terms_acceptances')
+      .update({ server_received_at: now, ...(privacy_version ? { privacy_version } : {}) })
+      .eq('device_fingerprint', device_fingerprint);
+    if (auditErr) logger.warn({ event: 'TERMS_CONSENT_AUDIT_PERSIST_FAILED', error: auditErr.message });
   }
 
   // Canonical product tag — SEPARATE best-effort write so a not-yet-migrated `product_id`

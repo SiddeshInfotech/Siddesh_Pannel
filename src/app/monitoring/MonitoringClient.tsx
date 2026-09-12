@@ -150,6 +150,10 @@ function verifiedTierStyle(tier: string): { label: string; cls: string } {
       return { label: 'Replay / clock skew', cls: 'bg-orange-500/10 border-orange-500/25 text-orange-400' };
     case 'TEMPORARY_ERROR':
       return { label: 'Temporary error', cls: 'bg-amber-500/10 border-amber-500/25 text-amber-400' };
+    // Interactive-panel key: licence-authorized + bound to one device key (rolling proof of
+    // possession). Deliberately NOT styled or worded as hardware verification.
+    case 'MANAGED_PANEL_BOUND':
+      return { label: 'Enrolled panel · not HW-attested', cls: 'bg-amber-500/10 border-amber-500/25 text-amber-300' };
     default:
       return { label: 'Not verified yet', cls: 'bg-white/5 border-white/10 text-zinc-400' };
   }

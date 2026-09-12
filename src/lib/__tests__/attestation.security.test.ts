@@ -115,76 +115,41 @@ describe('verifyAttestation — downgrade / spoofing (items 1, 5)', () => {
   });
 });
 
-describe('attestationPolicy — enforcement no longer trusts client security_tier (items 1, 3, 5)', () => {
-  it('enforces every model once LMS_ENFORCE_ATTESTATION=true when no exemption is configured', async () => {
+describe('attestationPolicy — a device model NEVER lowers security', () => {
+  it('enforces every device once LMS_ENFORCE_ATTESTATION=true', async () => {
     process.env.LMS_ENFORCE_ATTESTATION = 'true';
-    const { shouldEnforceAttestation, isModelExempt } = await import('@/lib/attestationPolicy');
-    // No LMS_ATTEST_EXEMPT_MODELS set — there is no implicit "x301" default any more.
-    expect(isModelExempt('x301')).toBe(false);
-    expect(shouldEnforceAttestation('x301')).toBe(true);
-    expect(shouldEnforceAttestation('Some Random Rooted Phone')).toBe(true);
+    const { shouldEnforceAttestation } = await import('@/lib/attestationPolicy');
+    expect(shouldEnforceAttestation()).toBe(true);
   });
 
-  it('exempts only an explicitly-configured model, and nothing else', async () => {
+  it('spoofed Build.MODEL=x301 gains nothing, even if the removed allowlists are still set', async () => {
     process.env.LMS_ENFORCE_ATTESTATION = 'true';
     process.env.LMS_ATTEST_EXEMPT_MODELS = 'x301';
-    const { shouldEnforceAttestation } = await import('@/lib/attestationPolicy');
-    expect(shouldEnforceAttestation('x301')).toBe(false);
-    expect(shouldEnforceAttestation('X301')).toBe(false); // case-insensitive
-    expect(shouldEnforceAttestation('x302')).toBe(true); // a lookalike model is NOT exempt
+    process.env.LMS_MANAGED_PANEL_MODELS = 'x301@9';
+    const policy = await import('@/lib/attestationPolicy');
+    // Enforcement has no model input at all any more — a Standard key + failed attestation on
+    // a device claiming "x301" is rejected exactly like any other device.
+    expect(policy.shouldEnforceAttestation()).toBe(true);
+    expect('isModelExempt' in policy).toBe(false);
+    expect('isManagedPanel' in policy).toBe(false);
+  });
+
+  it('warns loudly that the removed model variables are ignored', async () => {
+    process.env.LMS_ENFORCE_ATTESTATION = 'true';
+    process.env.LMS_ATTEST_EXEMPT_MODELS = 'x301';
+    process.env.LMS_MANAGED_PANEL_MODELS = 'x301@9';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { validateAttestationConfig } = await import('@/lib/attestationPolicy');
+    validateAttestationConfig();
+    const notes = warn.mock.calls.filter(([tag, p]) => tag === '[ATTEST_CONFIG_NOTE]' && typeof p === 'string' && p.includes('IGNORED'));
+    expect(notes.length).toBe(1);
+    expect(String(notes[0][1])).toContain('LMS_ATTEST_EXEMPT_MODELS');
+    expect(String(notes[0][1])).toContain('LMS_MANAGED_PANEL_MODELS');
   });
 
   it('never enforces anything while the master switch is off', async () => {
     const { shouldEnforceAttestation } = await import('@/lib/attestationPolicy');
-    expect(shouldEnforceAttestation('anything')).toBe(false);
-  });
-
-});
-
-describe('attestationPolicy — managed classroom panels (LMS_MANAGED_PANEL_MODELS)', () => {
-  it('matches only the exact model AND Android version, case-insensitively', async () => {
-    process.env.LMS_ENFORCE_ATTESTATION = 'true';
-    process.env.LMS_MANAGED_PANEL_MODELS = 'IFP-86X@11';
-    const { isManagedPanel, shouldEnforceAttestation } = await import('@/lib/attestationPolicy');
-    expect(isManagedPanel('IFP-86X', 'Android 11')).toBe(true);
-    expect(isManagedPanel(' ifp-86x ', 'android 11')).toBe(true);
-    expect(shouldEnforceAttestation('IFP-86X', 'Android 11')).toBe(false);
-    // Same model on a different Android build is NOT covered.
-    expect(isManagedPanel('IFP-86X', 'Android 12')).toBe(false);
-    expect(shouldEnforceAttestation('IFP-86X', 'Android 12')).toBe(true);
-    // Lookalike model is NOT covered.
-    expect(isManagedPanel('IFP-86XS', 'Android 11')).toBe(false);
-  });
-
-  it('never matches a non-Android device, even with an identical model string', async () => {
-    process.env.LMS_ENFORCE_ATTESTATION = 'true';
-    process.env.LMS_MANAGED_PANEL_MODELS = 'Windows 11@11';
-    const { isManagedPanel, shouldEnforceAttestation } = await import('@/lib/attestationPolicy');
-    expect(isManagedPanel('Windows 11', 'Windows 10.0')).toBe(false);
-    expect(shouldEnforceAttestation('Windows 11', 'Windows 10.0')).toBe(true);
-  });
-
-  it('ignores an entry without an Android version and warns about it', async () => {
-    process.env.LMS_ENFORCE_ATTESTATION = 'true';
-    process.env.LMS_MANAGED_PANEL_MODELS = 'IFP-86X';
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const { isManagedPanel, shouldEnforceAttestation, validateAttestationConfig } = await import('@/lib/attestationPolicy');
-    expect(isManagedPanel('IFP-86X', 'Android 11')).toBe(false);
-    expect(shouldEnforceAttestation('IFP-86X', 'Android 11')).toBe(true);
-    validateAttestationConfig();
-    expect(warn.mock.calls.some(([, p]) => typeof p === 'string' && p.includes('LMS_MANAGED_PANEL_MODELS'))).toBe(true);
-  });
-
-  it('leaves x301 and every unlisted device exactly as before', async () => {
-    process.env.LMS_ENFORCE_ATTESTATION = 'true';
-    process.env.LMS_ATTEST_EXEMPT_MODELS = 'x301';
-    process.env.LMS_MANAGED_PANEL_MODELS = 'IFP-86X@11';
-    const { isManagedPanel, shouldEnforceAttestation } = await import('@/lib/attestationPolicy');
-    expect(shouldEnforceAttestation('x301')).toBe(false);
-    expect(shouldEnforceAttestation('x301', 'Android 9')).toBe(false);
-    expect(isManagedPanel('x301', 'Android 9')).toBe(false); // exempt ≠ managed panel
-    expect(shouldEnforceAttestation('Pixel 8', 'Android 14')).toBe(true);
-    expect(shouldEnforceAttestation('Pixel 8')).toBe(true); // callers that don't pass an OS
+    expect(shouldEnforceAttestation()).toBe(false);
   });
 });
 

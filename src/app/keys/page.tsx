@@ -50,16 +50,24 @@ async function getKeysList() {
     `)
     .order('created_at', { ascending: false });
 
-  // device_class (scripts/add_device_class.sql) is read in its own best-effort query so the main
+  // device_class (scripts/add_interactive_panel.sql) is read in its own best-effort query so the main
   // list above never errors on a DB that hasn't run that migration yet — every key then shows
   // as Standard, which is exactly what they all are until the column exists.
-  const deviceClassById = new Map<string, string>();
+  const panelById = new Map<string, { deviceClass: string; activateBy: string | null; replacedAt: string | null }>();
   {
     const { data: classes, error: classError } = await supabaseAdmin
       .from('activation_keys')
-      .select('id, device_class')
+      .select('id, device_class, enrollment_expires_at, replaced_at')
       .not('device_class', 'is', null);
-    if (!classError) for (const c of classes ?? []) deviceClassById.set(c.id, c.device_class);
+    if (!classError) {
+      for (const c of classes ?? []) {
+        panelById.set(c.id, {
+          deviceClass: c.device_class,
+          activateBy: c.enrollment_expires_at ?? null,
+          replacedAt: c.replaced_at ?? null,
+        });
+      }
+    }
   }
 
   return (keys ?? []).map((k: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
@@ -90,7 +98,11 @@ async function getKeysList() {
       platform: k.platform ?? null,
       securityTier: k.security_tier ?? null,
       productId: k.product_id ?? null,
-      deviceClass: deviceClassById.get(k.id) ?? null,
+      deviceClass: panelById.get(k.id)?.deviceClass ?? null,
+      // Interactive panel: must be activated before this (only meaningful while unbound).
+      panelActivateBy: panelById.get(k.id)?.activateBy ?? null,
+      // Interactive panel: the same panel later activated a newer key (informational).
+      panelReplacedAt: panelById.get(k.id)?.replacedAt ?? null,
     };
   });
 }

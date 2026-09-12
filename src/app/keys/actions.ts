@@ -15,11 +15,19 @@ import {
   DEVICE_CLASS_MANAGED_PANEL,
   deviceClassAllowedFor,
   isMissingColumnError,
+  isPanelKey,
+  DEFAULT_PANEL_ACTIVATION_WINDOW_DAYS,
+  MAX_PANEL_ACTIVATION_WINDOW_DAYS,
+  PANEL_MIGRATION_FILE,
   type DeviceClass,
 } from '@/lib/deviceClass';
 
 const DEVICE_CLASS_MIGRATION_MSG =
-  'Interactive-panel keys need a one-time database update. Run scripts/add_device_class.sql in Supabase, then try again.';
+  `Interactive-panel keys need a one-time database update. Run ${PANEL_MIGRATION_FILE} in Supabase, then try again.`;
+
+function panelWindowEnd(days: number, from: Date = new Date()): string {
+  return new Date(from.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+}
 
 // Activation key format: LMS-<SCHOOLCODE 2..12>-<CODE 10>. Rejects manually-typed
 // junk like "LMS-SCHOOL-MNS7LGUAA4879898" (3rd segment must be exactly 10 chars).
@@ -67,6 +75,13 @@ const ActivationKeySchema = z.object({
   // Standard (phones / tablets, full security) vs Interactive panel (src/lib/deviceClass.ts).
   // Defaults to Standard for any caller that omits it — existing behavior.
   deviceClass: z.enum(DEVICE_CLASS_ENUM).default(DEVICE_CLASS_STANDARD),
+  // Interactive panel only: an unused panel key dies after this many days (bounds how long a
+  // leaked, unused panel key stays exploitable). Ignored for Standard keys.
+  activateWithinDays: z.number({ message: 'Activation window must be a number.' })
+    .int('Activation window must be a whole number of days.')
+    .min(1, 'Activation window must be at least 1 day.')
+    .max(MAX_PANEL_ACTIVATION_WINDOW_DAYS, `Activation window can be at most ${MAX_PANEL_ACTIVATION_WINDOW_DAYS} days.`)
+    .default(DEFAULT_PANEL_ACTIVATION_WINDOW_DAYS),
 }).refine(
   data => deviceClassAllowedFor(data.productId, data.deviceClass),
   { message: 'Interactive-panel keys are only available for Android products.' }
@@ -192,8 +207,10 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
       batch_id: batchId,
       product_id: validData.productId,
       // Only written for panel keys, so Standard key generation never depends on the
-      // device_class column (works on a DB that hasn't run add_device_class.sql yet).
-      ...(validData.deviceClass === DEVICE_CLASS_MANAGED_PANEL ? { device_class: DEVICE_CLASS_MANAGED_PANEL } : {}),
+      // device_class column (works on a DB that hasn't run add_interactive_panel.sql yet).
+      ...(validData.deviceClass === DEVICE_CLASS_MANAGED_PANEL
+        ? { device_class: DEVICE_CLASS_MANAGED_PANEL, enrollment_expires_at: panelWindowEnd(validData.activateWithinDays) }
+        : {}),
     }));
 
     const { data: createdKeys, error } = await insertKeysInChunks(insertRows);
@@ -265,6 +282,36 @@ export async function resetDeviceBinding(id: string): Promise<ActionResult> {
       .eq('id', id)
       .single();
 
+    // Interactive-panel key (best-effort read: before the migration no key is a panel key).
+    const { data: panelRow } = await supabaseAdmin
+      .from('activation_keys')
+      .select('device_class')
+      .eq('id', id)
+      .maybeSingle();
+    const panel = isPanelKey(panelRow);
+
+    // Panel keys: the device being replaced must actually stop. Record the old (key, device)
+    // pair so /api/device/ping answers it kill:true (its licence + keys are purged on its next
+    // online heartbeat — an offline device keeps its signed licence until it comes online or
+    // the licence expires). Done BEFORE clearing the binding: if it can't be recorded, the
+    // reset is refused rather than silently leaving the old panel working.
+    if (panel && existing?.device_fingerprint) {
+      const { error: rbError } = await supabaseAdmin
+        .from('revoked_device_bindings')
+        .upsert({
+          activation_key_id: id,
+          device_fingerprint: existing.device_fingerprint,
+          reason: 'reset',
+          revoked_by: session.email,
+          revoked_at: new Date().toISOString(),
+        }, { onConflict: 'activation_key_id,device_fingerprint' });
+      if (rbError) {
+        if (isMissingColumnError(rbError)) return fail(DEVICE_CLASS_MIGRATION_MSG);
+        logger.error({ event: 'RESET_PANEL_REVOKE_OLD_DEVICE_FAILED', keyId: id }, rbError);
+        return fail(GENERIC_ERROR);
+      }
+    }
+
     const { error } = await supabaseAdmin
       .from('activation_keys')
       .update({
@@ -287,8 +334,25 @@ export async function resetDeviceBinding(id: string): Promise<ActionResult> {
       return fail(GENERIC_ERROR);
     }
 
+    // Panel keys: drop the old device key + proof-of-possession state, and re-open a fresh
+    // activation window so the replacement panel can use the key.
+    if (panel) {
+      const { error: pError } = await supabaseAdmin
+        .from('activation_keys')
+        .update({
+          device_wrap_pubkey: null,
+          pop_challenge_hash: null,
+          pop_prev_hash: null,
+          pop_failures: 0,
+          pop_last_ok_at: null,
+          enrollment_expires_at: panelWindowEnd(DEFAULT_PANEL_ACTIVATION_WINDOW_DAYS),
+        })
+        .eq('id', id);
+      if (pError) logger.warn({ event: 'RESET_PANEL_STATE_CLEAR_FAILED', keyId: id, error: pError.message });
+    }
+
     logger.info({
-      event: 'RESET_DEVICE_BINDING',
+      event: panel ? 'PANEL_BINDING_RESET' : 'RESET_DEVICE_BINDING',
       keyId: id,
       adminEmail: session.email,
       previousFingerprint: existing?.device_fingerprint ?? null,
@@ -328,7 +392,10 @@ export async function setKeyDeviceClass(id: string, deviceClass: string): Promis
 
     const { error } = await supabaseAdmin
       .from('activation_keys')
-      .update({ device_class: next === DEVICE_CLASS_MANAGED_PANEL ? DEVICE_CLASS_MANAGED_PANEL : null })
+      .update(next === DEVICE_CLASS_MANAGED_PANEL
+        // A key switched to panel gets a fresh activation window (applies only while unbound).
+        ? { device_class: DEVICE_CLASS_MANAGED_PANEL, enrollment_expires_at: panelWindowEnd(DEFAULT_PANEL_ACTIVATION_WINDOW_DAYS) }
+        : { device_class: null, enrollment_expires_at: null })
       .eq('id', id);
 
     if (error) {

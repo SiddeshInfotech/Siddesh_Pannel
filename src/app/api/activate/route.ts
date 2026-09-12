@@ -12,10 +12,11 @@ import { signPayload } from '@/lib/licenseSign';
 import { resolveEffectiveProductId, resolveLegacyProductId, checkProductMatch } from '@/lib/product';
 import { PRODUCT_ID_ENUM, productDisplayName, familyFor, isProductId } from '@/lib/productIdentity';
 import { entityRefFromRow, resolveEntity, isEntitledToAll } from '@/lib/entity';
-import { shouldEnforceAttestation, isModelExempt, isManagedPanel, deriveServerTier, validateAttestationConfig } from '@/lib/attestationPolicy';
+import { shouldEnforceAttestation, deriveServerTier, validateAttestationConfig } from '@/lib/attestationPolicy';
 import { labScopeIds } from '@/lib/labCourses';
 import { recordAttestationIssue } from '@/lib/attestationTelemetry';
-import { isPanelKey, DEVICE_CLASS_MANAGED_PANEL } from '@/lib/deviceClass';
+import { isPanelKey, isPanelActivationWindowClosed, DEVICE_CLASS_MANAGED_PANEL } from '@/lib/deviceClass';
+import { wrapToPublicKey } from '@/lib/deviceWrap';
 
 // SF-2 remediation: warn loudly at module load (once per server instance) if the
 // deployed env-var combination is dangerous or silently reopens the tier-trust hole
@@ -72,6 +73,7 @@ const ActivationRequestSchema = z.object({
   // for hardware attestation (an interactive panel, before it has a key) carries its consent
   // here instead; it is recorded in terms_acceptances ONLY after this activation succeeds.
   terms_version: z.string().min(1).max(40).optional(),
+  privacy_version: z.string().min(1).max(40).optional(),
   terms_accepted_at: z.string().min(1).max(40).optional(),
 });
 
@@ -198,31 +200,8 @@ function watermarkCode(activationKey: string): string {
   return crypto.createHash('sha256').update(activationKey, 'utf8').digest('hex').slice(0, 6).toUpperCase();
 }
 
-// NC-1/F2: wrap a CEK to the device's hardware-backed public key (RSA-OAEP-SHA1).
-// oaepHash 'sha1' (OAEP digest + MGF1 = SHA-1) matches the app's OAEPParameterSpec —
-// required because Android Keystore hard-wires MGF1 to SHA-1 on many devices. Output is
-// single base64. Returns null if the public key can't be parsed.
-function wrapToPublicKey(plaintext: string, spkiBase64: string, oaepHash: 'sha1' | 'sha256' = 'sha1'): string | null {
-  try {
-    const publicKey = crypto.createPublicKey({
-      key: Buffer.from(spkiBase64, 'base64'),
-      format: 'der',
-      type: 'spki',
-    });
-    // Android (oaepHash 'sha1'): Android Keystore hard-wires MGF1 to SHA-1 on many
-    // devices, so SHA-256 OAEP fails on-device with IllegalBlockSizeException.
-    // Windows/TPM (oaepHash 'sha256'): the TPM NCryptDecrypt path uses standard
-    // OAEP-SHA256. The hash is chosen per platform by the caller. Both securely wrap
-    // a 32-byte CEK; only the device's private half (Keystore / TPM) can unwrap.
-    const enc = crypto.publicEncrypt(
-      { key: publicKey, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash },
-      Buffer.from(plaintext, 'utf8')
-    );
-    return enc.toString('base64');
-  } catch {
-    return null;
-  }
-}
+// wrapToPublicKey (RSA-OAEP to the device key) lives in src/lib/deviceWrap.ts — shared with the
+// managed-panel proof-of-possession challenge in /api/device/ping.
 
 // ─── Rate limiting (V-03) ────────────────────────────────────────────────────
 // Reuses the atomic `bump_login_rate_limit` RPC + `login_rate_limits` table
@@ -353,6 +332,7 @@ export async function POST(req: NextRequest) {
       security_tier,
       challenge_signature,
       terms_version,
+      privacy_version,
       terms_accepted_at,
     } = validationResult.data;
     const reportedTier = security_tier ?? 'UNREPORTED';
@@ -387,14 +367,12 @@ export async function POST(req: NextRequest) {
     // cryptographically observed, never from the client's self-reported security_tier.
     // Persisted separately below (3c-bis) for admin fleet-posture auditing.
     let serverAttestationTier: ReturnType<typeof deriveServerTier> = 'UNSUPPORTED';
-    // Managed classroom panel. Two sources, both Android-only:
-    //   • modelPanel — optional operator list LMS_MANAGED_PANEL_MODELS ("MODEL@ANDROID_VERSION");
-    //   • panelKey   — the activation KEY was generated as "Interactive panel"
-    //                  (activation_keys.device_class, src/lib/deviceClass.ts). Known only after
-    //                  the key lookup below, so the attestation verdict is DEFERRED until then.
-    // Either one: attestation audit-only + signed `device_class` licence claim (step 5).
-    const modelPanel = !isWindows && isManagedPanel(device_model, device_os);
-    let managedPanel = modelPanel;
+    // Managed classroom panel = the activation KEY was generated as "Interactive panel"
+    // (activation_keys.device_class, src/lib/deviceClass.ts), Android only. Never derived from
+    // the device's model/brand/OS (self-reported). Known only after the key lookup below, so the
+    // attestation verdict is DEFERRED until then. A panel key: attestation audit-only + panel
+    // rules (activation window, consent, device-key binding) + signed `device_class` (step 5).
+    let managedPanel = false;
     // Set when attestation failed and the env policy would enforce it; resolved after the
     // key lookup (a panel key downgrades it to audit-only; anything else → 401 as before).
     // replayOrSkew: a stale timestamp or reused nonce is NEVER excused by a panel key — those
@@ -413,27 +391,13 @@ export async function POST(req: NextRequest) {
       // a device could simply self-report a low tier (or omit its chain) to make itself
       // indistinguishable from hardware that genuinely can't attest, and sail through
       // with an entirely unattested device_wrap_pubkey. Enforcement now applies to
-      // EVERY device by default; the ONLY escape hatch is an EXPLICIT operator-configured
-      // model allowlist (LMS_ATTEST_EXEMPT_MODELS — no built-in default any more, see
-      // attestationPolicy.ts). Content was never solely reliant on this gate (every CEK
-      // is RSA-wrapped to device_wrap_pubkey regardless), but the gate itself must not be
-      // decided by client-controlled input.
-      const modelExempt = isModelExempt(requestModel);
-      const enforceAttest = shouldEnforceAttestation(requestModel, device_os);
+      // EVERY device (a device model never exempts — see attestationPolicy.ts); the only
+      // relaxation is an operator-issued Interactive-panel KEY, resolved after the key
+      // lookup. Content was never solely reliant on this gate (every CEK is RSA-wrapped to
+      // device_wrap_pubkey regardless), but the gate must not be decided by client input.
+      const enforceAttest = shouldEnforceAttestation();
       if (ALERT_TIERS.has(reportedTier)) {
         console.warn('[ATTEST_TIER_ALERT]', JSON.stringify({ tier: reportedTier, model: requestModel, os: requestOS, ipAddress }));
-      }
-      if (modelExempt) {
-        console.warn(
-          '[ATTEST_MODEL_EXEMPT]',
-          JSON.stringify({ tier: reportedTier, model: requestModel, ipAddress })
-        );
-      }
-      if (modelPanel) {
-        console.warn(
-          '[ATTEST_MANAGED_PANEL]',
-          JSON.stringify({ tier: reportedTier, model: requestModel, os: requestOS, ipAddress })
-        );
       }
       const tsNum = Number(attestation_timestamp);
       const skewOk = Number.isFinite(tsNum) && Math.abs(Date.now() - tsNum) <= ATTEST_MAX_SKEW_MS;
@@ -564,7 +528,7 @@ export async function POST(req: NextRequest) {
     // 401 as before this change, and BEFORE the 404 below, so a device that fails attestation
     // still learns nothing about whether a key exists.
     const panelKey = !isWindows && isPanelKey(keyRecord);
-    managedPanel = modelPanel || panelKey;
+    managedPanel = panelKey;
     if (deferredAttestFailure) {
       const { reason, replayOrSkew } = deferredAttestFailure;
       const enforced = !panelKey || replayOrSkew;
@@ -679,6 +643,51 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // ── 1c. Interactive-panel key rules (panel keys only; Standard keys skip this) ──
+    if (panelKey) {
+      // A panel key that was never used within its activation window is dead — this bounds
+      // how long a leaked, unused panel key stays exploitable.
+      if (isPanelActivationWindowClosed(keyRecord)) {
+        await logHandshake({
+          activationKey: requestKey,
+          deviceFingerprint: requestFingerprint,
+          deviceModel: requestModel,
+          deviceOS: requestOS,
+          status: 'FAILED',
+          errorMessage: 'Panel key activation window closed (not activated in time).',
+          ipAddress,
+        });
+        return NextResponse.json(
+          { error: 'This panel key was not activated within its allowed time. Please ask your administrator for a new panel key.' },
+          { status: 403 }
+        );
+      }
+      // Consent is mandatory for a panel: either carried with this request (deferred from the
+      // Terms screen — the normal panel path) or already recorded by /api/device/terms-accept.
+      if (!terms_version) {
+        const { data: priorConsent } = await supabaseAdmin
+          .from('terms_acceptances')
+          .select('device_fingerprint')
+          .eq('device_fingerprint', hardware_fingerprint)
+          .maybeSingle();
+        if (!priorConsent) {
+          await logHandshake({
+            activationKey: requestKey,
+            deviceFingerprint: requestFingerprint,
+            deviceModel: requestModel,
+            deviceOS: requestOS,
+            status: 'FAILED',
+            errorMessage: 'Panel activation without Terms & Conditions consent.',
+            ipAddress,
+          });
+          return NextResponse.json(
+            { error: 'Please accept the Privacy Policy and Terms & Conditions before activating.' },
+            { status: 400 }
+          );
+        }
+      }
+    }
+
     // ── 2. Enforce ONE-TIME key use ────────────────────────────────────────
     // A key is single-use: once an activation has bound it to a device, every later
     // activation with it is refused — on another device (key sharing) AND on the same
@@ -777,6 +786,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // An Interactive-panel activation without verified hardware attestation is classified
+    // honestly: licence-authorized + device-key-bound, NOT hardware-attested. A panel that did
+    // produce valid attestation keeps its stronger VERIFIED_* tier.
+    if (panelKey && !serverAttestationTier.startsWith('VERIFIED_')) {
+      serverAttestationTier = 'MANAGED_PANEL_BOUND';
+    }
+
     // ── 3c-bis. Persist the SERVER-DERIVED attestation tier (best-effort) ──────
     // SF-2: unlike security_tier above (the client's own self-report, kept only for
     // debugging), this column is what the server itself cryptographically observed —
@@ -805,6 +821,47 @@ export async function POST(req: NextRequest) {
       if (pfError) {
         logger.warn({ event: 'PLATFORM_PERSIST_FAILED', keyId: keyRecord.id, error: pfError.message });
       }
+    }
+
+    // ── 3d-panel. Interactive panel: bind the device key + lifecycle (best-effort) ──
+    // Needs scripts/add_interactive_panel.sql. Until it runs these writes log + skip: the panel
+    // still activates, but the heartbeat proof-of-possession stays off for it.
+    if (panelKey) {
+      // The enrolled device key — the heartbeat keeps proving possession of it (src/lib/panelPop.ts).
+      const { error: pbError } = await supabaseAdmin
+        .from('activation_keys')
+        .update({
+          device_wrap_pubkey,
+          pop_challenge_hash: null,
+          pop_prev_hash: null,
+          pop_failures: 0,
+          pop_last_ok_at: null,
+          replaced_at: null,
+          replaced_by_key_id: null,
+        })
+        .eq('id', keyRecord.id);
+      if (pbError) logger.warn({ event: 'PANEL_BIND_PERSIST_FAILED', keyId: keyRecord.id, error: pbError.message });
+
+      // The SAME device legitimately re-activating this key after an admin Reset lifts its kill.
+      const { error: rbError } = await supabaseAdmin
+        .from('revoked_device_bindings')
+        .delete()
+        .eq('activation_key_id', keyRecord.id)
+        .eq('device_fingerprint', hardware_fingerprint);
+      if (rbError) logger.warn({ event: 'PANEL_REVOKED_BINDING_CLEAR_FAILED', keyId: keyRecord.id, error: rbError.message });
+
+      // Informational only (no kill): older panel keys this same panel activated before — e.g.
+      // after an APK reinstall with a new key — are marked as replaced by this one.
+      const { error: rpError } = await supabaseAdmin
+        .from('activation_keys')
+        .update({ replaced_at: activatedAt.toISOString(), replaced_by_key_id: keyRecord.id })
+        .eq('device_fingerprint', hardware_fingerprint)
+        .eq('device_class', DEVICE_CLASS_MANAGED_PANEL)
+        .neq('id', keyRecord.id)
+        .is('replaced_at', null);
+      if (rpError) logger.warn({ event: 'PANEL_REPLACED_MARK_FAILED', keyId: keyRecord.id, error: rpError.message });
+
+      console.log('[PANEL_ACTIVATED]', JSON.stringify({ tier: serverAttestationTier, model: requestModel, os: requestOS, ipAddress }));
     }
 
     // ── 3d-bis. Persist the canonical product identifier (best-effort) ─────
@@ -975,8 +1032,8 @@ export async function POST(req: NextRequest) {
     // before it had a key) sends its consent with this activation. Recorded only now — after the
     // key, product and attestation gates above all passed — with the same row shape as
     // /api/device/terms-accept. Never fails the activation.
-    if (terms_version && terms_accepted_at) {
-      const d = new Date(terms_accepted_at);
+    if (terms_version) {
+      const d = new Date(terms_accepted_at ?? '');
       const nowIso = new Date().toISOString();
       const { error: termsErr } = await supabaseAdmin.from('terms_acceptances').upsert({
         device_fingerprint: hardware_fingerprint,
@@ -989,12 +1046,21 @@ export async function POST(req: NextRequest) {
       }, { onConflict: 'device_fingerprint' });
       if (termsErr) {
         logger.warn({ event: 'ACTIVATE_DEFERRED_TERMS_PERSIST_FAILED', error: termsErr.message });
-      } else if (product) {
-        const { error: prodErr } = await supabaseAdmin
+      } else {
+        // Consent audit (scripts/add_interactive_panel.sql): Privacy version + the SERVER's own
+        // receipt time, which is authoritative (accepted_at above is the device clock).
+        const { error: auditErr } = await supabaseAdmin
           .from('terms_acceptances')
-          .update({ product_id: product })
+          .update({ server_received_at: nowIso, ...(privacy_version ? { privacy_version } : {}) })
           .eq('device_fingerprint', hardware_fingerprint);
-        if (prodErr) logger.warn({ event: 'ACTIVATE_DEFERRED_TERMS_PRODUCT_FAILED', error: prodErr.message });
+        if (auditErr) logger.warn({ event: 'ACTIVATE_DEFERRED_TERMS_AUDIT_FAILED', error: auditErr.message });
+        if (product) {
+          const { error: prodErr } = await supabaseAdmin
+            .from('terms_acceptances')
+            .update({ product_id: product })
+            .eq('device_fingerprint', hardware_fingerprint);
+          if (prodErr) logger.warn({ event: 'ACTIVATE_DEFERRED_TERMS_PRODUCT_FAILED', error: prodErr.message });
+        }
       }
     }
 

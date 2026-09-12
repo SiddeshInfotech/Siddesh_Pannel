@@ -65,7 +65,7 @@ async function fetchTermsAcceptances(fingerprints: string[]): Promise<Map<string
   return map;
 }
 
-// Operator-chosen device class per key (scripts/add_device_class.sql). Best-effort + isolated:
+// Operator-chosen device class per key (scripts/add_interactive_panel.sql). Best-effort + isolated:
 // until that migration runs PostgREST 400s here and every device just shows as Standard.
 async function fetchDeviceClasses(keyIds: string[]): Promise<Map<string, string>> {
   const map = new Map<string, string>();

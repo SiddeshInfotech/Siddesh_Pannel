@@ -7,6 +7,8 @@ import { signPayload } from '@/lib/licenseSign';
 import { sendSecurityAlert } from '@/lib/alert';
 import { resolveEffectiveProductId } from '@/lib/product';
 import { PRODUCT_ID_ENUM, isProductId } from '@/lib/productIdentity';
+import { isPanelKey } from '@/lib/deviceClass';
+import { createPopChallenge, evaluatePop, nextPopVerdict } from '@/lib/panelPop';
 
 // ============================================================================
 // POST /api/device/ping  — device online heartbeat (Telemetry, Phase 1)
@@ -80,6 +82,9 @@ const PingSchema = z.object({
   // backward compatible: older/unmigrated clients fall back to resolveEffectiveProductId()'s
   // legacy heuristic. When present it is checked against the pinned activation_keys.product_id.
   product_id: z.enum(PRODUCT_ID_ENUM).optional(),
+  // Interactive panels only: hex SHA-256 answer to the proof-of-possession challenge carried by
+  // the previous ping response (src/lib/panelPop.ts). Ignored for every other device.
+  pop_response: z.string().regex(/^[0-9a-fA-F]{64}$/).optional(),
 });
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -129,7 +134,7 @@ export async function POST(req: NextRequest) {
   } catch {
     return generic(400, 'Invalid request.');
   }
-  const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status, tamper_status, reported_expiry, os_platform, product_id } = body;
+  const { activation_key, device_fingerprint, app_version, nonce, timestamp, security_tier, cek_status, tamper_status, reported_expiry, os_platform, product_id, pop_response } = body;
   const reportedTier = (security_tier ?? '').trim();
   // Which product this heartbeat is from: the client's own declared product_id if sent
   // (authoritative), else the legacy heuristic (os_platform / app_version / device_os).
@@ -240,6 +245,49 @@ export async function POST(req: NextRequest) {
       kill_reason: 'revoked',
       server_time: new Date().toISOString(),
     });
+  }
+
+  // Replaced / reset Interactive-panel device: an admin Reset Device Binding (or Replace) wrote
+  // this exact (key, device) pair to revoked_device_bindings. The device proves it already holds
+  // the pair, so answer with the same kill contract as a revoked key — the client purges its
+  // licence + keys and blocks. Without this the old device would just see a 403, treat it as
+  // "offline" and keep playing. Best-effort: a not-yet-migrated table simply skips this check.
+  if (key && key.device_fingerprint !== device_fingerprint) {
+    const { data: revokedPair, error: rpErr } = await supabaseAdmin
+      .from('revoked_device_bindings')
+      .select('reason')
+      .eq('activation_key_id', key.id)
+      .eq('device_fingerprint', device_fingerprint)
+      .maybeSingle();
+    if (!rpErr && revokedPair) {
+      logger.warn({ event: 'PING_REPLACED_DEVICE_KILL', device_fingerprint, reason: revokedPair.reason, app_version });
+      try {
+        const { data: priorKill } = await supabaseAdmin
+          .from('device_timeline')
+          .select('id')
+          .eq('device_fingerprint', device_fingerprint)
+          .eq('event_type', 'REMOTE_KILL')
+          .limit(1)
+          .maybeSingle();
+        if (!priorKill) {
+          await supabaseAdmin.from('device_timeline').insert({
+            device_fingerprint,
+            ...entityCols(key),
+            product_id: product,
+            event_type: 'REMOTE_KILL',
+            detail: { reason: revokedPair.reason, app_version, ip },
+          });
+        }
+      } catch (e) {
+        logger.warn({ event: 'PING_KILL_TIMELINE_FAILED', error: e instanceof Error ? e.message : String(e) });
+      }
+      return NextResponse.json({
+        ok: true,
+        kill: true,
+        kill_reason: revokedPair.reason,
+        server_time: new Date().toISOString(),
+      });
+    }
   }
 
   const bound = key
@@ -506,6 +554,78 @@ export async function POST(req: NextRequest) {
     });
   }
 
+  // ── Interactive panel: rolling proof of possession (src/lib/panelPop.ts) ─────
+  // Panel keys only (no Google attestation): every reply carries a fresh challenge encrypted to
+  // the device key enrolled at activation; the next ping must answer it. The previous challenge
+  // is still accepted so one lost reply never counts. Repeated failures raise a security alert
+  // and — only after POP_KILL_AFTER in a row AND a day without a correct answer — revoke the
+  // licence. Best-effort: missing columns (migration not run) or no stored key → skipped.
+  let pop_challenge: string | undefined;
+  {
+    const { data: panel, error: panelErr } = await supabaseAdmin
+      .from('activation_keys')
+      .select('device_class, device_wrap_pubkey, pop_challenge_hash, pop_prev_hash, pop_failures, pop_last_ok_at, activated_at')
+      .eq('id', key.id)
+      .maybeSingle();
+    if (!panelErr && panel && isPanelKey(panel) && panel.device_wrap_pubkey) {
+      const nowIsoPop = new Date(now).toISOString();
+      const outcome = evaluatePop(panel.pop_challenge_hash, panel.pop_prev_hash, pop_response);
+      const verdict = nextPopVerdict(
+        Number(panel.pop_failures) || 0,
+        outcome,
+        panel.pop_last_ok_at ? new Date(panel.pop_last_ok_at).getTime() : null,
+        panel.activated_at ? new Date(panel.activated_at).getTime() : null,
+        now,
+      );
+
+      if (verdict.alert) {
+        logger.warn({ event: 'PING_PANEL_POP_FAILED', device_fingerprint, outcome, failures: verdict.failures, app_version });
+        const { error: popTlErr } = await supabaseAdmin.from('device_timeline').insert({
+          device_fingerprint,
+          ...entityCols(key),
+          product_id: product,
+          event_type: 'PANEL_POP_FAILED',
+          detail: { outcome, failures: verdict.failures, app_version, ip },
+        });
+        if (popTlErr) logger.warn({ event: 'PING_PANEL_POP_TIMELINE_FAILED', error: popTlErr.message });
+        await sendSecurityAlert('PANEL_POP_FAILED', `Interactive panel failed device-key proof (${outcome}, x${verdict.failures})`, {
+          device_fingerprint, school_id: key.school_id, outcome, failures: verdict.failures, app_version, ip,
+        });
+      }
+
+      if (verdict.kill) {
+        // Revoke through the normal remote-kill path (conditional on still Active → exactly once).
+        await supabaseAdmin
+          .from('activation_keys')
+          .update({ status: 'Revoked', pop_failures: verdict.failures, pop_challenge_hash: null, pop_prev_hash: null })
+          .eq('id', key.id)
+          .eq('status', 'Active');
+        logger.warn({ event: 'PING_PANEL_POP_REVOKED', device_fingerprint, failures: verdict.failures });
+        await supabaseAdmin.from('device_timeline').insert({
+          device_fingerprint,
+          ...entityCols(key),
+          product_id: product,
+          event_type: 'REMOTE_KILL',
+          detail: { reason: 'pop_failed', failures: verdict.failures, app_version, ip },
+        });
+        return NextResponse.json({ ok: true, kill: true, kill_reason: 'pop_failed', server_time: nowIsoPop });
+      }
+
+      const fresh = createPopChallenge(panel.device_wrap_pubkey);
+      const { error: popErr } = await supabaseAdmin
+        .from('activation_keys')
+        .update({
+          pop_challenge_hash: fresh?.expectedHash ?? null,
+          pop_prev_hash: panel.pop_challenge_hash ?? null,
+          pop_failures: verdict.failures,
+          ...(outcome === 'ok' ? { pop_last_ok_at: nowIsoPop } : {}),
+        })
+        .eq('id', key.id);
+      if (popErr) logger.warn({ event: 'PING_PANEL_POP_PERSIST_FAILED', error: popErr.message });
+      else pop_challenge = fresh?.challengeB64;
+    }
+  }
+
   // ── Signed Renewable Lease (SRL) ────────────────────────────────────────────
   // Reached only on the bound + Active success path (Gate 4 already 403'd revoked/
   // unbound devices). The lease is the client's CURRENT, trusted source of expiry +
@@ -549,5 +669,7 @@ export async function POST(req: NextRequest) {
     expired,
     // Present only when SRL is enabled and signing succeeded; omitted otherwise.
     ...(lease_str && lease_sig ? { lease_str, lease_sig } : {}),
+    // Interactive panels only: proof-of-possession challenge to answer on the next ping.
+    ...(pop_challenge ? { pop_challenge } : {}),
   });
 }

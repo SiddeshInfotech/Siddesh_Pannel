@@ -2,7 +2,7 @@ import { targetOsFor, type ProductId } from '@/lib/productIdentity';
 
 // ============================================================================
 // Device class of an activation key — chosen by the operator at Key Generation, stored in
-// activation_keys.device_class (scripts/add_device_class.sql).
+// activation_keys.device_class (scripts/add_interactive_panel.sql).
 //
 //   NULL / 'standard'  Phones & tablets. Full security, exactly as before this existed.
 //   'managed_panel'    Interactive classroom panels (any brand / model / Android version).
@@ -41,8 +41,32 @@ export function isPanelKey(row: { device_class?: string | null } | null | undefi
   return row?.device_class === DEVICE_CLASS_MANAGED_PANEL;
 }
 
-/** Postgres/PostgREST "column does not exist" — the migration hasn't been run yet. */
+/** One SQL file adds every interactive-panel column/table (scripts/add_interactive_panel.sql). */
+export const PANEL_MIGRATION_FILE = 'scripts/add_interactive_panel.sql';
+
+/** Default number of days a newly generated panel key may wait before it must be activated. */
+export const DEFAULT_PANEL_ACTIVATION_WINDOW_DAYS = 14;
+export const MAX_PANEL_ACTIVATION_WINDOW_DAYS = 365;
+
+/**
+ * A panel key that was never activated within its window is dead (limits how long a leaked,
+ * unused panel key stays exploitable). Only applies before first binding; NULL window = none
+ * (keys created before the window existed).
+ */
+export function isPanelActivationWindowClosed(
+  row: { device_class?: string | null; enrollment_expires_at?: string | null; device_fingerprint?: string | null } | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!isPanelKey(row) || row?.device_fingerprint) return false;
+  const until = row?.enrollment_expires_at ? new Date(row.enrollment_expires_at).getTime() : NaN;
+  return Number.isFinite(until) && now.getTime() > until;
+}
+
+/** Postgres/PostgREST "column/table does not exist" — the migration hasn't been run yet. */
 export function isMissingColumnError(error: { code?: string; message?: string } | null | undefined): boolean {
   if (!error) return false;
-  return error.code === '42703' || error.code === 'PGRST204' || /device_class/i.test(error.message ?? '');
+  return (
+    error.code === '42703' || error.code === 'PGRST204' || error.code === '42P01' || error.code === 'PGRST205' ||
+    /device_class|enrollment_expires_at|revoked_device_bindings/i.test(error.message ?? '')
+  );
 }

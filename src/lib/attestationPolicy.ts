@@ -2,74 +2,16 @@ import { SECURITY_LEVEL } from '@/lib/attestationExtension';
 
 // SF-2 remediation — single source of truth for "should this request be
 // attestation-enforced", shared by /api/activate and /api/device/terms-accept so the
-// two endpoints can never drift onto different postures (previously each kept its own
-// hand-copied version of this logic).
+// two endpoints can never drift onto different postures.
 //
-// security_tier is CLIENT-SUPPLIED and must NEVER decide whether hardware attestation is
-// enforced: a device can simply claim a non-attestable tier (or omit its chain) to make
-// itself look like hardware that genuinely can't attest. The ONLY escape from enforcement
-// is an EXPLICIT, operator-configured model allowlist (LMS_ATTEST_EXEMPT_MODELS). There is
-// no built-in default any more — an unset/empty var exempts nothing, so a fresh deployment
-// enforces every device once LMS_ENFORCE_ATTESTATION=true, until the operator explicitly
-// lists real non-attestable hardware (e.g. x301 panels).
-export function isModelExempt(deviceModel: string | null | undefined): boolean {
-  const exemptModels = (process.env.LMS_ATTEST_EXEMPT_MODELS ?? '')
-    .split(',')
-    .map((m) => m.trim().toLowerCase())
-    .filter((m) => m.length > 0);
-  return exemptModels.includes((deviceModel ?? '').trim().toLowerCase());
-}
-
-// Managed classroom panels (interactive flat panels on uncertified Android builds): they
-// cannot produce a Google-rooted hardware attestation chain and often ship a system `su`
-// binary, so they need an operator-granted allowance. SEPARATE from LMS_ATTEST_EXEMPT_MODELS
-// on purpose — that list keeps its exact existing meaning (x301: audit-only attestation,
-// nothing else), while a managed panel additionally gets `device_class: "managed_panel"` signed
-// into its licence payload (see /api/activate), which the Android client reads to tolerate a
-// system root binary at video-key release (hook/debugger/emulator checks still apply).
-//
-// Entries are "MODEL@ANDROID_VERSION", comma-separated, e.g. "IFP-86X@11,IFP-75X@9":
-//   • the Android version is REQUIRED — an operator must know exactly which panel build they
-//     are allowing, and a model that later runs a different Android build is not covered;
-//   • matching is exact after trim + lowercase (device_model == MODEL, device_os ==
-//     "Android <VERSION>"); only Android devices can ever match.
-// An entry without "@<version>" is ignored (flagged by validateAttestationConfig).
-function managedPanelEntries(): Array<{ model: string; version: string }> {
-  return (process.env.LMS_MANAGED_PANEL_MODELS ?? '')
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0)
-    .map((entry) => {
-      const at = entry.lastIndexOf('@');
-      return at > 0
-        ? { model: entry.slice(0, at).trim().toLowerCase(), version: entry.slice(at + 1).trim().toLowerCase() }
-        : { model: '', version: '' };
-    })
-    .filter((e) => e.model.length > 0 && e.version.length > 0);
-}
-
-/** The "<version>" of an Android device_os ("Android 11" → "11"), or null for any non-Android OS. */
-function androidVersionOf(deviceOs: string | null | undefined): string | null {
-  const m = /^android\s+(.+)$/i.exec((deviceOs ?? '').trim());
-  return m ? m[1].trim().toLowerCase() : null;
-}
-
-export function isManagedPanel(deviceModel: string | null | undefined, deviceOs: string | null | undefined): boolean {
-  const version = androidVersionOf(deviceOs);
-  if (version === null) return false;
-  const model = (deviceModel ?? '').trim().toLowerCase();
-  return managedPanelEntries().some((e) => e.model === model && e.version === version);
-}
-
-export function shouldEnforceAttestation(
-  deviceModel: string | null | undefined,
-  deviceOs?: string | null,
-): boolean {
-  return (
-    process.env.LMS_ENFORCE_ATTESTATION === 'true' &&
-    !isModelExempt(deviceModel) &&
-    !isManagedPanel(deviceModel, deviceOs)
-  );
+// NOTHING the device reports about itself can lower security: not security_tier (a device can
+// claim a non-attestable tier or omit its chain), and not model / brand / OS strings (Build.MODEL
+// is attacker-settable). The two former model allowlists — LMS_ATTEST_EXEMPT_MODELS (x301) and
+// LMS_MANAGED_PANEL_MODELS — were REMOVED for that reason; model values are telemetry only.
+// Interactive panels without Google attestation are handled by operator-issued
+// Interactive-panel KEYS (src/lib/deviceClass.ts) inside /api/activate instead.
+export function shouldEnforceAttestation(): boolean {
+  return process.env.LMS_ENFORCE_ATTESTATION === 'true';
 }
 
 // Server-derived, authoritative tier for persistence/telemetry — computed ENTIRELY from
@@ -113,6 +55,11 @@ export function shouldEnforceAttestation(
 //                          pass at the call site) — not yet produced by any current code
 //                          path. Kept in the enum so a future infra-error signal doesn't
 //                          need a schema/taxonomy change to report through.
+//   MANAGED_PANEL_BOUND    Android activated with an operator-issued Interactive-panel key and
+//                          no verified hardware attestation. Means: licence-authorized + bound
+//                          to one device key (rolling proof-of-possession on every heartbeat).
+//                          It is NOT hardware-attested and must never be shown as such. Set by
+//                          /api/activate (deriveServerTier never produces it).
 export type ServerAttestationTier =
   | 'VERIFIED_STRONGBOX'
   | 'VERIFIED_TEE'
@@ -122,7 +69,8 @@ export type ServerAttestationTier =
   | 'INVALID'
   | 'REVOKED'
   | 'REPLAY_OR_SKEW'
-  | 'TEMPORARY_ERROR';
+  | 'TEMPORARY_ERROR'
+  | 'MANAGED_PANEL_BOUND';
 
 export function deriveServerTier(input: {
   isWindows: boolean;
@@ -159,7 +107,6 @@ export function deriveServerTier(input: {
 export function validateAttestationConfig(): void {
   const enforce = process.env.LMS_ENFORCE_ATTESTATION === 'true';
   const hasRoots = !!process.env.LMS_ATTEST_ROOT_CERTS?.trim();
-  const exemptConfigured = !!process.env.LMS_ATTEST_EXEMPT_MODELS?.trim();
 
   if (enforce && !hasRoots) {
     console.error(
@@ -193,29 +140,18 @@ export function validateAttestationConfig(): void {
       })
     );
   }
-  const malformedPanels = (process.env.LMS_MANAGED_PANEL_MODELS ?? '')
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0 && !/^.+@.+$/.test(entry));
-  if (malformedPanels.length > 0) {
+  // Removed model allowlists: still set in an environment → say loudly that they do nothing, so
+  // nobody believes a device model is exempt. Interactive panels use panel KEYS.
+  const ignoredModelVars = ['LMS_ATTEST_EXEMPT_MODELS', 'LMS_MANAGED_PANEL_MODELS']
+    .filter((name) => !!process.env[name]?.trim());
+  if (ignoredModelVars.length > 0) {
     console.warn(
       '[ATTEST_CONFIG_NOTE]',
       JSON.stringify({
         message:
-          'LMS_MANAGED_PANEL_MODELS entries must be "MODEL@ANDROID_VERSION" (e.g. "IFP-86X@11") — ' +
-          'these entries are IGNORED until the Android version is added.',
-        entries: malformedPanels,
-      })
-    );
-  }
-  if (!exemptConfigured) {
-    console.warn(
-      '[ATTEST_CONFIG_NOTE]',
-      JSON.stringify({
-        message:
-          'LMS_ATTEST_EXEMPT_MODELS is not set — no device model is exempt from attestation enforcement. ' +
-          'If the fleet includes hardware that cannot produce Google/TPM attestation (e.g. x301 panels), ' +
-          'list it here explicitly, or those devices will be rejected once LMS_ENFORCE_ATTESTATION=true.',
+          `${ignoredModelVars.join(' and ')} ${ignoredModelVars.length > 1 ? 'are' : 'is'} IGNORED — a device model is ` +
+          'self-reported and never lowers security. Generate Interactive-panel keys for panels without Google ' +
+          'attestation, and remove these variables.',
       })
     );
   }
