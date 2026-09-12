@@ -7,7 +7,7 @@ import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
 import { resolveEffectiveProductId, resolveLegacyProductId } from '@/lib/product';
 import { PRODUCT_ID_ENUM } from '@/lib/productIdentity';
-import { shouldEnforceAttestation, isModelExempt, deriveServerTier } from '@/lib/attestationPolicy';
+import { shouldEnforceAttestation, isModelExempt, isManagedPanel, deriveServerTier } from '@/lib/attestationPolicy';
 import { recordAttestationIssue } from '@/lib/attestationTelemetry';
 
 // ============================================================================
@@ -159,14 +159,21 @@ export async function POST(req: NextRequest) {
   //    wrap key. ──────────────────────────────────────────────────────────────────
   {
     const requestModel = device_model || 'Unknown Tablet';
+    const requestOs = device_os || 'Unknown OS';
     const modelExempt = isModelExempt(requestModel);
-    const enforceAttest = shouldEnforceAttestation(requestModel);
+    // Managed classroom panel (LMS_MANAGED_PANEL_MODELS, model + Android version) — audit-only,
+    // exactly like a model-exempt device. Every other device is unaffected.
+    const managedPanel = isManagedPanel(requestModel, device_os);
+    const enforceAttest = shouldEnforceAttestation(requestModel, device_os);
 
     if (ALERT_TIERS.has(reportedTier)) {
-      console.warn('[TERMS_ATTEST_TIER_ALERT]', JSON.stringify({ tier: reportedTier, model: requestModel, ip }));
+      console.warn('[TERMS_ATTEST_TIER_ALERT]', JSON.stringify({ tier: reportedTier, model: requestModel, os: requestOs, ip }));
     }
     if (modelExempt) {
       console.warn('[TERMS_ATTEST_MODEL_EXEMPT]', JSON.stringify({ tier: reportedTier, model: requestModel, ip }));
+    }
+    if (managedPanel) {
+      console.warn('[TERMS_ATTEST_MANAGED_PANEL]', JSON.stringify({ tier: reportedTier, model: requestModel, os: requestOs, ip }));
     }
 
     // Route to the platform's attestation verifier (parity with /api/activate):
@@ -232,10 +239,12 @@ export async function POST(req: NextRequest) {
         stage: 'terms-accept',
       });
       if (enforceAttest) {
-        console.warn('[TERMS_ATTEST_FAILED_ENFORCED]', JSON.stringify({ tier: reportedTier, reason, ip }));
+        // model + os are logged so an operator can identify a rejected panel exactly
+        // (the value to put in LMS_MANAGED_PANEL_MODELS is "<model>@<Android version>").
+        console.warn('[TERMS_ATTEST_FAILED_ENFORCED]', JSON.stringify({ tier: reportedTier, reason, model: requestModel, os: requestOs, ip }));
         return generic(401, 'Request verification failed.');
       }
-      console.warn('[TERMS_ATTEST_FAILED_AUDIT]', JSON.stringify({ tier: reportedTier, reason, ip }));
+      console.warn('[TERMS_ATTEST_FAILED_AUDIT]', JSON.stringify({ tier: reportedTier, reason, model: requestModel, os: requestOs, ip }));
     } else {
       console.log('[TERMS_ATTEST_OK]', JSON.stringify({ tier: reportedTier, chainLen: (attestation_chain ?? []).length, ip }));
     }

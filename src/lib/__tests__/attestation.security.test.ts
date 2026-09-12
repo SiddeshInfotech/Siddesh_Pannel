@@ -27,6 +27,7 @@ function resetEnv() {
   delete process.env.LMS_ATTEST_STRICT;
   delete process.env.LMS_ATTEST_CHECK_REVOCATION;
   delete process.env.LMS_ATTEST_EXEMPT_MODELS;
+  delete process.env.LMS_MANAGED_PANEL_MODELS;
   delete process.env.LMS_ENFORCE_ATTESTATION;
   process.env.LMS_ATTEST_ROOT_CERTS = ROOT_CERT_PEM;
 }
@@ -138,6 +139,53 @@ describe('attestationPolicy — enforcement no longer trusts client security_tie
     expect(shouldEnforceAttestation('anything')).toBe(false);
   });
 
+});
+
+describe('attestationPolicy — managed classroom panels (LMS_MANAGED_PANEL_MODELS)', () => {
+  it('matches only the exact model AND Android version, case-insensitively', async () => {
+    process.env.LMS_ENFORCE_ATTESTATION = 'true';
+    process.env.LMS_MANAGED_PANEL_MODELS = 'IFP-86X@11';
+    const { isManagedPanel, shouldEnforceAttestation } = await import('@/lib/attestationPolicy');
+    expect(isManagedPanel('IFP-86X', 'Android 11')).toBe(true);
+    expect(isManagedPanel(' ifp-86x ', 'android 11')).toBe(true);
+    expect(shouldEnforceAttestation('IFP-86X', 'Android 11')).toBe(false);
+    // Same model on a different Android build is NOT covered.
+    expect(isManagedPanel('IFP-86X', 'Android 12')).toBe(false);
+    expect(shouldEnforceAttestation('IFP-86X', 'Android 12')).toBe(true);
+    // Lookalike model is NOT covered.
+    expect(isManagedPanel('IFP-86XS', 'Android 11')).toBe(false);
+  });
+
+  it('never matches a non-Android device, even with an identical model string', async () => {
+    process.env.LMS_ENFORCE_ATTESTATION = 'true';
+    process.env.LMS_MANAGED_PANEL_MODELS = 'Windows 11@11';
+    const { isManagedPanel, shouldEnforceAttestation } = await import('@/lib/attestationPolicy');
+    expect(isManagedPanel('Windows 11', 'Windows 10.0')).toBe(false);
+    expect(shouldEnforceAttestation('Windows 11', 'Windows 10.0')).toBe(true);
+  });
+
+  it('ignores an entry without an Android version and warns about it', async () => {
+    process.env.LMS_ENFORCE_ATTESTATION = 'true';
+    process.env.LMS_MANAGED_PANEL_MODELS = 'IFP-86X';
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { isManagedPanel, shouldEnforceAttestation, validateAttestationConfig } = await import('@/lib/attestationPolicy');
+    expect(isManagedPanel('IFP-86X', 'Android 11')).toBe(false);
+    expect(shouldEnforceAttestation('IFP-86X', 'Android 11')).toBe(true);
+    validateAttestationConfig();
+    expect(warn.mock.calls.some(([, p]) => typeof p === 'string' && p.includes('LMS_MANAGED_PANEL_MODELS'))).toBe(true);
+  });
+
+  it('leaves x301 and every unlisted device exactly as before', async () => {
+    process.env.LMS_ENFORCE_ATTESTATION = 'true';
+    process.env.LMS_ATTEST_EXEMPT_MODELS = 'x301';
+    process.env.LMS_MANAGED_PANEL_MODELS = 'IFP-86X@11';
+    const { isManagedPanel, shouldEnforceAttestation } = await import('@/lib/attestationPolicy');
+    expect(shouldEnforceAttestation('x301')).toBe(false);
+    expect(shouldEnforceAttestation('x301', 'Android 9')).toBe(false);
+    expect(isManagedPanel('x301', 'Android 9')).toBe(false); // exempt ≠ managed panel
+    expect(shouldEnforceAttestation('Pixel 8', 'Android 14')).toBe(true);
+    expect(shouldEnforceAttestation('Pixel 8')).toBe(true); // callers that don't pass an OS
+  });
 });
 
 describe('attestationPolicy.deriveServerTier — richer taxonomy (priority 2)', () => {

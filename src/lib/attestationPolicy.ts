@@ -20,8 +20,56 @@ export function isModelExempt(deviceModel: string | null | undefined): boolean {
   return exemptModels.includes((deviceModel ?? '').trim().toLowerCase());
 }
 
-export function shouldEnforceAttestation(deviceModel: string | null | undefined): boolean {
-  return process.env.LMS_ENFORCE_ATTESTATION === 'true' && !isModelExempt(deviceModel);
+// Managed classroom panels (interactive flat panels on uncertified Android builds): they
+// cannot produce a Google-rooted hardware attestation chain and often ship a system `su`
+// binary, so they need an operator-granted allowance. SEPARATE from LMS_ATTEST_EXEMPT_MODELS
+// on purpose — that list keeps its exact existing meaning (x301: audit-only attestation,
+// nothing else), while a managed panel additionally gets `device_class: "managed_panel"` signed
+// into its licence payload (see /api/activate), which the Android client reads to tolerate a
+// system root binary at video-key release (hook/debugger/emulator checks still apply).
+//
+// Entries are "MODEL@ANDROID_VERSION", comma-separated, e.g. "IFP-86X@11,IFP-75X@9":
+//   • the Android version is REQUIRED — an operator must know exactly which panel build they
+//     are allowing, and a model that later runs a different Android build is not covered;
+//   • matching is exact after trim + lowercase (device_model == MODEL, device_os ==
+//     "Android <VERSION>"); only Android devices can ever match.
+// An entry without "@<version>" is ignored (flagged by validateAttestationConfig).
+function managedPanelEntries(): Array<{ model: string; version: string }> {
+  return (process.env.LMS_MANAGED_PANEL_MODELS ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .map((entry) => {
+      const at = entry.lastIndexOf('@');
+      return at > 0
+        ? { model: entry.slice(0, at).trim().toLowerCase(), version: entry.slice(at + 1).trim().toLowerCase() }
+        : { model: '', version: '' };
+    })
+    .filter((e) => e.model.length > 0 && e.version.length > 0);
+}
+
+/** The "<version>" of an Android device_os ("Android 11" → "11"), or null for any non-Android OS. */
+function androidVersionOf(deviceOs: string | null | undefined): string | null {
+  const m = /^android\s+(.+)$/i.exec((deviceOs ?? '').trim());
+  return m ? m[1].trim().toLowerCase() : null;
+}
+
+export function isManagedPanel(deviceModel: string | null | undefined, deviceOs: string | null | undefined): boolean {
+  const version = androidVersionOf(deviceOs);
+  if (version === null) return false;
+  const model = (deviceModel ?? '').trim().toLowerCase();
+  return managedPanelEntries().some((e) => e.model === model && e.version === version);
+}
+
+export function shouldEnforceAttestation(
+  deviceModel: string | null | undefined,
+  deviceOs?: string | null,
+): boolean {
+  return (
+    process.env.LMS_ENFORCE_ATTESTATION === 'true' &&
+    !isModelExempt(deviceModel) &&
+    !isManagedPanel(deviceModel, deviceOs)
+  );
 }
 
 // Server-derived, authoritative tier for persistence/telemetry — computed ENTIRELY from
@@ -142,6 +190,21 @@ export function validateAttestationConfig(): void {
           'every WIN_TPM_ATTESTED Windows activation/heartbeat will be REJECTED, not verified. ' +
           'Leave this unset (Windows stays on the lenient VERIFIED_PLATFORM_CLAIM path) until ' +
           'real AD CS / Intune / MDM-backed AIK verification is implemented.',
+      })
+    );
+  }
+  const malformedPanels = (process.env.LMS_MANAGED_PANEL_MODELS ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0 && !/^.+@.+$/.test(entry));
+  if (malformedPanels.length > 0) {
+    console.warn(
+      '[ATTEST_CONFIG_NOTE]',
+      JSON.stringify({
+        message:
+          'LMS_MANAGED_PANEL_MODELS entries must be "MODEL@ANDROID_VERSION" (e.g. "IFP-86X@11") — ' +
+          'these entries are IGNORED until the Android version is added.',
+        entries: malformedPanels,
       })
     );
   }

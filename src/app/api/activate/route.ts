@@ -12,7 +12,7 @@ import { signPayload } from '@/lib/licenseSign';
 import { resolveEffectiveProductId, resolveLegacyProductId, checkProductMatch } from '@/lib/product';
 import { PRODUCT_ID_ENUM, productDisplayName, familyFor, isProductId } from '@/lib/productIdentity';
 import { entityRefFromRow, resolveEntity, isEntitledToAll } from '@/lib/entity';
-import { shouldEnforceAttestation, isModelExempt, deriveServerTier, validateAttestationConfig } from '@/lib/attestationPolicy';
+import { shouldEnforceAttestation, isModelExempt, isManagedPanel, deriveServerTier, validateAttestationConfig } from '@/lib/attestationPolicy';
 import { labScopeIds } from '@/lib/labCourses';
 import { recordAttestationIssue } from '@/lib/attestationTelemetry';
 
@@ -134,6 +134,12 @@ const ATTEST_MAX_SKEW_MS = 5 * 60 * 1000;
 // Shown by the Android app and the Windows desktop app when a one-time key is reused
 // (both surface the server's `error` text as-is). Same text for same/other device so the
 // response doesn't reveal where the key is bound; the handshake log records which.
+// The one-time key is CLAIMED (bound to the device) before the licence is built, signed and
+// its CEKs wrapped. If the function were cut off after the claim, the device would never get
+// its licence yet the key would stay bound (admin "Reset Device Binding" needed). Give the
+// handler headroom over slow cold starts / revocation fetch; clients wait up to 60 s too.
+export const maxDuration = 60;
+
 const KEY_ALREADY_USED_MESSAGE =
   'This activation key has already been used and cannot be activated again. Please contact your administrator.';
 
@@ -373,6 +379,10 @@ export async function POST(req: NextRequest) {
     // cryptographically observed, never from the client's self-reported security_tier.
     // Persisted separately below (3c-bis) for admin fleet-posture auditing.
     let serverAttestationTier: ReturnType<typeof deriveServerTier> = 'UNSUPPORTED';
+    // Operator-listed managed classroom panel (LMS_MANAGED_PANEL_MODELS = "MODEL@ANDROID_VERSION").
+    // Android only. Drives audit-only attestation below AND the signed `device_class` licence
+    // claim in step 5. False for every other device, so their path is byte-for-byte unchanged.
+    const managedPanel = !isWindows && isManagedPanel(device_model, device_os);
 
     // ── NC-1: hardware key-attestation verification (replaces the extractable HMAC
     //    request signature). The device proves its CEK-wrap key is hardware-backed and
@@ -392,14 +402,20 @@ export async function POST(req: NextRequest) {
       // is RSA-wrapped to device_wrap_pubkey regardless), but the gate itself must not be
       // decided by client-controlled input.
       const modelExempt = isModelExempt(requestModel);
-      const enforceAttest = shouldEnforceAttestation(requestModel);
+      const enforceAttest = shouldEnforceAttestation(requestModel, device_os);
       if (ALERT_TIERS.has(reportedTier)) {
-        console.warn('[ATTEST_TIER_ALERT]', JSON.stringify({ tier: reportedTier, model: requestModel, ipAddress }));
+        console.warn('[ATTEST_TIER_ALERT]', JSON.stringify({ tier: reportedTier, model: requestModel, os: requestOS, ipAddress }));
       }
       if (modelExempt) {
         console.warn(
           '[ATTEST_MODEL_EXEMPT]',
           JSON.stringify({ tier: reportedTier, model: requestModel, ipAddress })
+        );
+      }
+      if (managedPanel) {
+        console.warn(
+          '[ATTEST_MANAGED_PANEL]',
+          JSON.stringify({ tier: reportedTier, model: requestModel, os: requestOS, ipAddress })
         );
       }
       const tsNum = Number(attestation_timestamp);
@@ -489,7 +505,7 @@ export async function POST(req: NextRequest) {
         });
 
         if (enforceAttest) {
-          console.warn('[ATTEST_FAILED_ENFORCED]', JSON.stringify({ tier: reportedTier, reason, ipAddress }));
+          console.warn('[ATTEST_FAILED_ENFORCED]', JSON.stringify({ tier: reportedTier, reason, model: requestModel, os: requestOS, ipAddress }));
           await logHandshake({
             activationKey: requestKey,
             deviceFingerprint: requestFingerprint,
@@ -501,7 +517,7 @@ export async function POST(req: NextRequest) {
           });
           return NextResponse.json({ error: 'Request signature verification failed.' }, { status: 401 });
         }
-        console.warn('[ATTEST_FAILED_AUDIT]', JSON.stringify({ tier: reportedTier, reason, ipAddress }));
+        console.warn('[ATTEST_FAILED_AUDIT]', JSON.stringify({ tier: reportedTier, reason, model: requestModel, os: requestOS, ipAddress }));
       } else {
         // Positive confirmation that attestation PASSED — safe to flip
         // LMS_ENFORCE_ATTESTATION=true once you see this for your real devices.
@@ -796,6 +812,10 @@ export async function POST(req: NextRequest) {
       activation_date: activatedAt.toISOString(),
       expiration_date: expiresAt.toISOString(),
       features: ['video_playback', 'offline_tests'],
+      // Managed classroom panel ONLY: a signed, device-bound claim the Android client uses to
+      // tolerate the panel's system root binary at video-key release. Omitted for every other
+      // device, so their signed payload is exactly what it was before.
+      ...(managedPanel ? { device_class: 'managed_panel' } : {}),
     };
 
     const payloadStr = JSON.stringify(payload);
