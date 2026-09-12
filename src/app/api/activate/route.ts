@@ -15,6 +15,7 @@ import { entityRefFromRow, resolveEntity, isEntitledToAll } from '@/lib/entity';
 import { shouldEnforceAttestation, isModelExempt, isManagedPanel, deriveServerTier, validateAttestationConfig } from '@/lib/attestationPolicy';
 import { labScopeIds } from '@/lib/labCourses';
 import { recordAttestationIssue } from '@/lib/attestationTelemetry';
+import { isPanelKey, DEVICE_CLASS_MANAGED_PANEL } from '@/lib/deviceClass';
 
 // SF-2 remediation: warn loudly at module load (once per server instance) if the
 // deployed env-var combination is dangerous or silently reopens the tier-trust hole
@@ -67,6 +68,11 @@ const ActivationRequestSchema = z.object({
   // "<activation_key|attestation_nonce|attestation_timestamp>", made with the wrap private key.
   // Verified against device_wrap_pubkey (see verifyWindowsAttestation). Optional/advisory.
   challenge_signature: z.string().max(1024).optional(),
+  // Deferred Terms & Conditions consent. A device whose /api/device/terms-accept was refused
+  // for hardware attestation (an interactive panel, before it has a key) carries its consent
+  // here instead; it is recorded in terms_acceptances ONLY after this activation succeeds.
+  terms_version: z.string().min(1).max(40).optional(),
+  terms_accepted_at: z.string().min(1).max(40).optional(),
 });
 
 // ── security_tier staging (must mirror the app's KeystoreCrypto taxonomy) ─────
@@ -346,6 +352,8 @@ export async function POST(req: NextRequest) {
       attestation_chain,
       security_tier,
       challenge_signature,
+      terms_version,
+      terms_accepted_at,
     } = validationResult.data;
     const reportedTier = security_tier ?? 'UNREPORTED';
     // Windows desktop vs Android tablet — drives attestation verifier, CEK wrap hash,
@@ -379,10 +387,19 @@ export async function POST(req: NextRequest) {
     // cryptographically observed, never from the client's self-reported security_tier.
     // Persisted separately below (3c-bis) for admin fleet-posture auditing.
     let serverAttestationTier: ReturnType<typeof deriveServerTier> = 'UNSUPPORTED';
-    // Operator-listed managed classroom panel (LMS_MANAGED_PANEL_MODELS = "MODEL@ANDROID_VERSION").
-    // Android only. Drives audit-only attestation below AND the signed `device_class` licence
-    // claim in step 5. False for every other device, so their path is byte-for-byte unchanged.
-    const managedPanel = !isWindows && isManagedPanel(device_model, device_os);
+    // Managed classroom panel. Two sources, both Android-only:
+    //   • modelPanel — optional operator list LMS_MANAGED_PANEL_MODELS ("MODEL@ANDROID_VERSION");
+    //   • panelKey   — the activation KEY was generated as "Interactive panel"
+    //                  (activation_keys.device_class, src/lib/deviceClass.ts). Known only after
+    //                  the key lookup below, so the attestation verdict is DEFERRED until then.
+    // Either one: attestation audit-only + signed `device_class` licence claim (step 5).
+    const modelPanel = !isWindows && isManagedPanel(device_model, device_os);
+    let managedPanel = modelPanel;
+    // Set when attestation failed and the env policy would enforce it; resolved after the
+    // key lookup (a panel key downgrades it to audit-only; anything else → 401 as before).
+    // replayOrSkew: a stale timestamp or reused nonce is NEVER excused by a panel key — those
+    // guard against replayed requests, not against missing hardware attestation.
+    let deferredAttestFailure: { reason: string | undefined; replayOrSkew: boolean } | null = null;
 
     // ── NC-1: hardware key-attestation verification (replaces the extractable HMAC
     //    request signature). The device proves its CEK-wrap key is hardware-backed and
@@ -412,7 +429,7 @@ export async function POST(req: NextRequest) {
           JSON.stringify({ tier: reportedTier, model: requestModel, ipAddress })
         );
       }
-      if (managedPanel) {
+      if (modelPanel) {
         console.warn(
           '[ATTEST_MANAGED_PANEL]',
           JSON.stringify({ tier: reportedTier, model: requestModel, os: requestOS, ipAddress })
@@ -483,41 +500,34 @@ export async function POST(req: NextRequest) {
           ? rev.reason
           : att.reason;
 
-        // Admin-only diagnostic: record WHICH device failed WHY, so the monitoring panel
-        // can show it instead of only Vercel's server logs. Detailed reasons are not
-        // intentionally returned in the API response below — the client gets the same
-        // generic message either way, enforced or not. See attestationTelemetry.ts for
-        // the full safeguard list (bounded reason codes, deduplication, best-effort,
-        // security-vs-health-warning separation).
-        await recordAttestationIssue({
-          deviceFingerprint: hardware_fingerprint,
-          // The license-pin-matched `product` isn't computed until after the key lookup
-          // below — this fires before that, so use the client-declared/heuristic identity
-          // already resolved above (same "raw, unpinned" value terms-accept/route.ts uses
-          // for its own telemetry record).
-          product: clientProductId,
-          tier: serverAttestationTier,
-          rawReason: reason,
-          enforced: enforceAttest,
-          deviceModel: requestModel,
-          ip: ipAddress,
-          stage: 'activate',
-        });
-
         if (enforceAttest) {
-          console.warn('[ATTEST_FAILED_ENFORCED]', JSON.stringify({ tier: reportedTier, reason, model: requestModel, os: requestOS, ipAddress }));
-          await logHandshake({
-            activationKey: requestKey,
-            deviceFingerprint: requestFingerprint,
+          // Verdict deferred to just after the key lookup (see deferredAttestFailure): only an
+          // Interactive-panel key can downgrade it. Telemetry is written there too, with the
+          // final enforced/audit-only outcome.
+          deferredAttestFailure = { reason, replayOrSkew: !skewOk || !nonceOk };
+        } else {
+          // Admin-only diagnostic: record WHICH device failed WHY, so the monitoring panel
+          // can show it instead of only Vercel's server logs. Detailed reasons are not
+          // intentionally returned in the API response — the client gets the same generic
+          // message either way, enforced or not. See attestationTelemetry.ts for the full
+          // safeguard list (bounded reason codes, deduplication, best-effort,
+          // security-vs-health-warning separation).
+          await recordAttestationIssue({
+            deviceFingerprint: hardware_fingerprint,
+            // The license-pin-matched `product` isn't computed until after the key lookup
+            // below — this fires before that, so use the client-declared/heuristic identity
+            // already resolved above (same "raw, unpinned" value terms-accept/route.ts uses
+            // for its own telemetry record).
+            product: clientProductId,
+            tier: serverAttestationTier,
+            rawReason: reason,
+            enforced: false,
             deviceModel: requestModel,
-            deviceOS: requestOS,
-            status: 'FAILED',
-            errorMessage: `Device attestation verification failed (tier=${reportedTier}).`,
-            ipAddress,
+            ip: ipAddress,
+            stage: 'activate',
           });
-          return NextResponse.json({ error: 'Request signature verification failed.' }, { status: 401 });
+          console.warn('[ATTEST_FAILED_AUDIT]', JSON.stringify({ tier: reportedTier, reason, model: requestModel, os: requestOS, ipAddress }));
         }
-        console.warn('[ATTEST_FAILED_AUDIT]', JSON.stringify({ tier: reportedTier, reason, model: requestModel, os: requestOS, ipAddress }));
       } else {
         // Positive confirmation that attestation PASSED — safe to flip
         // LMS_ENFORCE_ATTESTATION=true once you see this for your real devices.
@@ -547,6 +557,44 @@ export async function POST(req: NextRequest) {
       .select('*')
       .eq('key', activation_key)
       .single();
+
+    // ── 1b. Resolve the deferred attestation verdict ─────────────────────────
+    // Only an Android device presenting an Interactive-panel key is downgraded to audit-only.
+    // Every other case — Standard key, Windows, or an unknown key — is rejected with the SAME
+    // 401 as before this change, and BEFORE the 404 below, so a device that fails attestation
+    // still learns nothing about whether a key exists.
+    const panelKey = !isWindows && isPanelKey(keyRecord);
+    managedPanel = modelPanel || panelKey;
+    if (deferredAttestFailure) {
+      const { reason, replayOrSkew } = deferredAttestFailure;
+      const enforced = !panelKey || replayOrSkew;
+      await recordAttestationIssue({
+        deviceFingerprint: hardware_fingerprint,
+        product: clientProductId,
+        tier: serverAttestationTier,
+        rawReason: reason,
+        enforced,
+        deviceModel: requestModel,
+        ip: ipAddress,
+        stage: 'activate',
+      });
+      if (enforced) {
+        console.warn('[ATTEST_FAILED_ENFORCED]', JSON.stringify({ tier: reportedTier, reason, model: requestModel, os: requestOS, ipAddress }));
+        await logHandshake({
+          activationKey: requestKey,
+          deviceFingerprint: requestFingerprint,
+          deviceModel: requestModel,
+          deviceOS: requestOS,
+          status: 'FAILED',
+          errorMessage: `Device attestation verification failed (tier=${reportedTier}).`,
+          ipAddress,
+        });
+        return NextResponse.json({ error: 'Request signature verification failed.' }, { status: 401 });
+      }
+      console.warn('[ATTEST_PANEL_KEY_AUDIT]', JSON.stringify({ tier: reportedTier, reason, model: requestModel, os: requestOS, ipAddress }));
+    } else if (panelKey) {
+      console.log('[ATTEST_PANEL_KEY]', JSON.stringify({ tier: reportedTier, model: requestModel, os: requestOS, ipAddress }));
+    }
 
     if (keyError || !keyRecord) {
       await logHandshake({
@@ -815,7 +863,7 @@ export async function POST(req: NextRequest) {
       // Managed classroom panel ONLY: a signed, device-bound claim the Android client uses to
       // tolerate the panel's system root binary at video-key release. Omitted for every other
       // device, so their signed payload is exactly what it was before.
-      ...(managedPanel ? { device_class: 'managed_panel' } : {}),
+      ...(managedPanel ? { device_class: DEVICE_CLASS_MANAGED_PANEL } : {}),
     };
 
     const payloadStr = JSON.stringify(payload);
@@ -920,6 +968,34 @@ export async function POST(req: NextRequest) {
     const entitledToAll = isEntitledToAll(classIds);
     if (process.env.LMS_DISABLE_LEGACY_CEK !== 'true' && entitledToAll) {
       responseBody.wk0 = wrapOne(masterCek);   // F7: opaque wire name (client maps wk0 -> wrapped_cek)
+    }
+
+    // ── 10. Deferred Terms & Conditions consent (best-effort) ──────────────
+    // A device whose /api/device/terms-accept was refused for attestation (an interactive panel
+    // before it had a key) sends its consent with this activation. Recorded only now — after the
+    // key, product and attestation gates above all passed — with the same row shape as
+    // /api/device/terms-accept. Never fails the activation.
+    if (terms_version && terms_accepted_at) {
+      const d = new Date(terms_accepted_at);
+      const nowIso = new Date().toISOString();
+      const { error: termsErr } = await supabaseAdmin.from('terms_acceptances').upsert({
+        device_fingerprint: hardware_fingerprint,
+        terms_version,
+        accepted_at: Number.isNaN(d.getTime()) ? nowIso : d.toISOString(),
+        device_model: requestModel,
+        device_os: requestOS,
+        ip_address: ipAddress,
+        updated_at: nowIso,
+      }, { onConflict: 'device_fingerprint' });
+      if (termsErr) {
+        logger.warn({ event: 'ACTIVATE_DEFERRED_TERMS_PERSIST_FAILED', error: termsErr.message });
+      } else if (product) {
+        const { error: prodErr } = await supabaseAdmin
+          .from('terms_acceptances')
+          .update({ product_id: product })
+          .eq('device_fingerprint', hardware_fingerprint);
+        if (prodErr) logger.warn({ event: 'ACTIVATE_DEFERRED_TERMS_PRODUCT_FAILED', error: prodErr.message });
+      }
     }
 
     return NextResponse.json(responseBody);

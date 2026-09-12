@@ -8,7 +8,18 @@ import { randomInt } from 'crypto';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { indianAcademicYear } from '@/lib/entity';
-import { PRODUCT_ID_ENUM, DEFAULT_PRODUCT_ID } from '@/lib/productIdentity';
+import { PRODUCT_ID_ENUM, DEFAULT_PRODUCT_ID, productDisplayName, isProductId } from '@/lib/productIdentity';
+import {
+  DEVICE_CLASS_ENUM,
+  DEVICE_CLASS_STANDARD,
+  DEVICE_CLASS_MANAGED_PANEL,
+  deviceClassAllowedFor,
+  isMissingColumnError,
+  type DeviceClass,
+} from '@/lib/deviceClass';
+
+const DEVICE_CLASS_MIGRATION_MSG =
+  'Interactive-panel keys need a one-time database update. Run scripts/add_device_class.sql in Supabase, then try again.';
 
 // Activation key format: LMS-<SCHOOLCODE 2..12>-<CODE 10>. Rejects manually-typed
 // junk like "LMS-SCHOOL-MNS7LGUAA4879898" (3rd segment must be exactly 10 chars).
@@ -53,7 +64,13 @@ const ActivationKeySchema = z.object({
   // Which product this batch of keys is for (src/lib/productIdentity.ts). Defaults to
   // LMS School Android — the existing production behavior — for any caller that omits it.
   productId: z.enum(PRODUCT_ID_ENUM).default(DEFAULT_PRODUCT_ID),
-}).refine(data => {
+  // Standard (phones / tablets, full security) vs Interactive panel (src/lib/deviceClass.ts).
+  // Defaults to Standard for any caller that omits it — existing behavior.
+  deviceClass: z.enum(DEVICE_CLASS_ENUM).default(DEVICE_CLASS_STANDARD),
+}).refine(
+  data => deviceClassAllowedFor(data.productId, data.deviceClass),
+  { message: 'Interactive-panel keys are only available for Android products.' }
+).refine(data => {
   if (data.entityType === 'School' && !data.schoolId) return false;
   if (data.entityType === 'Vendor' && !data.vendorId) return false;
   if (data.entityType === 'Individual' && !data.parentId) return false;
@@ -174,12 +191,18 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
       status: 'Paid' as const,
       batch_id: batchId,
       product_id: validData.productId,
+      // Only written for panel keys, so Standard key generation never depends on the
+      // device_class column (works on a DB that hasn't run add_device_class.sql yet).
+      ...(validData.deviceClass === DEVICE_CLASS_MANAGED_PANEL ? { device_class: DEVICE_CLASS_MANAGED_PANEL } : {}),
     }));
 
     const { data: createdKeys, error } = await insertKeysInChunks(insertRows);
 
     if (error) {
       logger.error({ event: 'CREATE_KEYS_DB_ERROR', code: error.code, created: createdKeys?.length ?? 0 }, error);
+      if (validData.deviceClass === DEVICE_CLASS_MANAGED_PANEL && isMissingColumnError(error) && !createdKeys?.length) {
+        return fail(DEVICE_CLASS_MIGRATION_MSG);
+      }
       // A large batch chunks into several INSERTs — if an earlier chunk already
       // committed before a later one failed, those rows are real and already in the
       // database, so still make them visible instead of leaving the admin unsure.
@@ -204,6 +227,7 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
       batchId,
       keysCount: keyValues.length,
       serverMinted: validData.generateCount !== undefined,
+      deviceClass: validData.deviceClass,
       adminEmail: session.email,
     });
     revalidatePath('/keys');
@@ -274,6 +298,50 @@ export async function resetDeviceBinding(id: string): Promise<ActionResult> {
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'RESET_DEVICE_BINDING_CRITICAL_ERROR', keyId: id }, err);
+    return fail(GENERIC_ERROR);
+  }
+}
+
+// Change an existing key between Standard and Interactive panel (e.g. keys generated before
+// this option existed). SECURITY: admin-only + audit-logged; Android products only. Takes
+// effect at the key's NEXT activation — an already-activated device keeps the licence it was
+// signed at activation, so to apply it to a bound device use Reset Device Binding as well.
+export async function setKeyDeviceClass(id: string, deviceClass: string): Promise<ActionResult> {
+  const session = await getAdminSession();
+  if (!session) return fail('Unauthorized. Please sign in again.');
+  if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
+  if (!(DEVICE_CLASS_ENUM as readonly string[]).includes(deviceClass)) return fail(GENERIC_ERROR);
+  const next = deviceClass as DeviceClass;
+
+  try {
+    const { data: existing, error: readError } = await supabaseAdmin
+      .from('activation_keys')
+      .select('product_id')
+      .eq('id', id)
+      .single();
+    if (readError || !existing) return fail(GENERIC_ERROR);
+
+    const productId = isProductId(existing.product_id) ? existing.product_id : DEFAULT_PRODUCT_ID;
+    if (!deviceClassAllowedFor(productId, next)) {
+      return fail(`Interactive-panel keys are only available for Android products (this key is ${productDisplayName(productId)}).`);
+    }
+
+    const { error } = await supabaseAdmin
+      .from('activation_keys')
+      .update({ device_class: next === DEVICE_CLASS_MANAGED_PANEL ? DEVICE_CLASS_MANAGED_PANEL : null })
+      .eq('id', id);
+
+    if (error) {
+      if (isMissingColumnError(error)) return fail(DEVICE_CLASS_MIGRATION_MSG);
+      logger.error({ event: 'SET_KEY_DEVICE_CLASS_DB_ERROR', keyId: id }, error);
+      return fail(GENERIC_ERROR);
+    }
+
+    logger.info({ event: 'SET_KEY_DEVICE_CLASS', keyId: id, deviceClass: next, adminEmail: session.email });
+    revalidatePath('/keys');
+    return ok(undefined);
+  } catch (err: unknown) {
+    logger.error({ event: 'SET_KEY_DEVICE_CLASS_CRITICAL_ERROR', keyId: id }, err);
     return fail(GENERIC_ERROR);
   }
 }

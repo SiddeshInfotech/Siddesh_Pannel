@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { resolveLegacyProductId, resolveEffectiveProductId, checkProductMatch } from '../product';
-import { PRODUCT_DEFINITIONS, PRODUCT_IDS, PRODUCT_FILTER_OPTIONS, DEFAULT_PRODUCT_ID } from '../productIdentity';
+import { PRODUCT_DEFINITIONS, PRODUCT_IDS, PRODUCT_FILTER_OPTIONS, DEFAULT_PRODUCT_ID, UNRESOLVED_PRODUCT_FILTER_VALUE } from '../productIdentity';
 
 describe('regression: LMS School Windows must never resolve to LMS Lab Windows', () => {
   it('WIN_* tier + plain "-win" app_version (real School Windows signals) → LMS_SCHOOL_WINDOWS', () => {
@@ -131,7 +131,8 @@ describe('filter completeness', () => {
 
   it('"All Products" is the first filter option and is a superset (no-op filter)', () => {
     expect(PRODUCT_FILTER_OPTIONS[0]).toEqual({ value: 'all', label: 'All Products' });
-    expect(PRODUCT_FILTER_OPTIONS).toHaveLength(6); // 'all' + the 5 products
+    expect(PRODUCT_FILTER_OPTIONS).toHaveLength(7); // 'all' + the 5 products + 'unresolved'
+    expect(PRODUCT_FILTER_OPTIONS[PRODUCT_FILTER_OPTIONS.length - 1].value).toBe(UNRESOLVED_PRODUCT_FILTER_VALUE);
   });
 
   it('default product id is LMS School Android (existing production behavior)', () => {

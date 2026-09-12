@@ -50,6 +50,18 @@ async function getKeysList() {
     `)
     .order('created_at', { ascending: false });
 
+  // device_class (scripts/add_device_class.sql) is read in its own best-effort query so the main
+  // list above never errors on a DB that hasn't run that migration yet — every key then shows
+  // as Standard, which is exactly what they all are until the column exists.
+  const deviceClassById = new Map<string, string>();
+  {
+    const { data: classes, error: classError } = await supabaseAdmin
+      .from('activation_keys')
+      .select('id, device_class')
+      .not('device_class', 'is', null);
+    if (!classError) for (const c of classes ?? []) deviceClassById.set(c.id, c.device_class);
+  }
+
   return (keys ?? []).map((k: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => {
     let entityName = 'Unknown Entity';
     if (k.schools?.name) entityName = k.schools.name;
@@ -78,6 +90,7 @@ async function getKeysList() {
       platform: k.platform ?? null,
       securityTier: k.security_tier ?? null,
       productId: k.product_id ?? null,
+      deviceClass: deviceClassById.get(k.id) ?? null,
     };
   });
 }

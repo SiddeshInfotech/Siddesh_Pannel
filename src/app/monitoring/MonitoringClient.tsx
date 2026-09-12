@@ -94,6 +94,8 @@ interface DeviceRow {
   durationDays: number;
   expiresAt?: string | null;
   securityTier: string;
+  // 'managed_panel' when the key was generated as Interactive panel (src/lib/deviceClass.ts).
+  deviceClass: string | null;
   // Server-derived, trusted tier (attestationPolicy.deriveServerTier) — the primary
   // security indicator; securityTier above is the device's own untrusted self-report.
   verifiedTier: string;
@@ -456,7 +458,14 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
                           </span>
                           <div>
                             <h4 className="text-sm font-semibold text-white group-hover:text-accent-violet transition-colors">{dev.model}</h4>
-                            <p className="text-[10px] text-zinc-500 font-medium">{dev.os}</p>
+                            <p className="text-[10px] text-zinc-500 font-medium">
+                              {dev.os}
+                              {dev.deviceClass === 'managed_panel' && (
+                                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 text-[8px] font-bold uppercase tracking-wide">
+                                  Interactive panel
+                                </span>
+                              )}
+                            </p>
                           </div>
                         </div>
                       </td>

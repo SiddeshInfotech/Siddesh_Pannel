@@ -19,15 +19,34 @@ import {
   ChevronDown,
   ChevronUp,
   FileDown,
+  Monitor,
   X
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
 import StatusBadge from '@/components/StatusBadge';
 import AppleDatePicker from '@/components/AppleDatePicker';
-import { createActivationKeys, deleteActivationKey, resetDeviceBinding } from './actions';
+import { createActivationKeys, deleteActivationKey, resetDeviceBinding, setKeyDeviceClass } from './actions';
 import { useToast } from '@/components/Toast';
 import CustomSelect from '@/components/CustomSelect';
-import { PRODUCT_DEFINITIONS, PRODUCT_FILTER_OPTIONS, DEFAULT_PRODUCT_ID, productDisplayName, ProductId } from '@/lib/productIdentity';
+import { PRODUCT_DEFINITIONS, PRODUCT_FILTER_OPTIONS, DEFAULT_PRODUCT_ID, productDisplayName, ProductId, isProductId, targetOsFor } from '@/lib/productIdentity';
+import {
+  DEVICE_CLASS_OPTIONS,
+  DEVICE_CLASS_STANDARD,
+  DEVICE_CLASS_MANAGED_PANEL,
+  deviceClassLabel,
+  type DeviceClass,
+} from '@/lib/deviceClass';
+
+/** Interactive-panel keys exist only for Android products; an unset product is legacy School Android. */
+function isAndroidProduct(productId: string | null | undefined): boolean {
+  return targetOsFor(isProductId(productId) ? productId : DEFAULT_PRODUCT_ID) === 'ANDROID';
+}
+
+/** Product label with the device type appended for panel keys (key list, batch PDF). */
+function productWithDeviceClass(productId: string | null | undefined, deviceClass: string | null | undefined): string {
+  const product = productDisplayName(productId);
+  return deviceClass === DEVICE_CLASS_MANAGED_PANEL ? `${product} · ${deviceClassLabel(deviceClass)}` : product;
+}
 import { downloadActivationKeysPdf } from '@/lib/keysPdf';
 
 interface SchoolOption {
@@ -58,6 +77,7 @@ interface KeyRow {
   platform?: string | null;        // 'android' | 'windows'
   securityTier?: string | null;
   productId?: string | null;       // canonical product id (src/lib/productIdentity.ts)
+  deviceClass?: string | null;     // null = Standard; 'managed_panel' = Interactive panel (src/lib/deviceClass.ts)
 }
 
 interface KeysClientProps {
@@ -93,6 +113,9 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
   
   const [entityType, setEntityType] = useState<'School' | 'Vendor' | 'Individual'>('School');
   const [productId, setProductId] = useState<ProductId>(DEFAULT_PRODUCT_ID);
+  // Standard (phones / tablets, full security) vs Interactive panel — Android products only.
+  const [deviceClass, setDeviceClass] = useState<DeviceClass>(DEVICE_CLASS_STANDARD);
+  const productIsAndroid = targetOsFor(productId) === 'ANDROID';
   const [selectedSchoolId, setSelectedSchoolId] = useState('');
   const [selectedVendorId, setSelectedVendorId] = useState('');
   const [selectedParentId, setSelectedParentId] = useState('');
@@ -306,6 +329,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
           durationDays: calculatedDays,
           expiresAt: expiresAtParam,
           productId,
+          deviceClass: productIsAndroid ? deviceClass : DEVICE_CLASS_STANDARD,
         });
 
         if (!res.ok) {
@@ -333,6 +357,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
           deviceAndroidId: null,
           activatedAt: null,
           productId,
+          deviceClass: productIsAndroid && deviceClass === DEVICE_CLASS_MANAGED_PANEL ? DEVICE_CLASS_MANAGED_PANEL : null,
         }));
 
         // In batch mode the key VALUES come back from the server (it minted them), so the
@@ -346,7 +371,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
         setLastBatchMeta(isVendorBatch ? {
           entityName,
           batchId: res.data[0]?.batchId ?? null,
-          productLabel: productDisplayName(productId),
+          productLabel: productWithDeviceClass(productId, productIsAndroid ? deviceClass : null),
           durationLabel,
         } : null);
         // Re-enable auto-fill so the next single-key submit gets a fresh, unique key
@@ -378,6 +403,31 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
       toast('Activation key deleted successfully.', 'success');
       setShowConfirmModal(false);
       setKeyToDelete(null);
+    });
+  };
+
+  // Switch an existing key between Standard and Interactive panel. Applies at the key's next
+  // activation, so a key already bound to a device also needs Reset Device Binding.
+  const toggleDeviceClass = (k: KeyRow) => {
+    const next: DeviceClass = k.deviceClass === DEVICE_CLASS_MANAGED_PANEL ? DEVICE_CLASS_STANDARD : DEVICE_CLASS_MANAGED_PANEL;
+    const boundNote = k.deviceFingerprint
+      ? '\n\nThis key is already bound to a device. The change applies at the next activation — use Reset Device Binding, then activate again on the panel.'
+      : '';
+    const message = next === DEVICE_CLASS_MANAGED_PANEL
+      ? `Mark ${k.key} as an INTERACTIVE PANEL key?\n\nAny Android panel activated with it is accepted without Google hardware attestation and may play video on panel firmware with a root binary. Use only for classroom panels.${boundNote}`
+      : `Change ${k.key} back to a STANDARD key (full security)?${boundNote}`;
+    if (!window.confirm(message)) return;
+
+    startTransition(async () => {
+      const res = await setKeyDeviceClass(k.id, next);
+      if (!res.ok) {
+        toast(res.error, 'error');
+        return;
+      }
+      setKeyList(prev => prev.map(x => x.id === k.id
+        ? { ...x, deviceClass: next === DEVICE_CLASS_MANAGED_PANEL ? DEVICE_CLASS_MANAGED_PANEL : null }
+        : x));
+      toast(`${k.key} is now a ${deviceClassLabel(next)} key.`, 'success');
     });
   };
 
@@ -550,10 +600,44 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
               <CustomSelect
                 required
                 value={productId}
-                onChange={val => setProductId(val as ProductId)}
+                onChange={val => {
+                  const next = val as ProductId;
+                  setProductId(next);
+                  if (targetOsFor(next) !== 'ANDROID') setDeviceClass(DEVICE_CLASS_STANDARD);
+                }}
                 options={PRODUCT_DEFINITIONS.map(p => ({ value: p.id, label: p.displayName }))}
                 placeholder="Select Product"
               />
+            </div>
+
+            {/* Which kind of device these keys are for. Standard = phones / tablets with full
+                security (default, existing behavior). Interactive panel = classroom panels of
+                any brand/model/Android version (src/lib/deviceClass.ts). Android products only. */}
+            <div className="space-y-2">
+              <label className="text-xs font-bold text-zinc-400 flex items-center gap-2">
+                <Monitor className="w-3.5 h-3.5 text-zinc-500" />
+                Device Type
+              </label>
+              {productIsAndroid ? (
+                <CustomSelect
+                  required
+                  value={deviceClass}
+                  onChange={val => setDeviceClass(val as DeviceClass)}
+                  options={DEVICE_CLASS_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
+                  placeholder="Select Device Type"
+                />
+              ) : (
+                <div className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-xs text-zinc-400">
+                  Standard — interactive-panel keys are only for Android products.
+                </div>
+              )}
+              {productIsAndroid && deviceClass === DEVICE_CLASS_MANAGED_PANEL && (
+                <p className="text-[11px] leading-relaxed text-amber-400/90">
+                  For interactive classroom panels only (any brand, model or Android version). A panel activated
+                  with this key is accepted without Google hardware attestation and can play video on panel
+                  firmware that ships a root binary. Hand these keys only to panel installations.
+                </p>
+              )}
             </div>
 
             {/* Entity Selection Dropdown */}
@@ -1081,7 +1165,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                         onClick={() => downloadActivationKeysPdf({
                           entityName: batch.entityName,
                           batchId: batch.id.startsWith('BATCH-') ? batch.id : null,
-                          productLabel: productDisplayName(batch.keys[0]?.productId),
+                          productLabel: productWithDeviceClass(batch.keys[0]?.productId, batch.keys[0]?.deviceClass),
                           durationLabel: batch.keys[0]?.expiresAt
                             ? new Date(batch.keys[0].expiresAt as string).toLocaleString('en-IN')
                             : `${batch.keys[0]?.durationDays ?? 365} Days`,
@@ -1226,7 +1310,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                                   OS: {k.deviceOS || 'Android'}{k.securityTier ? ` • ${k.securityTier}` : ''}
                                 </div>
                                 <div className="text-[9px] text-accent-violet font-bold truncate">
-                                  {productDisplayName(k.productId)}
+                                  {productWithDeviceClass(k.productId, k.deviceClass)}
                                 </div>
                                 {k.activatedAt && (
                                   <div className="text-[9px] text-emerald-400 font-bold">
@@ -1242,7 +1326,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                                 <span>Waiting for device activation</span>
                               </div>
                               <div className="text-[9px] text-accent-violet font-bold pl-3.5">
-                                Licensed for: {productDisplayName(k.productId)}
+                                Licensed for: {productWithDeviceClass(k.productId, k.deviceClass)}
                               </div>
                             </div>
                           )}
@@ -1251,6 +1335,21 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                         {/* Status and Action Buttons */}
                         <div className="flex items-center justify-between lg:justify-end gap-4 border-t lg:border-t-0 border-white/5 pt-3 lg:pt-0">
                           <StatusBadge status={k.status?.toLowerCase() === 'active' ? 'Active' : k.status?.toLowerCase() === 'revoked' ? 'Revoked' : k.status?.toLowerCase() === 'paid' ? 'SUCCESS' : 'Unpaid'} />
+
+                          {isAndroidProduct(k.productId) && (
+                            <button
+                              type="button"
+                              onClick={() => toggleDeviceClass(k)}
+                              className={`p-2 rounded-lg border transition-colors cursor-pointer ${k.deviceClass === DEVICE_CLASS_MANAGED_PANEL
+                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20'
+                                : 'bg-white/5 text-zinc-400 border-white/5 hover:bg-amber-500/10 hover:text-amber-400 hover:border-amber-500/20'}`}
+                              title={k.deviceClass === DEVICE_CLASS_MANAGED_PANEL
+                                ? 'Interactive panel key — click to change to Standard'
+                                : 'Standard key — click to mark as Interactive panel'}
+                            >
+                              <Monitor className="w-4 h-4" />
+                            </button>
+                          )}
 
                           {hasDevice && (
                             <button

@@ -65,6 +65,21 @@ async function fetchTermsAcceptances(fingerprints: string[]): Promise<Map<string
   return map;
 }
 
+// Operator-chosen device class per key (scripts/add_device_class.sql). Best-effort + isolated:
+// until that migration runs PostgREST 400s here and every device just shows as Standard.
+async function fetchDeviceClasses(keyIds: string[]): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (keyIds.length === 0) return map;
+  const { data, error } = await supabaseAdmin
+    .from('activation_keys')
+    .select('id, device_class')
+    .in('id', keyIds)
+    .not('device_class', 'is', null);
+  if (error) return map;
+  for (const row of data ?? []) map.set(row.id, row.device_class);
+  return map;
+}
+
 // Server-side expiry-tamper flags, keyed by activation-key id. Best-effort + isolated: if the
 // expiry_tamper columns aren't migrated yet (scripts/add_expiry_tamper.sql), PostgREST 400s and
 // every key just shows "no tamper" — the device list is never blanked by a missing column.
@@ -136,9 +151,9 @@ async function getDevicesData() {
     .map((k: any) => k.device_fingerprint)
     .filter((f: any): f is string => !!f);
   const termsByFp = await fetchTermsAcceptances(fingerprints);
-  const tamperById = await fetchTamperFlags(
-    ((keys ?? []) as unknown as Array<{ id: string }>).map((k) => k.id).filter((id) => !!id)
-  );
+  const keyIds = ((keys ?? []) as unknown as Array<{ id: string }>).map((k) => k.id).filter((id) => !!id);
+  const tamperById = await fetchTamperFlags(keyIds);
+  const deviceClassById = await fetchDeviceClasses(keyIds);
   const attestationIssueByFp = await fetchAttestationIssues(fingerprints);
 
   return (keys ?? []).map((k: any ) => {
@@ -204,6 +219,8 @@ async function getDevicesData() {
       id: k.id,
       model: k.device_model || 'Unknown Device',
       os: k.device_os || 'Unknown OS',
+      // 'managed_panel' = activated with an Interactive-panel key; null = Standard.
+      deviceClass: deviceClassById.get(k.id) ?? null,
       fingerprint: k.device_fingerprint || 'N/A',
       board: k.device_board || 'N/A',
       brand: k.device_brand || 'N/A',
