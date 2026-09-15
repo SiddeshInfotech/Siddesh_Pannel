@@ -79,8 +79,8 @@ const ActivationRequestSchema = z.object({
 
 // ── security_tier staging (must mirror the app's KeystoreCrypto taxonomy) ─────
 // security_tier itself is CLIENT-SUPPLIED and is NEVER used to decide enforcement (see
-// attestationPolicy.ts — that decision is now purely env-var + explicit model allowlist
-// driven). It is kept only as an ALERT signal (below) and for admin telemetry.
+// attestationPolicy.ts — LMS_ENFORCE_ATTESTATION alone, relaxed only by an Interactive-panel
+// key after the key lookup). It is kept only as an ALERT signal (below) and for admin telemetry.
 const ALERT_TIERS = new Set(['PROVISION_FAILED', 'CEK_DECRYPT_FAILED']);       // Tier 7/8 → ALERT
 
 // Platform tag for an activation. WIN_* tiers (or a Windows device_os) => 'windows'.

@@ -26,7 +26,7 @@ import { recordAttestationIssue } from '@/lib/attestationTelemetry';
 // timestamp) and sends the Google-rooted certificate chain. We verify that chain and
 // challenge here, so a forged fingerprint from a non-genuine device cannot forge a
 // record. Enforcement is staged by the SAME env flags as activation
-// (LMS_ENFORCE_ATTESTATION / LMS_ATTEST_* / LMS_ATTEST_EXEMPT_MODELS), so the two
+// (LMS_ENFORCE_ATTESTATION / LMS_ATTEST_*), so the two
 // endpoints always share one security posture and can never drift apart.
 // Additional defenses: layered rate limits (IP burst + window + per-device), a
 // single-use nonce (replay guard), a timestamp-skew bound, strict zod validation with
@@ -52,7 +52,7 @@ const TermsSchema = z.object({
   // [WINDOWS] Desktop has no Android Keystore/StrongBox: it provisions a TPM (or DPAPI
   // software) wrap key via DrmPolicy and reports a WIN_* tier for telemetry only — SF-2:
   // it plays no role in whether enforcement applies (attestationPolicy.ts decides that
-  // purely from LMS_ENFORCE_ATTESTATION + the explicit model allowlist). The obsolete
+  // purely from LMS_ENFORCE_ATTESTATION; a device model never exempts). The obsolete
   // "DESKTOP" tier (empty pubkey) is still accepted for backward compatibility.
   device_wrap_pubkey: z.string().max(4096).optional().default(''),
   attestation_chain: z.array(z.string()).optional(),
@@ -233,8 +233,9 @@ export async function POST(req: NextRequest) {
         stage: 'terms-accept',
       });
       if (enforceAttest) {
-        // model + os are logged so an operator can identify a rejected panel exactly
-        // (the value to put in LMS_MANAGED_PANEL_MODELS is "<model>@<Android version>").
+        // model + os are logged so an operator can identify a rejected device exactly. An
+        // interactive panel is expected here: the app defers its consent to /api/activate,
+        // which accepts it only with an Interactive-panel key (no model allowlist exists).
         console.warn('[TERMS_ATTEST_FAILED_ENFORCED]', JSON.stringify({ tier: reportedTier, reason, model: requestModel, os: requestOs, ip }));
         return generic(401, 'Request verification failed.');
       }
