@@ -6,6 +6,32 @@
   --foreground: #f4f4f5;
   --card: rgba(18, 18, 22, 0.7);
   --card-border: rgba(255, 255, 255, 0.16);
+  --card-border-width: 1px;
+  --surface-inset: rgba(255, 255, 255, 0.02);
+  --surface-inset-border: rgba(255, 255, 255, 0.08);
+  --surface-inset-border-width: 1px;
+  --icon-surface: rgba(255, 255, 255, 0.06);
+  --log-row-bg: var(--surface-inset);
+  --log-row-hover-bg: rgba(255, 255, 255, 0.035);
+  --log-row-open-bg: rgba(255, 255, 255, 0.03);
+  --chip-bg: var(--icon-surface);
+  --chip-fg: #a1a1aa;
+  --group-gap: 4px;
+  --radius-group: var(--radius-log);
+  --radius-metric: var(--radius-log);
+  --radius-log: 0.5rem;
+  --log-row-border: var(--surface-inset-border);
+  --log-row-open-border: var(--surface-inset-border);
+  --log-icon-bg: var(--icon-surface);
+  --radius-icon: var(--radius-log);
+  --text-strong: #fafafa;
+  --text-body: #d4d4d8;
+  --text-muted: #a1a1aa;
+  --divider: rgba(255, 255, 255, 0.06);
+  --field-border: rgba(255, 255, 255, 0.1);
+  --surface-hover: rgba(255, 255, 255, 0.04);
+  --surface-raised: rgba(255, 255, 255, 0.03);
+  --card-shadow: none;
   --sidebar: #09090b;
   --sidebar-border: rgba(255, 255, 255, 0.15);
   --accent-violet: #8b5cf6;
@@ -13,12 +39,40 @@
 }
 
 :root.light {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --card: rgba(255, 255, 255, 0.85);
-  --card-border: rgba(0, 0, 0, 0.14);
-  --sidebar: #f8fafc;
-  --sidebar-border: rgba(0, 0, 0, 0.12);
+  /* Clean white-card system: zinc page, white cards, hairline borders, soft shadow */
+  --background: #f4f4f5;          /* zinc-100 page */
+  --foreground: #18181b;          /* zinc-900 text */
+  --text-strong: #18181b;         /* zinc-900 */
+  --text-body: #3f3f46;           /* zinc-700 */
+  --text-muted: #71717a;          /* zinc-500 */
+  --card: #ffffff;
+  --card-border: #e4e4e7;         /* zinc-200 */
+  --card-border-width: 1px;
+  --card-shadow: 0 1px 2px rgba(24, 24, 27, 0.04), 0 1px 3px rgba(24, 24, 27, 0.03);
+  --surface-inset: #fafafa;       /* zinc-50: rows and inner boxes inside cards */
+  --surface-inset-border: #ededef;
+  --surface-inset-border-width: 1px;
+  --surface-raised: #ffffff;
+  --surface-hover: #f4f4f5;
+  --icon-surface: #ffffff;
+  --icon-ring: #e4e4e7;
+  --metric-group-bg: transparent;
+  --metric-group-border: transparent;
+  --panel-group-bg: var(--card);
+  --panel-group-frame: var(--card-border);
+  --group-gap: 12px;
+  --log-row-bg: var(--surface-inset);
+  --log-row-hover-bg: var(--surface-hover);
+  --log-row-open-bg: var(--card);
+  --log-row-border: var(--surface-inset-border);
+  --log-row-open-border: var(--card-border);
+  --log-icon-bg: var(--icon-surface);
+  --chip-bg: #ffffff;
+  --chip-fg: #71717a;
+  --field-border: #e4e4e7;
+  --divider: #f0f0f1;
+  --sidebar: #f4f4f5;
+  --sidebar-border: #e4e4e7;
   --accent-violet: #7c3aed;
   --accent-blue: #2563eb;
 }
@@ -34,6 +88,12 @@
   --color-accent-blue: var(--accent-blue);
   
   --font-sans: 'Roboto', 'Inter', system-ui, -apple-system, sans-serif;
+
+  /* Site-wide corner radius: every large rounding utility follows --radius-log */
+  --radius-lg: var(--radius-log);
+  --radius-xl: var(--radius-log);
+  --radius-2xl: var(--radius-log);
+  --radius-3xl: var(--radius-log);
 }
 
 /* Base Body Style */
@@ -87,48 +147,56 @@ body {
 .light [class*="text-gray-300"],
 .light [class*="text-white"],
 .light h1, .light h2, .light h3, .light h4, .light h5, .light h6, .light label {
-  color: #1e293b !important;
+  color: var(--foreground) !important;
 }
 
 .light [class*="text-zinc-400"],
 .light [class*="text-zinc-500"],
 .light [class*="text-gray-400"],
 .light [class*="text-gray-500"],
-.light p, .light td, .light th, .light code {
-  color: #64748b !important;
+.light p, .light code {
+  color: var(--text-muted) !important;
 }
 
 .light .activation-token {
   color: #1e293b !important;
 }
 
-.light [class*="border-white/"],
-.light [class*="border-white\\["] {
-  border-color: rgba(0,0,0,0.1) !important;
+/* Light theme surfaces: gray page, lighter gray cards, thick white borders, no shadows */
+.light [class*="bg-white/"]:not(input):not(select):not(textarea) {
+  background-color: var(--surface-inset) !important;
 }
 
-.light [class*="bg-white/"],
-.light [class*="bg-white\\["] {
-  background-color: rgba(0,0,0,0.04) !important;
+/* Boxed elements (`border` on all sides) get the white inset border */
+.light [class~="border"][class*="border-white/"]:not(input):not(select):not(textarea) {
+  border-color: var(--surface-inset-border) !important;
+  border-width: var(--surface-inset-border-width) !important;
 }
 
-.light .glass {
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04), inset 0 0 0 1px rgba(255, 255, 255, 1);
-  border: 1px solid rgba(0, 0, 0, 0.08);
+/* Single-side lines (border-b / border-t / divide) stay as subtle dividers */
+.light [class*="border-white/"]:not([class~="border"]),
+.light [class*="border-card-border"]:not([class~="border"]),
+.light [class*="divide-white/"] > * {
+  border-color: var(--divider) !important;
+}
+
+.light .glass,
+.light .glass-interactive {
+  background: var(--card);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  border: var(--card-border-width) solid var(--card-border);
 }
 
 .light .glass-interactive {
-  background: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04), inset 0 0 0 1px rgba(255, 255, 255, 1);
-  border: 1px solid rgba(0, 0, 0, 0.08);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .light .glass-interactive:hover {
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(139, 92, 246, 0.3);
-  box-shadow: 0 8px 32px rgba(139, 92, 246, 0.15), inset 0 0 0 1px rgba(255, 255, 255, 1);
+  background: var(--surface-raised);
+  border-color: var(--card-border);
+  box-shadow: none;
   transform: translateY(-2px);
 }
 
@@ -177,13 +245,6 @@ body {
   content: '';
 }
 
-.sidebar-dashed-border {
-  background-image: linear-gradient(to bottom, var(--sidebar-border) 60%, transparent 60%);
-  background-position: right;
-  background-size: 1px 22px; /* 3px wide, 22px repeating segment (13.2px dash, 8.8px gap) */
-  background-repeat: repeat-y;
-}
-
 /* Custom tab overrides for precise light/dark theme color management */
 .active-tab-text {
   color: #ffffff !important;
@@ -205,6 +266,172 @@ body {
   background-color: #0f172a !important;
 }
 
+
+/* Metric cards: a bordered group holding inset stat cards with a filled icon box */
+.metric-group {
+  border-radius: var(--radius-group);
+  /* Edge padding subtracts the panel border so edge spacing equals the gap between cards */
+  padding: calc(var(--group-gap) - var(--card-border-width));
+  gap: var(--group-gap);
+}
+/* Content panel matching the metric group's corners and surface */
+.panel-group {
+  --panel-frame-width: var(--card-border-width);
+  border-radius: var(--radius-group);
+  /* Row icons sit at frame + padding + row border + 12px; stat icons at gap + card border + 16px.
+     Solving for padding keeps both icon columns on the same line in either theme. */
+  --panel-pad: calc(var(--group-gap) + 4px - var(--panel-frame-width));
+  /* Horizontal inset puts the heading icon and log cards on the same line as the stat card
+     content (group gap + card border + 1rem card padding), like the "Total Schools" card. */
+  --panel-pad-x: calc(var(--group-gap) + var(--surface-inset-border-width) + 1rem - var(--panel-frame-width));
+  padding: var(--panel-pad) var(--panel-pad-x);
+}
+/* Heading icon starts flush with the log cards; the 10px list gap separates it from the
+   first card, and the top padding tops the panel padding up to the same 10px. */
+.panel-heading {
+  padding: calc(10px - var(--panel-pad)) 0 0 0;
+}
+/* Light: white panel, so the gutters between cards read as white */
+.light .metric-group {
+  background: var(--metric-group-bg);
+  border-color: var(--metric-group-border);
+}
+/* Light: page-gray panel inside a white frame as wide as the metric group's gutters */
+.light .panel-group {
+  --panel-frame-width: var(--group-gap);
+  background: var(--panel-group-bg);
+  border: var(--panel-frame-width) solid var(--panel-group-frame);
+}
+.metric-card {
+  background: var(--surface-inset);
+  border: var(--surface-inset-border-width) solid var(--surface-inset-border);
+  border-radius: var(--radius-metric);
+  padding: 0.875rem 1rem;
+}
+.metric-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  border-radius: var(--radius-icon);
+  background: var(--icon-surface);
+}
+
+/* Handshake log rows: inset row that opens into a framed group of detail cards.
+   In the components layer so text-* utilities can recolor chips and buttons. */
+@layer components {
+.log-row {
+  background: var(--log-row-bg);
+  border: var(--surface-inset-border-width) solid var(--log-row-border);
+  border-radius: var(--radius-log);
+  transition: background-color 0.2s ease;
+}
+.log-row:hover {
+  background: var(--log-row-hover-bg);
+}
+.log-row.is-open {
+  background: var(--log-row-open-bg);
+}.log-details {
+  display: grid;
+  gap: var(--group-gap);
+  padding: var(--group-gap);
+}
+@media (min-width: 768px) {
+  .log-details {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.log-status-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  box-shadow: 0 0 0 2px var(--log-row-bg);
+}
+.log-chip {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  white-space: nowrap;
+}
+.log-chevron,
+.log-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--chip-bg);
+  color: var(--chip-fg);
+  transition: transform 0.3s ease, color 0.2s ease;
+}
+.log-chevron {
+  width: 24px;
+  height: 24px;
+  border-radius: 9999px;
+}
+.log-copy-btn {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.log-copy-btn:hover {
+  color: var(--foreground);
+}
+}
+
+/* Sidebar tree connectors: straight ├── branches, rounded ╰── on the last item */
+.sidebar-tree {
+  --tree-line: var(--sidebar-border);
+  --tree-x: 14px;      /* distance from line to item */
+  --tree-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  padding-top: 4px;
+  padding-left: 30px;
+}
+.sidebar-tree-item {
+  position: relative;
+  padding: 2px 0;
+}
+.sidebar-tree-item::before {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--tree-x));
+  top: 0;
+  bottom: 0;
+  border-left: 1.5px solid var(--tree-line);
+}
+.sidebar-tree-item:first-child::before {
+  top: -4px;
+}
+.sidebar-tree-item::after {
+  content: '';
+  position: absolute;
+  left: calc(-1 * var(--tree-x));
+  top: 50%;
+  width: calc(var(--tree-x) - 4px);
+  border-top: 1.5px solid var(--tree-line);
+}
+.sidebar-tree-item:last-child::before {
+  bottom: auto;
+  height: calc(50% + 0.75px);
+  width: calc(var(--tree-x) - 4px);
+  border-bottom: 1.5px solid var(--tree-line);
+  border-bottom-left-radius: var(--tree-radius);
+}
+.sidebar-tree-item:first-child:last-child::before {
+  height: calc(50% + 4.75px);
+}
+.sidebar-tree-item:last-child::after {
+  display: none;
+}
 
 .fading-line {
   height: 1px;
@@ -286,9 +513,9 @@ body {
 .light input:not([type="submit"]):not([type="button"]):not([type="checkbox"]):not([type="radio"]):not([type="range"]),
 .light select,
 .light textarea {
-  background-color: #ffffff !important;
-  color: #1e293b !important;
-  border-color: rgba(0, 0, 0, 0.1) !important;
+  background-color: var(--surface-raised) !important;
+  color: var(--foreground) !important;
+  border-color: var(--field-border) !important;
 }
 
 .light input::placeholder,
@@ -314,7 +541,7 @@ body {
 
 
 .light .tab-header-border {
-  border-bottom-color: rgba(0, 0, 0, 0.12) !important;
+  border-bottom-color: var(--divider) !important;
 }
 
 /* Premium Custom Select Dropdown Styling */
@@ -346,23 +573,8 @@ select option {
 .light [class*="bg-[#0e0e12]"],
 .light [class*="bg-[#0c0c0e]"],
 .light [class*="bg-[#121216]"] {
-  background-color: #ffffff !important;
-}
-
-.light [class*="bg-white/5"],
-.light [class*="bg-white/10"],
-.light [class*="bg-white/20"],
-.light [class*="bg-white/[0.01]"],
-.light [class*="bg-white/[0.02]"],
-.light [class*="bg-white/[0.05]"] {
-  background-color: rgba(0, 0, 0, 0.04) !important;
-}
-
-.light [class*="border-white/5"],
-.light [class*="border-white/10"],
-.light [class*="border-white/15"],
-.light [class*="border-white/20"] {
-  border-color: rgba(0, 0, 0, 0.12) !important;
+  background-color: var(--card) !important;
+  border-color: var(--card-border) !important;
 }
 
 /* Premium micro-animations */
@@ -410,3 +622,225 @@ select option {
 
 
 
+/* Log row header icon box and open-row border use their own tokens */
+.log-row > div > div > .metric-icon {
+  background: var(--log-icon-bg);
+}
+.log-row.is-open {
+  border-color: var(--log-row-open-border);
+}
+
+/* ===== Light theme: clean white cards (overrides earlier light rules) ===== */
+.light .glass,
+.light .glass-interactive {
+  background: var(--card);
+  border: var(--card-border-width) solid var(--card-border);
+  box-shadow: var(--card-shadow);
+}
+.light .glass-interactive:hover {
+  border-color: #d4d4d8;
+  box-shadow: 0 4px 12px rgba(24, 24, 27, 0.06);
+}
+/* Stat row: no outer panel, separate white cards */
+.light .metric-group {
+  background: transparent;
+  border: 0; /* no hidden 1px, so stat icons line up with the logs heading icon */
+  box-shadow: none;
+  padding: 0;
+}
+.light .metric-group > .metric-card {
+  background: var(--card);
+  border-color: var(--card-border);
+  box-shadow: var(--card-shadow);
+  padding: 1.125rem 1.25rem;
+}
+/* Logs panel: one white card with even padding */
+.light .panel-group {
+  background: var(--card);
+  border: var(--card-border-width) solid var(--card-border);
+  box-shadow: var(--card-shadow);
+  padding: 1.25rem;
+}
+.light .panel-heading {
+  padding: 0 0 0.25rem;
+}
+/* Rows: off-white with hairline border; open row turns white with card border */
+.light .log-row {
+  background: var(--log-row-bg);
+  border-color: var(--log-row-border);
+  box-shadow: none;
+}
+.light .log-row:hover {
+  background: var(--log-row-hover-bg);
+}
+.light .log-row.is-open {
+  background: var(--log-row-open-bg);
+  border-color: var(--log-row-open-border);
+  box-shadow: var(--card-shadow);
+}
+.light .log-details .metric-card {
+  background: var(--surface-inset);
+  border-color: var(--surface-inset-border);
+  box-shadow: none;
+}
+/* Icon boxes, chips and small buttons: white with a hairline ring (inset, so sizes don't change) */
+.light .metric-icon,
+.light .log-chip,
+.light .log-chevron,
+.light .log-copy-btn {
+  background: var(--icon-surface);
+  box-shadow: inset 0 0 0 1px var(--icon-ring);
+}
+.light .log-row > div > div > .metric-icon {
+  background: var(--log-icon-bg);
+}
+/* Sidebar active item: small white card */
+.light .sidebar-nav-item-active {
+  background-color: var(--card) !important;
+  box-shadow: 0 0 0 1px var(--card-border), var(--card-shadow);
+}
+.light .sidebar-nav-item:hover {
+  background-color: rgba(24, 24, 27, 0.04) !important;
+}
+/* Modals and dark-hex surfaces */
+.light [class*="bg-[#0e0e12]"],
+.light [class*="bg-[#0c0c0e]"],
+.light [class*="bg-[#121216]"] {
+  background-color: var(--card) !important;
+  border-color: var(--card-border) !important;
+}
+
+/* ===== Shared UI primitives (both themes, token-driven) ===== */
+@layer components {
+  .page-header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .page-title {
+    font-size: 1.5rem;
+    line-height: 1.25;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text-strong);
+  }
+  .page-subtitle {
+    margin-top: 4px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+
+  .ui-table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+    text-align: left;
+  }
+  .ui-table thead th {
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0;
+    text-transform: none;
+    white-space: nowrap;
+    color: var(--text-muted);
+    background: var(--surface-inset);
+    border-bottom: 1px solid var(--divider);
+  }
+  .ui-table tbody td {
+    padding: 12px 14px;
+    vertical-align: middle;
+    color: var(--text-body);
+    border-bottom: 1px solid var(--divider);
+  }
+  .ui-table tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .ui-table tbody tr:hover td {
+    background: var(--surface-hover);
+  }
+  .ui-table .num {
+    text-align: right;
+  }
+
+  .form-section {
+    padding: 20px;
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: var(--radius-log);
+    box-shadow: var(--card-shadow);
+  }
+  .field-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-body);
+  }
+  .field-hint {
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .field-input {
+    width: 100%;
+    height: 40px;
+    padding: 0 12px;
+    font-size: 13px;
+    color: var(--text-strong);
+    background: var(--surface-raised);
+    border: 1px solid var(--field-border);
+    border-radius: var(--radius-log);
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+  textarea.field-input {
+    height: auto;
+    padding: 10px 12px;
+  }
+  .field-input:focus {
+    border-color: var(--accent-violet);
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 36px;
+    padding: 0 14px;
+    font-size: 13px;
+    font-weight: 600;
+    border: 1px solid transparent;
+    border-radius: var(--radius-log);
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, filter 0.15s ease;
+  }
+  .btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    color: #ffffff;
+    background: var(--accent-violet);
+  }
+  .btn-primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+  .btn-secondary {
+    color: var(--text-strong);
+    background: var(--card);
+    border-color: var(--card-border);
+  }
+  .btn-secondary:hover:not(:disabled),
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--surface-hover);
+  }
+  .btn-ghost {
+    color: var(--text-body);
+    background: transparent;
+  }
+}

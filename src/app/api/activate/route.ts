@@ -21,6 +21,9 @@ import { wrapToPublicKey } from '@/lib/deviceWrap';
 // SF-2 remediation: warn loudly at module load (once per server instance) if the
 // deployed env-var combination is dangerous or silently reopens the tier-trust hole
 // this file used to have. See attestationPolicy.ts.
+// this file used to have. See attestationPolicy.ts.
+// this file used to have. See attestationPolicy.ts.
+// this file used to have. See attestationPolicy.ts.
 validateAttestationConfig();
 
 const ActivationRequestSchema = z.object({

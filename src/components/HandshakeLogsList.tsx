@@ -1,8 +1,23 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Lock, ShieldAlert, ChevronDown, ChevronUp, Cpu, Shield } from 'lucide-react';
-import StatusBadge from './StatusBadge';
+import {
+  Lock,
+  ShieldAlert,
+  ShieldCheck,
+  ChevronDown,
+  Cpu,
+  Laptop,
+  Monitor,
+  Globe,
+  Clock,
+  KeyRound,
+  Fingerprint,
+  BadgeCheck,
+  Hash,
+  Copy,
+  Check,
+} from 'lucide-react';
 
 interface HandshakeLogItem {
   id: string;
@@ -40,6 +55,52 @@ function formatDateTime(timeStr: string) {
   }
 }
 
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={copied ? 'Copied' : 'Copy'}
+      className="log-copy-btn"
+    >
+      {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+    </button>
+  );
+}
+
+function DetailRow({
+  icon: Icon,
+  label,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 py-2.5">
+      <span className="flex items-center gap-2 text-[11px] text-zinc-500 shrink-0">
+        <Icon className="w-3.5 h-3.5 text-zinc-400" />
+        {label}
+      </span>
+      <div className="flex items-center gap-1.5 min-w-0 text-right">{children}</div>
+    </div>
+  );
+}
+
 export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -48,7 +109,7 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       {logs.length === 0 ? (
         <div className="text-center py-8 text-zinc-500 text-sm">
           No cryptographic handshakes recorded yet. Try activating a tablet!
@@ -56,111 +117,134 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
       ) : (
         logs.map((item) => {
           const isExpanded = expandedId === item.id;
+          const isSuccess = item.status === 'SUCCESS';
           const formattedTime = formatDateTime(item.time);
-          return (
-            <div 
-              key={item.id} 
-              className={`border border-card-border rounded-2xl bg-white/[0.01] hover:bg-white/[0.03] transition-all overflow-hidden ${
-                isExpanded ? 'border-card-border bg-white/[0.03]' : ''
-              }`}
-            >
-              {/* Header Card (Clickable) */}
-              <div 
-                onClick={() => toggleExpand(item.id)}
-                className="p-4 flex items-center justify-between cursor-pointer select-none"
+          const StatusIcon = isSuccess ? Lock : ShieldAlert;
+
+          const keyPart = (
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="metric-icon">
+                <StatusIcon className="w-4 h-4 text-foreground" />
+              </span>
+              <span className="text-[13px] font-semibold text-white font-mono truncate">{item.activationKey}</span>
+            </div>
+          );
+          const statusPart = (
+            <div className="flex items-center gap-3 shrink-0">
+              <span
+                className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md font-semibold ${
+                  isSuccess ? 'text-emerald-500 bg-emerald-500/10' : 'text-rose-500 bg-rose-500/10'
+                }`}
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center text-zinc-400">
-                    <Lock className="w-4 h-4 text-zinc-400" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-white font-mono">{item.activationKey}</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-zinc-400 font-mono">
-                        {(item.deviceFingerprint || '').slice(0, 10)}...
-                      </span>
-                    </div>
-                    <p className="text-xs text-zinc-400 mt-0.5">
-                      {item.deviceModel} ({item.deviceOS})
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  <span className="text-[10px] text-zinc-500 font-medium">{formattedTime}</span>
-                  <StatusBadge status={item.status === 'SUCCESS' ? 'Active' : 'Unpaid'} />
-                  {isExpanded ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
-                </div>
-              </div>
+                <span className={`w-1.5 h-1.5 rounded-full ${isSuccess ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                {isSuccess ? 'Active' : 'Failed'}
+              </span>
+              <span className={`log-chevron ${isExpanded ? 'rotate-180' : ''}`}>
+                <ChevronDown className="w-3.5 h-3.5" />
+              </span>
+            </div>
+          );
+          const toggle = () => toggleExpand(item.id);
 
-              {/* Expandable Details Panel */}
-              {isExpanded && (
-                <div className="px-6 pb-6 pt-2 border-t border-card-border bg-black/20 space-y-4 text-sm text-zinc-300">
-                  {item.errorMessage && (
-                    <div className="text-xs bg-rose-500/10 border border-rose-500/20 text-rose-400 px-3 py-2 rounded-xl flex items-center gap-2 font-medium">
-                      <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
-                      <span>{item.errorMessage}</span>
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Device & Connection Info */}
-                    <div className="space-y-3 bg-white/[0.02] p-4 rounded-xl border border-card-border">
-                      <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-                        <Cpu className="w-3.5 h-3.5 text-[#8b5cf6]" />
-                        Device & Network Metadata
-                      </h4>
-                      <div className="space-y-2 text-xs">
-                        <div className="flex justify-between border-b border-white/5 pb-1">
-                          <span className="text-zinc-500">Device Model:</span>
-                          <span className="font-semibold text-white">{item.deviceModel}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/5 pb-1">
-                          <span className="text-zinc-500">OS Version:</span>
-                          <span className="font-semibold text-white">{item.deviceOS}</span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/5 pb-1">
-                          <span className="text-zinc-500">IP Address:</span>
-                          <span className="font-semibold text-white font-mono">{item.ipAddress}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-zinc-500">Monitored Time:</span>
-                          <span className="font-semibold text-white">{formattedTime}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Cryptographic Licensing Payload */}
-                    <div className="space-y-3 bg-white/[0.02] p-4 rounded-xl border border-card-border">
-                      <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-                        <Shield className="w-3.5 h-3.5 text-emerald-500" />
-                        Handshake Security Payload
-                      </h4>
-                      <div className="space-y-2 text-xs">
-                        <div className="flex justify-between border-b border-white/5 pb-1">
-                          <span className="text-zinc-500">License Alg:</span>
-                          <span className="font-semibold text-emerald-400 font-mono">ES256 (ECDSA)</span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/5 pb-1 flex-wrap">
-                          <span className="text-zinc-500">Full Fingerprint:</span>
-                          <span className="font-semibold text-white font-mono break-all text-[10px] text-right max-w-full md:max-w-[200px]">
-                            {item.deviceFingerprint || 'N/A'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between border-b border-white/5 pb-1">
-                          <span className="text-zinc-500">Activation Status:</span>
-                          <span className={`font-semibold ${item.status === 'SUCCESS' ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {item.status}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-zinc-500">Handshake ID:</span>
-                          <span className="font-mono text-zinc-400 text-[10px]">{item.id}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+          return (
+            <div key={item.id} className={`log-row ${isExpanded ? 'is-open' : ''}`}>
+              {/* Collapsed header; when open, its halves move into the tops of the two detail cards */}
+              {!isExpanded && (
+                <div
+                  onClick={toggle}
+                  className="px-3 py-3 flex items-center justify-between gap-4 cursor-pointer select-none"
+                >
+                  {keyPart}
+                  {statusPart}
                 </div>
               )}
+
+              {/* Expandable details, animated via grid rows */}
+              <div
+                className={`grid transition-all duration-300 ease-in-out ${
+                  isExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                }`}
+              >
+                <div className="overflow-hidden">
+                  <div className="log-details">
+                    {item.errorMessage && (
+                      <div className="md:col-span-2 text-xs bg-rose-500/10 text-rose-500 px-3 py-2 rounded-xl flex items-center gap-2 font-medium">
+                        <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
+                        <span>{item.errorMessage}</span>
+                      </div>
+                    )}
+
+                    {/* Device & network */}
+                    <div className="metric-card">
+                      <div className="flex items-center gap-3 pb-3 border-b border-white/5">
+                        <span className="metric-icon">
+                          <Cpu className="w-4 h-4 text-accent-violet" />
+                        </span>
+                        <div className="min-w-0">
+                          <span className="block text-[11px] font-semibold text-foreground">Device & Network</span>
+                          <span className="block text-[10px] text-zinc-500">Hardware reported at handshake</span>
+                        </div>
+                        <span
+                          onClick={toggle}
+                          className="ml-auto text-[13px] font-semibold text-white font-mono truncate cursor-pointer select-none"
+                        >
+                          {item.activationKey}
+                        </span>
+                      </div>
+                      <div className="divide-y divide-white/5">
+                        <DetailRow icon={Laptop} label="Device Model">
+                          <span className="text-xs font-semibold text-white">{item.deviceModel}</span>
+                        </DetailRow>
+                        <DetailRow icon={Monitor} label="OS Version">
+                          <span className="text-xs font-semibold text-white">{item.deviceOS}</span>
+                        </DetailRow>
+                        <DetailRow icon={Globe} label="IP Address">
+                          <span className="text-xs font-semibold text-white">{item.ipAddress}</span>
+                        </DetailRow>
+                        <DetailRow icon={Clock} label="Monitored Time">
+                          <span className="text-xs font-semibold text-white">{formattedTime}</span>
+                        </DetailRow>
+                      </div>
+                    </div>
+
+                    {/* Security payload */}
+                    <div className="metric-card">
+                      <div className="flex items-center gap-3 pb-3 border-b border-white/5">
+                        <span className="metric-icon">
+                          <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                        </span>
+                        <div>
+                          <span className="block text-[11px] font-semibold text-foreground">Security Payload</span>
+                          <span className="block text-[10px] text-zinc-500">Signed license handshake</span>
+                        </div>
+                        <div onClick={toggle} className="ml-auto cursor-pointer select-none">
+                          {statusPart}
+                        </div>
+                      </div>
+                      <div className="divide-y divide-white/5">
+                        <DetailRow icon={KeyRound} label="License Alg">
+                          <span className="text-xs font-semibold text-white">ES256 · ECDSA</span>
+                        </DetailRow>
+                        <DetailRow icon={Fingerprint} label="Fingerprint">
+                          <span className="text-[10px] font-semibold text-white font-mono break-all max-w-[220px]">
+                            {item.deviceFingerprint || 'N/A'}
+                          </span>
+                          {item.deviceFingerprint && <CopyButton value={item.deviceFingerprint} />}
+                        </DetailRow>
+                        <DetailRow icon={BadgeCheck} label="Activation">
+                          <span className="text-xs font-semibold text-white">
+                            {item.status}
+                          </span>
+                        </DetailRow>
+                        <DetailRow icon={Hash} label="Handshake ID">
+                          <span className="text-xs font-semibold text-white font-mono truncate">{item.id}</span>
+                          <CopyButton value={item.id} />
+                        </DetailRow>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           );
         })

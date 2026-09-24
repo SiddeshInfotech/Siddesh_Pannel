@@ -1,6 +1,7 @@
 import React from 'react';
 import { School, Key, CreditCard } from 'lucide-react';
 import MetricCard from './MetricCard';
+import MetricGroup from './MetricGroup';
 import { getDashboardMetrics } from '@/app/actions';
 
 export default async function DashboardMetrics() {
@@ -10,7 +11,7 @@ export default async function DashboardMetrics() {
 
     <div className="space-y-6">
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <MetricGroup className="grid-cols-1 md:grid-cols-3">
         <MetricCard
           title="Total Schools"
           value={metrics.totalSchools.toString()}
@@ -32,7 +33,7 @@ export default async function DashboardMetrics() {
           badgeType="warning"
           icon={CreditCard}
         />
-      </div>
+      </MetricGroup>
     </div>
   );
 }

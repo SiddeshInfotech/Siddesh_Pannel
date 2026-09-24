@@ -101,105 +101,92 @@ const [vendorToDelete, setVendorToDelete] =
         });
     };
     return (
-        <div className="space-y-8 max-w-6xl mx-auto relative">
-            <GlassCard className="/40 border border-white/5 overflow-hidden p-0">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
+        <div className="space-y-6 relative">
+            <GlassCard className="overflow-hidden p-0">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-5">
                     <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-accent-violet/10 flex items-center justify-center">
-                            <Building2 className="w-5 h-5 text-accent-violet" />
-                        </div>
+                        <span className="metric-icon">
+                            <Building2 className="w-4 h-4 text-foreground" />
+                        </span>
                         <div>
-                            <h2 className="text-xl font-bold">
-                                Vendors
-                            </h2>
-                            <p className="text-sm text-zinc-500">
-                                Registered Vendors
-                            </p>
+                            <h2 className="text-base font-semibold text-foreground">Vendors</h2>
+                            <p className="page-subtitle !mt-0.5">{filteredVendors.length} registered</p>
                         </div>
                     </div>
-
-                    <div className="relative">
-                        <Search
-                            className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
-                            size={18}
-                        />
+                    <div className="relative w-full md:w-72">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
                         <input
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             placeholder="Search vendors..."
-                            className="pl-10 pr-4 py-2 rounded-xl border border-card-border bg-card text-sm w-72"
+                            className="field-input pl-9"
                         />
                     </div>
                 </div>
 
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
+                    <table className="ui-table">
                         <thead>
-                            <tr className="border-b border-white/5 text-[10px] uppercase font-bold text-zinc-500 tracking-wider">
-                                <th className="py-4 px-3.5">Vendor Name</th>
-                                <th className="py-4 px-3.5">Type</th>
-                                <th className="py-4 px-3.5">Category</th>
-                                <th className="py-4 px-3.5">Contact</th>
-                                <th className="py-4 px-3.5">Mobile</th>
-                                <th className="py-4 px-3.5">Email</th>
-                                <th className="py-4 px-3.5">City</th>
-                                <th className="py-4 px-3.5">Status</th>
-                                <th className="py-4 px-3.5">Date Added</th>
-                                <th className="py-4 px-3.5 text-right">Actions</th>
+                            <tr>
+                                <th>Vendor Name</th>
+                                <th>Type</th>
+                                <th>Category</th>
+                                <th>Contact</th>
+                                <th>Mobile</th>
+                                <th>Email</th>
+                                <th>City</th>
+                                <th>Status</th>
+                                <th>Date Added</th>
+                                <th className="num">Actions</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-white/5">
+                        <tbody>
                             {filteredVendors.length === 0 ? (
                                 <tr>
-                                    <td
-                                        colSpan={10}
-                                        className="text-center py-10 text-zinc-500"
-                                    >
+                                    <td colSpan={10} className="text-center !py-10">
                                         No vendors found.
                                     </td>
                                 </tr>
                             ) : (
                                 filteredVendors.map((vendor) => (
-                                    <tr key={vendor.dbId} className="hover:bg-white/[0.01] transition-colors group">
-                                        <td className="py-4 px-3.5">
+                                    <tr key={vendor.dbId}>
+                                        <td>
                                             <div className="flex items-center gap-3">
-                                                <div className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-                                                    <Building2 className="w-4.5 h-4.5 text-zinc-400" />
-                                                </div>
+                                                <span className="metric-icon">
+                                                    <Building2 className="w-4 h-4 text-foreground" />
+                                                </span>
                                                 <div>
-                                                    <h4 className="text-sm font-semibold text-white group-hover:text-accent-violet transition-colors">
-                                                        {vendor.vendorName}
-                                                    </h4>
-                                                    <p className="text-[10px] text-zinc-500 font-medium uppercase mt-0.5">ID: {vendor.vendorId}</p>
+                                                    <span className="block font-semibold text-foreground">{vendor.vendorName}</span>
+                                                    <span className="block text-[11px] text-zinc-500 mt-0.5">ID: {vendor.vendorId}</span>
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="py-4 px-3.5 text-xs text-zinc-400 font-semibold">{vendor.vendorType}</td>
-                                        <td className="py-4 px-3.5 text-xs text-zinc-400 font-medium">{vendor.businessCategory}</td>
-                                        <td className="py-4 px-3.5 text-xs text-zinc-400 font-medium">{vendor.contactPerson}</td>
-                                        <td className="py-4 px-3.5 text-xs text-zinc-400 font-mono">{vendor.mobile}</td>
-                                        <td className="py-4 px-3.5 text-xs text-zinc-400">{vendor.email}</td>
-                                        <td className="py-4 px-3.5 text-xs text-zinc-400 font-semibold">{vendor.city}</td>
-                                        <td className="py-4 px-3.5">
+                                        <td>{vendor.vendorType}</td>
+                                        <td>{vendor.businessCategory}</td>
+                                        <td>{vendor.contactPerson}</td>
+                                        <td className="font-mono">{vendor.mobile}</td>
+                                        <td>{vendor.email}</td>
+                                        <td>{vendor.city}</td>
+                                        <td>
     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                                             <StatusBadge status={vendor.status as any} />
                                         </td>
-                                        <td className="py-4 px-3.5">
-                                            <p className="text-xs font-semibold text-zinc-300">{vendor.dateAdded}</p>
-                                        </td>
-                                        <td className="py-4 px-3.5 text-right">
+                                        <td>{vendor.dateAdded}</td>
+                                        <td className="num">
                                             <div className="flex justify-end gap-2">
                                                 <Link
                                                     href={`/data/vendors/edit/${vendor.dbId}`}
-                                                    className="p-2 rounded-lg hover:bg-white/5 text-zinc-400 hover:text-white transition-colors"
+                                                    className="btn btn-secondary !h-8 !px-2.5"
+                                                    title="Edit Vendor"
                                                 >
-                                                    <Pencil size={16} />
+                                                    <Pencil className="w-3.5 h-3.5" />
                                                 </Link>
                                                 <button
                                                     onClick={() => confirmDelete(vendor)}
-                                                    className="p-2 rounded-lg hover:bg-rose-500/10 text-zinc-400 hover:text-rose-500 transition-colors"
+                                                    className="btn btn-secondary !h-8 !px-2.5 text-rose-500"
+                                                    title="Delete Vendor"
                                                 >
-                                                    <Trash2 size={16} />
+                                                    <Trash2 className="w-3.5 h-3.5" />
                                                 </button>
                                             </div>
                                         </td>
@@ -264,7 +251,7 @@ const [vendorToDelete, setVendorToDelete] =
             setVendorToDelete(null);
           }}
           disabled={isPending}
-          className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-zinc-300 rounded-xl transition-all"
+          className="btn btn-secondary"
         >
           Cancel
         </button>
@@ -272,7 +259,7 @@ const [vendorToDelete, setVendorToDelete] =
         <button
           onClick={handleDelete}
           disabled={isPending}
-          className="px-4 py-2 bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-xs font-semibold text-white rounded-xl"
+          className="btn btn-primary !bg-rose-600"
         >
           {isPending ? 'Deleting...' : 'Confirm Delete'}
         </button>

@@ -1,5 +1,4 @@
 import React from 'react';
-import GlassCard from './GlassCard';
 
 interface MetricCardProps {
   title: string;
@@ -7,6 +6,7 @@ interface MetricCardProps {
   badgeText: string;
   badgeType: 'positive' | 'stable' | 'warning' | 'neutral';
   icon: React.ComponentType<{ className?: string }>;
+  caption?: string;
   sparklineType?: 'bars' | 'wave' | 'progress' | 'none';
   progress?: number; // 0 to 100
 }
@@ -17,6 +17,7 @@ export default function MetricCard({
   badgeText,
   badgeType,
   icon: Icon,
+  caption,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
   sparklineType = 'none',
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -25,33 +26,35 @@ export default function MetricCard({
   const getBadgeStyles = () => {
     switch (badgeType) {
       case 'positive':
-        return 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20';
+        return 'text-emerald-500 bg-emerald-500/10';
       case 'stable':
-        return 'text-indigo-400 bg-indigo-500/10 border border-indigo-500/20';
+        return 'text-indigo-500 bg-indigo-500/10';
       case 'warning':
-        return 'text-amber-400 bg-amber-500/10 border border-amber-500/20';
+        return 'text-amber-500 bg-amber-500/10';
       default:
-        return 'text-zinc-400 bg-zinc-500/10 border border-zinc-500/20';
+        return 'text-zinc-500 bg-zinc-500/10';
     }
   };
 
   return (
-    <GlassCard className="relative overflow-hidden flex flex-col justify-between p-5 border border-white/5 backdrop-blur-xl">
-      {/* Header Info */}
-      <div className="flex justify-between items-start">
-        <div>
-          <p className="text-xs font-bold text-zinc-400 uppercase tracking-wider">{title}</p>
-          <h3 className="text-3xl font-extrabold text-white mt-2 tracking-tight">{value}</h3>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <span className="p-2 rounded-xl bg-white/5 border border-white/10">
-            <Icon className="w-4 h-4 text-zinc-300" />
-          </span>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${getBadgeStyles()}`}>
-            {badgeText}
-          </span>
-        </div>
+    <div className="metric-card flex flex-col gap-3">
+      {/* Header: icon box + title */}
+      <div className="flex items-center gap-3">
+        <span className="metric-icon">
+          <Icon className="w-4 h-4 text-foreground" />
+        </span>
+        <span className="text-[13px] font-semibold text-foreground">{title}</span>
       </div>
-    </GlassCard>
+
+      {/* Value + badge on one row */}
+      <div className="flex items-end justify-between gap-2">
+        <h3 className="text-3xl font-bold text-foreground tracking-tight leading-none">{value}</h3>
+        <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${getBadgeStyles()}`}>
+          {badgeText}
+        </span>
+      </div>
+
+      {caption && <span className="text-[10px] text-zinc-500">{caption}</span>}
+    </div>
   );
 }

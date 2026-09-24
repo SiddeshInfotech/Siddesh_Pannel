@@ -34,7 +34,7 @@ export default async function RootLayout({
             {/* Content Wrapper */}
             <div className={`flex-1 ${sessionExists ? 'ml-52' : ''} min-h-screen flex flex-col min-w-0`}>
               {/* Main Workspace */}
-              <main className="flex-1 p-8 overflow-y-auto">
+              <main className="flex-1 p-8 pl-4 overflow-y-auto">
                 {sessionExists ? children : <div className="min-h-screen w-full bg-[#09090b]" />}
               </main>
             </div>

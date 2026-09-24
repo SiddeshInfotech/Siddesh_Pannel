@@ -134,7 +134,7 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="w-52 bg-sidebar-custom sidebar-dashed-border mt-24 flex flex-col h-screen fixed left-0 top-0 z-40">
+    <aside className="w-52 bg-sidebar-custom mt-24 flex flex-col h-screen fixed left-0 top-0 z-40">
       {/* Brand Header */}
       <div className="p-6 pb-2 flex items-center gap-3 mt-[-100px]">
         <Image src="/lms-admin/siddesh_logo.png" alt="Siddesh Logo" width={40} height={40} className="w-10 h-10 object-contain rounded-xl" />
@@ -169,7 +169,8 @@ export default function Sidebar() {
                 isGroupOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
               }`}
             >
-              <div className="overflow-hidden flex flex-col gap-1">
+              <div className="overflow-hidden">
+                <div className="sidebar-tree">
                 {group.items.map((item) => {
                   const isActive = item.path 
                     ? pathname === item.path 
@@ -184,7 +185,7 @@ export default function Sidebar() {
 
                   if (item.subItems) {
                     return (
-                      <div key={item.label} className="space-y-1">
+                      <div key={item.label} className="sidebar-tree-item space-y-1">
                         <button
                           onClick={() => toggleDropdown(item.label)}
                           className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-[11px] font-medium group ${
@@ -233,18 +234,20 @@ export default function Sidebar() {
                   }
 
                   return (
-                    <Link
-                      key={item.path}
-                      href={item.path!}
-                      className={`flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-[11px] font-medium group ${
-                        isActive ? 'sidebar-nav-item-active' : 'sidebar-nav-item'
-                      }`}
-                    >
-                      <Icon className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 sidebar-nav-icon`} />
-                      {item.label} 
-                    </Link>
+                    <div key={item.path} className="sidebar-tree-item">
+                      <Link
+                        href={item.path!}
+                        className={`flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-[11px] font-medium group ${
+                          isActive ? 'sidebar-nav-item-active' : 'sidebar-nav-item'
+                        }`}
+                      >
+                        <Icon className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 sidebar-nav-icon`} />
+                        {item.label}
+                      </Link>
+                    </div>
                   );
                 })}
+                </div>
               </div>
             </div>
           </div>

@@ -18,30 +18,30 @@ export default function StatusBadge({ status }: StatusBadgeProps) {
       case 'OPERATIONAL':
       case 'SUCCESS':
       case 'VERIFIED':
-        return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        return 'bg-emerald-500/10 text-emerald-500';
       case 'Pending':
       case 'Pending Approval':
       case 'Awaiting Upload':
       case 'IN PROGRESS':
-        return 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
+        return 'bg-amber-500/10 text-amber-500';
       case 'LOW DENSITY':
-        return 'bg-sky-500/10 text-sky-400 border border-sky-500/20';
+        return 'bg-sky-500/10 text-sky-500';
       case 'COMPLETED':
-        return 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20';
+        return 'bg-indigo-500/10 text-indigo-500';
       case 'Revoked':
       case 'Unpaid':
       case 'Inactive':
-        return 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20';
+        return 'bg-zinc-500/10 text-zinc-400';
       case 'Tampering':
       case 'SYNC WARNING':
-        return 'bg-rose-500/10 text-rose-400 border border-rose-500/20 animate-pulse';
+        return 'bg-rose-500/10 text-rose-500 animate-pulse';
       default:
-        return 'bg-zinc-500/10 text-zinc-400 border border-zinc-500/20';
+        return 'bg-zinc-500/10 text-zinc-400';
     }
   };
 
   return (
-    <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider ${getStyles()}`}>
+    <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-[11px] font-semibold ${getStyles()}`}>
       {status}
     </span>
   );

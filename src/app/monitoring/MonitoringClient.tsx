@@ -29,6 +29,7 @@ import {
   ShieldAlert
 } from 'lucide-react';
 import MetricCard from '@/components/MetricCard';
+import MetricGroup from '@/components/MetricGroup';
 import StatusBadge from '@/components/StatusBadge';
 import GlassCard from '@/components/GlassCard';
 import CustomSelect from '@/components/CustomSelect';
@@ -371,8 +372,8 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
 
       {/* Count on the left, the controls that narrow it on the right — one row, so the
           number and the filters acting on it read as a single unit. */}
-      <div className="flex flex-col xl:flex-row xl:items-stretch gap-4">
-        <div className="w-full xl:w-[320px] xl:shrink-0">
+      <div className="flex flex-col xl:flex-row xl:items-start gap-4">
+        <MetricGroup className="w-full xl:w-[320px] xl:shrink-0">
           <MetricCard
             title="Total Devices"
             value={totalDevicesCount.toString()}
@@ -382,7 +383,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
             sparklineType="progress"
             progress={totalDevicesCount > 0 ? Math.min(100, (totalDevicesCount / 100) * 100) : 0}
           />
-        </div>
+        </MetricGroup>
 
         <div className="flex-1 min-w-0 flex flex-col justify-center gap-3 p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
           <div className="flex items-center justify-between gap-3">

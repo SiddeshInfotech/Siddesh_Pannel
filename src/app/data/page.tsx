@@ -3,7 +3,9 @@ import { getAdminSession } from '@/lib/auth';
 import { supabaseAdmin } from '@/lib/supabase';
 import DataTabs from './DataTabs';
 import MetricCard from '@/components/MetricCard';
-import { School, Building2, Users } from 'lucide-react';
+import MetricGroup from '@/components/MetricGroup';
+import PageHeader from '@/components/PageHeader';
+import { School, Building2, Users, Database } from 'lucide-react';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
@@ -107,9 +109,13 @@ export default async function SchoolsPage(props: { searchParams: Promise<{ [key:
   const totalParents = parentsData.length;
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
-      <div className="h-10" />
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div className="space-y-6 max-w-6xl mx-auto">
+      <PageHeader
+        title="Data"
+        description="Schools, vendors and parents registered on the platform."
+        icon={Database}
+      />
+      <MetricGroup className="grid-cols-1 md:grid-cols-3">
         <MetricCard
           title="Total Schools"
           value={totalSchools.toString()}
@@ -133,7 +139,7 @@ export default async function SchoolsPage(props: { searchParams: Promise<{ [key:
           badgeType="stable"
           icon={Users}
         />
-      </div>
+      </MetricGroup>
 
       <DataTabs
         initialSchools={schoolsData}

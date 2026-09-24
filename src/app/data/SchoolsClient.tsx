@@ -72,127 +72,94 @@ export default function SchoolsClient({ initialSchools }: SchoolsClientProps) {
   };
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto relative">
-      {/* Spacer to maintain layout height */}
-
-
-     
-
-      {/* Directory Table Grid */}
-      <GlassCard className="/40 border border-white/5 overflow-hidden p-0">
-                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-      
-                          <div className="flex items-center gap-3">
-      
-                              <div className="w-10 h-10 rounded-xl bg-accent-violet/10 flex items-center justify-center">
-      
-                                  <Building2 className="w-5 h-5 text-accent-violet" />
-      
-                              </div>
-      
-                              <div>
-      
-                                  <h2 className="text-xl font-bold">
-                                      Schools
-                                  </h2>
-      
-                                  <p className="text-sm text-zinc-500">
-                                      Registered Schools
-                                  </p>
-      
-                              </div>
-      
-                          </div>
-      
-                          <div className="relative">
-      
-                              <Search
-                                  className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
-                                  size={18}
-                              />
-      
-                              <input
-                                  value={search}
-                                  onChange={(e) => setSearch(e.target.value)}
-                                  placeholder="Search schools..."
-                                  className="pl-10 pr-4 py-2 rounded-xl border border-card-border bg-card text-sm w-72"
-                              />
-      
-                          </div>
-      
-                      </div>
+    <div className="space-y-6 relative">
+      {/* Directory Table */}
+      <GlassCard className="overflow-hidden p-0">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-5">
+          <div className="flex items-center gap-3">
+            <span className="metric-icon">
+              <Building2 className="w-4 h-4 text-foreground" />
+            </span>
+            <div>
+              <h2 className="text-base font-semibold text-foreground">Schools</h2>
+              <p className="page-subtitle !mt-0.5">{schools.length} registered</p>
+            </div>
+          </div>
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search schools..."
+              className="field-input pl-9"
+            />
+          </div>
+        </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="ui-table">
             <thead>
-              <tr className="border-b border-white/5 text-[10px] uppercase font-bold text-zinc-500 tracking-wider">
-                <th className="py-4 px-3.5">School Name</th>
-                <th className="py-4 px-3.5">Board</th>
-                <th className="py-4 px-3.5">Grade / Section</th>
-                <th className="py-4 px-3.5">Full Class Name</th>
-                <th className="py-4 px-3.5">Academic Year</th>
-                <th className="py-4 px-3.5">Mediums</th>
-                <th className="py-4 px-3.5">Devices</th>
-                <th className="py-4 px-3.5">Status</th>
-                <th className="py-4 px-3.5">Last Sync</th>
-                <th className="py-4 px-3.5 text-right">Actions</th>
+              <tr>
+                <th>School Name</th>
+                <th>Board</th>
+                <th>Grade / Section</th>
+                <th>Full Class Name</th>
+                <th>Academic Year</th>
+                <th>Mediums</th>
+                <th className="num">Devices</th>
+                <th>Status</th>
+                <th>Last Sync</th>
+                <th className="num">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody>
               {schools.map(sch => {
                 return (
-                  <tr key={sch.dbId} className="hover:bg-white/[0.01] transition-colors group">
-                    <td className="py-4 px-3.5">
+                  <tr key={sch.dbId}>
+                    <td>
                       <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center">
-                          <SchoolIcon className="w-4.5 h-4.5 text-zinc-400" />
-                        </div>
+                        <span className="metric-icon">
+                          <SchoolIcon className="w-4 h-4 text-foreground" />
+                        </span>
                         <div>
-                          <h4 className="text-sm font-semibold text-white group-hover:text-accent-violet transition-colors">
-                            {sch.name}
-                          </h4>
-                          <p className="text-[10px] text-zinc-500 font-medium uppercase mt-0.5">ID: {sch.id}</p>
+                          <span className="block font-semibold text-foreground">{sch.name}</span>
+                          <span className="block text-[11px] text-zinc-500 mt-0.5">ID: {sch.id}</span>
                         </div>
                       </div>
                     </td>
-                    <td className="py-4 px-3.5 text-sm font-bold text-zinc-300">{sch.board}</td>
-                    <td className="py-4 px-3.5 text-xs text-zinc-400 font-semibold">{sch.standard} / {sch.section}</td>
-                    <td className="py-4 px-3.5 text-xs text-zinc-400 font-medium">{sch.fullClassName}</td>
-                    <td className="py-4 px-3.5 text-xs text-zinc-400 font-mono">{sch.academicYear}</td>
-                    <td className="py-4 px-3.5">
+                    <td className="font-semibold">{sch.board}</td>
+                    <td>{sch.standard} / {sch.section}</td>
+                    <td>{sch.fullClassName}</td>
+                    <td className="font-mono">{sch.academicYear}</td>
+                    <td>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {sch.mediums.map((med: string) => (
-                          <span key={med} className="text-[10px] px-2 py-0.5 rounded bg-white/5 border border-white/5 text-zinc-400 font-medium">
+                          <span key={med} className="log-chip">
                             {med}
                           </span>
                         ))}
                       </div>
                     </td>
-                    <td className="py-4 px-3.5 text-sm font-bold text-zinc-300">
-                      {sch.devicesUsed}
-                    </td>
-                    <td className="py-4 px-3.5">
+                    <td className="num font-semibold">{sch.devicesUsed}</td>
+                    <td>
     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                       <StatusBadge status={sch.status as any} />
                     </td>
-                    <td className="py-4 px-3.5">
-                      <div>
-                        <p className="text-xs font-semibold text-zinc-300">{sch.lastSync}</p>
-                        <p className="text-[9px] font-medium text-zinc-500 mt-0.5 tracking-wider">{sch.gateway}</p>
-                      </div>
+                    <td>
+                      <span className="block font-medium">{sch.lastSync}</span>
+                      <span className="block text-[11px] text-zinc-500 mt-0.5">{sch.gateway}</span>
                     </td>
-                    <td className="py-4 px-3.5 text-right">
+                    <td className="num">
                       <div className="flex items-center justify-end gap-2">
-                        <Link 
+                        <Link
                           href={`/schools/edit/${sch.dbId}`}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-xs font-bold text-zinc-300 hover:border-accent-violet hover:text-white transition-all cursor-pointer"
+                          className="btn btn-secondary !h-8 !px-2.5"
                           title="Edit Details"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </Link>
-                        
-                        <button 
+                        <button
                           onClick={() => confirmDelete(sch)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-lg text-xs font-bold text-rose-400 hover:text-rose-300 transition-all cursor-pointer"
+                          className="btn btn-secondary !h-8 !px-2.5 text-rose-500"
                           title="Delete School"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -245,14 +212,14 @@ export default function SchoolsClient({ initialSchools }: SchoolsClientProps) {
                   setSchoolToDelete(null);
                 }}
                 disabled={isPending}
-                className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-zinc-300 rounded-xl transition-all cursor-pointer disabled:opacity-50"
+                className="btn btn-secondary"
               >
                 Cancel
               </button>
               <button
                 onClick={handleDelete}
                 disabled={isPending}
-                className="px-4 py-2 bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-xs font-semibold text-white rounded-xl shadow-[0_0_15px_rgba(239,68,68,0.25)] transition-all cursor-pointer disabled:opacity-50"
+                className="btn btn-primary !bg-rose-600"
               >
                 {isPending ? 'Deleting...' : 'Confirm Delete'}
               </button>

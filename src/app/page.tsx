@@ -14,16 +14,13 @@ export default async function DashboardPage() {
     <div className="space-y-8 max-w-6xl mx-auto">
       <div className="h-10" />
 
-      {/* Metrics Row streaming via Suspense */}
-      <Suspense fallback={<MetricsSkeleton />}>
-        <DashboardMetrics />
-      </Suspense>
+      <div className="space-y-4">
+        {/* Metrics Row streaming via Suspense */}
+        <Suspense fallback={<MetricsSkeleton />}>
+          <DashboardMetrics />
+        </Suspense>
 
-      {/* Grid Content Layout using Lazy Loaded Tabs */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        <div className="lg:col-span-12">
-          <DashboardTabs />
-        </div>
+        <DashboardTabs />
       </div>
     </div>
   );

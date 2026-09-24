@@ -85,71 +85,75 @@ export default function ParentsClient({
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-center">
-                <div className="relative w-full max-w-sm">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-                    <input
-                        type="text"
-                        placeholder="Search parents..."
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/10 rounded-xl text-sm outline-none focus:border-accent-violet transition-all text-white"
-                    />
+            <GlassCard className="overflow-hidden p-0">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-5">
+                    <div className="flex items-center gap-3">
+                        <span className="metric-icon">
+                            <Users className="w-4 h-4 text-foreground" />
+                        </span>
+                        <div>
+                            <h2 className="text-base font-semibold text-foreground">Parents</h2>
+                            <p className="page-subtitle !mt-0.5">{filteredParents.length} registered</p>
+                        </div>
+                    </div>
+                    <div className="relative w-full md:w-72">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                        <input
+                            type="text"
+                            placeholder="Search parents..."
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            className="field-input pl-9"
+                        />
+                    </div>
                 </div>
-            </div>
 
-            <GlassCard className="overflow-hidden">
                 <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
+                    <table className="ui-table">
                         <thead>
-                            <tr className="border-b border-white/10 text-xs text-zinc-400">
-                                <th className="p-4 font-semibold">PARENT ID</th>
-                                <th className="p-4 font-semibold">PARENT NAME</th>
-                                <th className="p-4 font-semibold">KID&apos;S NAME</th>
-                                <th className="p-4 font-semibold">GRADE</th>
-                                <th className="p-4 font-semibold">CONTACT</th>
-                                <th className="p-4 font-semibold">STATUS</th>
-                                <th className="p-4 font-semibold text-right">ACTIONS</th>
+                            <tr>
+                                <th>Parent ID</th>
+                                <th>Parent Name</th>
+                                <th>Kid&apos;s Name</th>
+                                <th>Grade</th>
+                                <th>Contact</th>
+                                <th>Status</th>
+                                <th className="num">Actions</th>
                             </tr>
                         </thead>
-                        <tbody className="text-sm divide-y divide-white/5">
+                        <tbody>
                             {filteredParents.map((parent) => (
-                                <tr key={parent.dbId} className="hover:bg-white/5 transition-colors group">
-                                    <td className="p-4">
+                                <tr key={parent.dbId}>
+                                    <td>
                                         <div className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full bg-accent-blue/10 flex items-center justify-center shrink-0">
-                                                <Users className="w-4 h-4 text-accent-blue" />
-                                            </div>
-                                            <span className="font-mono text-xs text-zinc-300">{parent.parentId}</span>
+                                            <span className="metric-icon">
+                                                <Users className="w-4 h-4 text-foreground" />
+                                            </span>
+                                            <span className="font-mono">{parent.parentId}</span>
                                         </div>
                                     </td>
-                                    <td className="p-4 font-semibold text-white">
-                                        {parent.parentName}
+                                    <td className="font-semibold text-foreground">{parent.parentName}</td>
+                                    <td>{parent.kidName}</td>
+                                    <td>{parent.grade}</td>
+                                    <td>
+                                        <span className="block">{parent.mobile}</span>
+                                        <span className="block text-[11px] text-zinc-500 mt-0.5">{parent.email}</span>
                                     </td>
-                                    <td className="p-4 text-zinc-400">
-                                        {parent.kidName}
-                                    </td>
-                                    <td className="p-4 text-zinc-400">
-                                        {parent.grade}
-                                    </td>
-                                    <td className="p-4">
-                                        <div className="text-zinc-300">{parent.mobile}</div>
-                                        <div className="text-xs text-zinc-500">{parent.email}</div>
-                                    </td>
-                                    <td className="p-4">
+                                    <td>
                                         <StatusBadge status={parent.status as StatusType} />
                                     </td>
-                                    <td className="p-4">
-                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <td className="num">
+                                        <div className="flex items-center justify-end gap-2">
                                             {/* We can add an edit page later: href={`/parents/edit/${parent.dbId}`} */}
-                                            <Link href={'#'} className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors">
-                                                <Pencil className="w-4 h-4" />
+                                            <Link href={'#'} className="btn btn-secondary !h-8 !px-2.5" title="Edit Parent">
+                                                <Pencil className="w-3.5 h-3.5" />
                                             </Link>
-                                            <button 
+                                            <button
                                                 onClick={() => confirmDelete(parent)}
-                                                className="p-2 hover:bg-rose-500/20 rounded-lg text-zinc-400 hover:text-rose-400 transition-colors cursor-pointer"
+                                                className="btn btn-secondary !h-8 !px-2.5 text-rose-500"
+                                                title="Delete Parent"
                                             >
-                                                <Trash2 className="w-4 h-4" />
+                                                <Trash2 className="w-3.5 h-3.5" />
                                             </button>
                                         </div>
                                     </td>
@@ -157,7 +161,7 @@ export default function ParentsClient({
                             ))}
                             {filteredParents.length === 0 && (
                                 <tr>
-                                    <td colSpan={7} className="p-8 text-center text-zinc-500 text-sm">
+                                    <td colSpan={7} className="text-center !py-10">
                                         No parents found matching your search.
                                     </td>
                                 </tr>
