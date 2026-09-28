@@ -6,7 +6,7 @@ import {
   CheckCircle2, AlertTriangle, X, CalendarX, Ban, Replace, Loader2, Info,
 } from 'lucide-react';
 import CustomSelect from '@/components/CustomSelect';
-import { PRODUCT_FILTER_OPTIONS, UNRESOLVED_PRODUCT_FILTER_VALUE, productDisplayName } from '@/lib/productIdentity';
+import { productFilterOptionsFor, UNRESOLVED_PRODUCT_FILTER_VALUE, productDisplayName } from '@/lib/productIdentity';
 import { tierStyle } from '@/lib/tierStyle';
 import { getKeyTimeline } from './actions';
 import { IST, SECURITY_EVENT_TYPES, humanDuration, type Device, type Ev, type KeyState } from './shared';
@@ -95,9 +95,9 @@ const dayLabelFor = (dayKey: string) =>
 type TimelineState = { status: 'loading' | 'ready' | 'error'; events: Ev[]; error?: string };
 
 export default function UpdateClient({
-  devices, securityEvents, onlineCount, serverTime,
+  devices, securityEvents, onlineCount, serverTime, panel,
 }: {
-  devices: Device[]; securityEvents: Ev[]; onlineCount: number; serverTime: string;
+  devices: Device[]; securityEvents: Ev[]; onlineCount: number; serverTime: string; panel: 'lms' | 'lab';
 }) {
   const [q, setQ] = useState('');
   const [productFilter, setProductFilter] = useState<string>('all');
@@ -264,7 +264,7 @@ export default function UpdateClient({
           <CustomSelect value={statusFilter} onChange={(val) => setStatusFilter(val as StatusFilter)} options={statusOptions} />
         </div>
         <div className="w-[190px] flex-shrink-0">
-          <CustomSelect value={productFilter} onChange={(val) => setProductFilter(val)} options={PRODUCT_FILTER_OPTIONS} />
+          <CustomSelect value={productFilter} onChange={(val) => setProductFilter(val)} options={productFilterOptionsFor(panel)} />
         </div>
         <button
           type="button"

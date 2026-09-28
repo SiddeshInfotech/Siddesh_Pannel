@@ -1,6 +1,5 @@
 'use server';
 
-import { supabaseAdmin } from '@/lib/supabase';
 import { revalidatePath } from 'next/cache';
 import { getAdminSession } from '@/lib/auth';
 import { sanitize } from '@/lib/sanitize';
@@ -9,6 +8,7 @@ import { logger } from '@/lib/logger';
 import { ActionResult, fail, ok } from '@/lib/actionResult';
 import fs from 'fs';
 import path from 'path';
+import { adminDb } from '@/lib/panelTables';
 
 // Define Zod validation schema for vendor fields
 const CreateVendorSchema = z.object({
@@ -116,7 +116,7 @@ export async function createVendor(formData: any /* eslint-disable-line @typescr
 
   // Try saving to Supabase vendors table
   try {
-    const { data: newVendor, error } = await supabaseAdmin
+    const { data: newVendor, error } = await (await adminDb())
       .from('vendors')
       .insert(vendorPayload)
       .select('vendor_id')

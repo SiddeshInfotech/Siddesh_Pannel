@@ -19,7 +19,7 @@ export default function DataTabs({
   initialSchools,
   initialVendors,
   initialParents,
-  initialTab = 'schools',
+  initialTab = 'vendors',
 }: DataTabsProps) {
   const [activeTab, setActiveTab] = useState<'schools' | 'vendors' | 'parents'>(initialTab);
   const [prevInitialTab, setPrevInitialTab] = useState(initialTab);
@@ -29,53 +29,48 @@ export default function DataTabs({
     setActiveTab(initialTab);
   }
 
+  const tabsNode = (
+    <div className="flex h-10 p-1 items-center gap-1 bg-[var(--surface-hover)] rounded-full w-fit">
+      <button
+        onClick={() => setActiveTab('vendors')}
+        className={`px-6 h-full flex items-center justify-center rounded-full text-[13px] font-semibold transition-all duration-300 ${
+          activeTab === 'vendors' 
+            ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm border border-[var(--card-border)]' 
+            : 'text-[var(--text-muted)] hover:text-[var(--foreground)]'
+        }`}
+      >
+        Vendors
+      </button>
+
+      <button
+        onClick={() => setActiveTab('schools')}
+        className={`px-6 h-full flex items-center justify-center rounded-full text-[13px] font-semibold transition-all duration-300 ${
+          activeTab === 'schools' 
+            ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm border border-[var(--card-border)]' 
+            : 'text-[var(--text-muted)] hover:text-[var(--foreground)]'
+        }`}
+      >
+        Schools
+      </button>
+
+      <button
+        onClick={() => setActiveTab('parents')}
+        className={`px-6 h-full flex items-center justify-center rounded-full text-[13px] font-semibold transition-all duration-300 ${
+          activeTab === 'parents' 
+            ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm border border-[var(--card-border)]' 
+            : 'text-[var(--text-muted)] hover:text-[var(--foreground)]'
+        }`}
+      >
+        Parents
+      </button>
+    </div>
+  );
+
   return (
-    <div className="space-y-6">
-      {/* Tabs Header */}
-      <div className="flex gap-8 px-2 tab-header-border">
-        <button
-          onClick={() => setActiveTab('schools')}
-          className={`pt-2 pb-4 px-4 rounded-t-xl text-sm font-bold transition-all relative tab-button-hover ${
-            activeTab === 'schools' ? 'active-tab-text' : 'inactive-tab-text'
-          }`}
-        >
-          Schools
-          {activeTab === 'schools' && (
-            <div className="absolute bottom-[-1px] left-4 right-4 h-[1.5px] active-tab-line" />
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('vendors')}
-          className={`pt-2 pb-4 px-4 rounded-t-xl text-sm font-bold transition-all relative tab-button-hover ${
-            activeTab === 'vendors' ? 'active-tab-text' : 'inactive-tab-text'
-          }`}
-        >
-          Vendors
-          {activeTab === 'vendors' && (
-            <div className="absolute bottom-[-1px] left-4 right-4 h-[1.5px] active-tab-line" />
-          )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('parents')}
-          className={`pt-2 pb-4 px-4 rounded-t-xl text-sm font-bold transition-all relative tab-button-hover ${
-            activeTab === 'parents' ? 'active-tab-text' : 'inactive-tab-text'
-          }`}
-        >
-          Parents
-          {activeTab === 'parents' && (
-            <div className="absolute bottom-[-1px] left-4 right-4 h-[1.5px] active-tab-line" />
-          )}
-        </button>
-      </div>
-
-      {/* Tab Content */}
-      <div className="transition-all duration-300">
-        {activeTab === 'schools' && <SchoolsClient initialSchools={initialSchools} />}
-        {activeTab === 'vendors' && <VendorsClient initialVendors={initialVendors} />}
-        {activeTab === 'parents' && <ParentsClient initialParents={initialParents} />}
-      </div>
+    <div className="transition-all duration-300">
+      {activeTab === 'schools' && <SchoolsClient initialSchools={initialSchools} tabsNode={tabsNode} />}
+      {activeTab === 'vendors' && <VendorsClient initialVendors={initialVendors} tabsNode={tabsNode} />}
+      {activeTab === 'parents' && <ParentsClient initialParents={initialParents} tabsNode={tabsNode} />}
     </div>
   );
 }

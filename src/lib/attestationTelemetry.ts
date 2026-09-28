@@ -1,4 +1,4 @@
-import { supabaseAdmin } from '@/lib/supabase';
+import { panelDb, panelForProduct } from '@/lib/panelTables';
 import { logger } from '@/lib/logger';
 import type { ServerAttestationTier } from '@/lib/attestationPolicy';
 
@@ -121,12 +121,14 @@ export async function recordAttestationIssue(input: AttestationIssueInput): Prom
   if (!isSecurity && !isHealth) return; // UNSUPPORTED / VERIFIED_* — nothing to record
 
   const eventType = isSecurity ? EVENT_TYPE_SECURITY : EVENT_TYPE_HEALTH;
+  // Lab products' events go to Lab-Admin's lab_device_timeline (src/lib/panelTables.ts).
+  const db = panelDb(panelForProduct(input.product));
   const reasonCode = classifyAttestationReason(input.rawReason);
   const reasonDetail = sanitizeReasonDetail(input.rawReason);
   const nowIso = new Date().toISOString();
 
   try {
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await db
       .from('device_timeline')
       .select('id, created_at, detail')
       .eq('device_fingerprint', input.deviceFingerprint)
@@ -142,7 +144,7 @@ export async function recordAttestationIssue(input: AttestationIssueInput): Prom
 
     if (existing && withinWindow && sameReason) {
       const priorCount = typeof existingDetail.count === 'number' ? existingDetail.count : 1;
-      const { error } = await supabaseAdmin
+      const { error } = await db
         .from('device_timeline')
         .update({
           detail: {
@@ -159,7 +161,7 @@ export async function recordAttestationIssue(input: AttestationIssueInput): Prom
       return;
     }
 
-    const { error } = await supabaseAdmin.from('device_timeline').insert({
+    const { error } = await db.from('device_timeline').insert({
       device_fingerprint: input.deviceFingerprint,
       school_id: null,
       vendor_id: null,

@@ -31,10 +31,12 @@ interface Parent {
 
 interface ParentsClientProps {
     initialParents: Parent[];
+    tabsNode?: React.ReactNode;
 }
 
 export default function ParentsClient({
     initialParents,
+    tabsNode,
 }: ParentsClientProps) {
     const [parents, setParents] = useState(initialParents);
     const [search, setSearch] = useState('');
@@ -85,17 +87,9 @@ export default function ParentsClient({
 
     return (
         <div className="space-y-6">
-            <GlassCard className="overflow-hidden p-0">
-                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 p-5">
-                    <div className="flex items-center gap-3">
-                        <span className="metric-icon">
-                            <Users className="w-4 h-4 text-foreground" />
-                        </span>
-                        <div>
-                            <h2 className="text-base font-semibold text-foreground">Parents</h2>
-                            <p className="page-subtitle !mt-0.5">{filteredParents.length} registered</p>
-                        </div>
-                    </div>
+            <GlassCard className="overflow-hidden !p-0">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-6 pt-5 pb-2">
+                    {tabsNode}
                     <div className="relative w-full md:w-72">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
                         <input
@@ -108,7 +102,7 @@ export default function ParentsClient({
                     </div>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto px-6 pb-6">
                     <table className="ui-table">
                         <thead>
                             <tr>
@@ -123,7 +117,7 @@ export default function ParentsClient({
                         </thead>
                         <tbody>
                             {filteredParents.map((parent) => (
-                                <tr key={parent.dbId}>
+                                <tr key={parent.dbId} className="bg-surface-hover">
                                     <td>
                                         <div className="flex items-center gap-3">
                                             <span className="metric-icon">

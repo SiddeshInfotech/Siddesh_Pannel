@@ -1,13 +1,13 @@
 import React from 'react';
 import { getAdminSession } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
 import SchoolsClient from './SchoolsClient';
+import { adminDb } from '@/lib/panelTables';
 
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
 async function getSchoolsData() {
-  const { data: schools, error } = await supabaseAdmin
+  const { data: schools, error } = await (await adminDb())
     .from('schools')
     .select('*')
     .order('created_at', { ascending: false });

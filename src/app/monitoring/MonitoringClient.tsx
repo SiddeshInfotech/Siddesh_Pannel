@@ -35,7 +35,7 @@ import GlassCard from '@/components/GlassCard';
 import CustomSelect from '@/components/CustomSelect';
 import { deactivateDevice } from './actions';
 import { useToast } from '@/components/Toast';
-import { PRODUCT_FILTER_OPTIONS, UNRESOLVED_PRODUCT_FILTER_VALUE } from '@/lib/productIdentity';
+import { productFilterOptionsFor, UNRESOLVED_PRODUCT_FILTER_VALUE, isProductId, productDisplayName } from '@/lib/productIdentity';
 import { tierStyle } from '@/lib/tierStyle';
 
 interface DeviceRow {
@@ -223,6 +223,10 @@ function productStyle(product: string | null): { label: string; cls: string } {
     case 'LMS_SCHOOL_LINUX':
       return { label: 'LMS School · Linux', cls: 'bg-indigo-500/10 border-indigo-500/25 text-indigo-400' };
     default:
+      // The 4 booklet Lab products (LAB_STEM_ANDROID, …): label from the canonical registry.
+      if (key && isProductId(key)) {
+        return { label: productDisplayName(key), cls: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400' };
+      }
       return { label: 'Unknown', cls: 'bg-white/5 border-white/10 text-zinc-400' };
   }
 }
@@ -230,13 +234,14 @@ function productStyle(product: string | null): { label: string; cls: string } {
 interface MonitoringClientProps {
   initialDevices: DeviceRow[];
   totalDevicesCount: number;
+  panel: 'lms' | 'lab';
 }
 
 // Rows per page in the device table. Each row is wide and detail-heavy, so a page of 10
 // fills the viewport without forcing an endless scroll on a large fleet.
 const DEVICES_PER_PAGE = 10;
 
-export default function MonitoringClient({ initialDevices, totalDevicesCount }: MonitoringClientProps) {
+export default function MonitoringClient({ initialDevices, totalDevicesCount, panel }: MonitoringClientProps) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [search, setSearch] = useState('');
@@ -420,7 +425,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount }: 
               <CustomSelect
                 value={productFilter}
                 onChange={val => { setProductFilter(val); setPage(1); }}
-                options={PRODUCT_FILTER_OPTIONS}
+                options={productFilterOptionsFor(panel)}
               />
             </div>
           </div>

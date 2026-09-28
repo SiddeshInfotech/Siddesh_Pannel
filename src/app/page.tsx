@@ -11,9 +11,9 @@ export default async function DashboardPage() {
   if (!session) return null;
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto">
-      <div className="h-10" />
-
+    <div className="space-y-8 w-full">
+      <div className="h-6" />
+      
       <div className="space-y-4">
         {/* Metrics Row streaming via Suspense */}
         <Suspense fallback={<MetricsSkeleton />}>

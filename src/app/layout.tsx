@@ -26,15 +26,15 @@ export default async function RootLayout({
           <AuthWrapper sessionExists={sessionExists}>
             {/* Sidebar Nav */}
             {sessionExists && (
-              <Suspense fallback={<div className="w-52 h-screen bg-sidebar-custom fixed left-0 top-0"></div>}>
-                <Sidebar />
+              <Suspense fallback={<div className="w-40 h-screen bg-surface-hover border-r border-sidebar-border fixed left-0 top-0 rounded-r-[14px]"></div>}>
+                <Sidebar panel={session?.panel} />
               </Suspense>
             )}
 
             {/* Content Wrapper */}
-            <div className={`flex-1 ${sessionExists ? 'ml-52' : ''} min-h-screen flex flex-col min-w-0`}>
+            <div className={`flex-1 ${sessionExists ? 'ml-40' : ''} min-h-screen flex flex-col min-w-0`}>
               {/* Main Workspace */}
-              <main className="flex-1 p-8 pl-4 overflow-y-auto">
+              <main className="flex-1 pt-8 pb-8 pl-4 pr-4 overflow-y-auto">
                 {sessionExists ? children : <div className="min-h-screen w-full bg-[#09090b]" />}
               </main>
             </div>

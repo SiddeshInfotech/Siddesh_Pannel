@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { LAB_COURSES, LAB_SCOPE_MAX, labScopeIds } from '../labCourses';
+import { LAB_COURSES, LAB_SCOPE_MAX, labScopeIds, labScopeIdsForPackage, masterCekFor, LAB_MASTER_CEK_ENV } from '../labCourses';
+import { PRODUCT_DEFINITIONS, labPackageFor } from '../productIdentity';
 
 describe('LMS Lab course registry', () => {
   it('numbers are unique and contiguous from 1 (a gap or reuse would strand encrypted content)', () => {
@@ -30,5 +31,31 @@ describe('LMS Lab course registry', () => {
     expect(scopes[0]).toBe('course_1');
     expect(scopes.at(-1)).toBe(`course_${LAB_SCOPE_MAX}`);
     expect(LAB_SCOPE_MAX).toBeGreaterThan(Math.max(...LAB_COURSES.map((c) => c.number)));
+  });
+});
+
+describe('LMS Lab products (booklet packages)', () => {
+  it('each package carries only its booklet courses; composite keeps every scope', () => {
+    expect(labScopeIdsForPackage('stem')).toEqual(['course_1', 'course_2', 'course_3', 'course_10']);
+    expect(labScopeIdsForPackage('robodrone')).toEqual(['course_1', 'course_2', 'course_5', 'course_10']);
+    expect(labScopeIdsForPackage('iotrobo')).toEqual(['course_1', 'course_2', 'course_3', 'course_10']);
+    expect(labScopeIdsForPackage('aifuture')).toEqual(
+      ['course_1', 'course_3', 'course_4', 'course_6', 'course_7', 'course_8', 'course_9', 'course_10']
+    );
+    expect(labScopeIdsForPackage('composite')).toEqual(labScopeIds());
+  });
+
+  it('every lab product maps to a package and School products to none', () => {
+    for (const p of PRODUCT_DEFINITIONS) {
+      expect(labPackageFor(p.id) === null).toBe(p.family === 'school');
+    }
+  });
+
+  it('each package reads its own master key and fails closed when unset', () => {
+    const env = { LMS_MASTER_CEK: 'composite-master', LMS_LAB_MASTER_CEK_STEM: 'stem-master' };
+    expect(masterCekFor('composite', env)).toBe('composite-master');
+    expect(masterCekFor('stem', env)).toBe('stem-master');
+    expect(masterCekFor('aifuture', env)).toBeNull();
+    expect(new Set(Object.values(LAB_MASTER_CEK_ENV)).size).toBe(5);
   });
 });

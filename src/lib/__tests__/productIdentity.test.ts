@@ -122,16 +122,19 @@ describe('monitoring consistency: same signals always resolve to the same produc
 });
 
 describe('filter completeness', () => {
-  it('exactly 5 canonical products exist, matching the business requirement', () => {
-    expect(PRODUCT_DEFINITIONS).toHaveLength(5);
+  it('2 School products + 5 Lab products x 3 OS exist, matching the business requirement', () => {
+    expect(PRODUCT_DEFINITIONS).toHaveLength(17);
+    const labIds = ['STEM', 'ROBODRONE', 'IOTROBO', 'AIFUTURE'].flatMap((p) =>
+      ['ANDROID', 'WINDOWS', 'LINUX'].map((os) => `LAB_${p}_${os}`)
+    );
     expect(new Set(PRODUCT_IDS)).toEqual(
-      new Set(['LMS_SCHOOL_ANDROID', 'LMS_SCHOOL_WINDOWS', 'LMS_LAB_ANDROID', 'LMS_LAB_WINDOWS', 'LMS_LAB_LINUX'])
+      new Set(['LMS_SCHOOL_ANDROID', 'LMS_SCHOOL_WINDOWS', 'LMS_LAB_ANDROID', 'LMS_LAB_WINDOWS', 'LMS_LAB_LINUX', ...labIds])
     );
   });
 
   it('"All Products" is the first filter option and is a superset (no-op filter)', () => {
     expect(PRODUCT_FILTER_OPTIONS[0]).toEqual({ value: 'all', label: 'All Products' });
-    expect(PRODUCT_FILTER_OPTIONS).toHaveLength(7); // 'all' + the 5 products + 'unresolved'
+    expect(PRODUCT_FILTER_OPTIONS).toHaveLength(19); // 'all' + the 17 products + 'unresolved'
     expect(PRODUCT_FILTER_OPTIONS[PRODUCT_FILTER_OPTIONS.length - 1].value).toBe(UNRESOLVED_PRODUCT_FILTER_VALUE);
   });
 

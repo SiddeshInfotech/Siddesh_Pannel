@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { supabaseAdmin } from '@/lib/supabase';
+import { panelDb, panelForProduct } from '@/lib/panelTables';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
@@ -10,10 +11,10 @@ import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
 import { signPayload } from '@/lib/licenseSign';
 import { resolveEffectiveProductId, resolveLegacyProductId, checkProductMatch } from '@/lib/product';
-import { PRODUCT_ID_ENUM, productDisplayName, familyFor, isProductId } from '@/lib/productIdentity';
+import { PRODUCT_ID_ENUM, productDisplayName, isProductId, labPackageFor } from '@/lib/productIdentity';
 import { entityRefFromRow, resolveEntity, isEntitledToAll } from '@/lib/entity';
 import { shouldEnforceAttestation, deriveServerTier, validateAttestationConfig } from '@/lib/attestationPolicy';
-import { labScopeIds } from '@/lib/labCourses';
+import { LAB_MASTER_CEK_ENV, labScopeIdsForPackage, masterCekFor } from '@/lib/labCourses';
 import { recordAttestationIssue } from '@/lib/attestationTelemetry';
 import { isPanelKey, isPanelActivationWindowClosed, DEVICE_CLASS_MANAGED_PANEL } from '@/lib/deviceClass';
 import { wrapToPublicKey } from '@/lib/deviceWrap';
@@ -167,7 +168,7 @@ async function logHandshake(data: {
   productId?: string; // precomputed canonical product id; falls back to the legacy heuristic
 }) {
   const productId = data.productId ?? resolveLegacyProductId({ deviceOs: data.deviceOS, securityTier: data.securityTier });
-  await supabaseAdmin.from('handshake_logs').insert({
+  await panelDb(panelForProduct(productId)).from('handshake_logs').insert({
     activation_key: data.activationKey,
     device_fingerprint: data.deviceFingerprint,
     device_model: data.deviceModel,
@@ -354,6 +355,9 @@ export async function POST(req: NextRequest) {
       deviceOs: device_os,
       appVersion: app_version,
     });
+    // Lab products activate against Lab-Admin's lab_* tables, School against LMS-Admin's.
+    const tablesPanel = panelForProduct(clientProductId);
+    const tables = panelDb(tablesPanel);
 
 
     // Populate the audit/context vars from the validated request. (Bug fix:
@@ -519,7 +523,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 1. Locate activation key record ───────────────────────────────────
-    const { data: keyRecord, error: keyError } = await supabaseAdmin
+    const { data: keyRecord, error: keyError } = await tables
       .from('activation_keys')
       .select('*')
       .eq('key', activation_key)
@@ -668,7 +672,7 @@ export async function POST(req: NextRequest) {
       // Consent is mandatory for a panel: either carried with this request (deferred from the
       // Terms screen — the normal panel path) or already recorded by /api/device/terms-accept.
       if (!terms_version) {
-        const { data: priorConsent } = await supabaseAdmin
+        const { data: priorConsent } = await tables
           .from('terms_acceptances')
           .select('device_fingerprint')
           .eq('device_fingerprint', hardware_fingerprint)
@@ -724,7 +728,7 @@ export async function POST(req: NextRequest) {
     // The `.is('device_fingerprint', null)` filter makes this an atomic CLAIM: if two devices
     // race to activate the same unused key, only the first UPDATE matches the row — the
     // other gets zero rows back and is refused below, so a key can never bind twice.
-    const { data: claimedRows, error: updateError } = await supabaseAdmin
+    const { data: claimedRows, error: updateError } = await tables
       .from('activation_keys')
       .update({
         device_fingerprint: hardware_fingerprint,
@@ -765,7 +769,7 @@ export async function POST(req: NextRequest) {
     // not present yet (run scripts/add_watermark_code.sql), Supabase returns an
     // error we just log — the activation handshake is never broken by it.
     {
-      const { error: wmError } = await supabaseAdmin
+      const { error: wmError } = await tables
         .from('activation_keys')
         .update({ watermark_code: watermarkCode(activation_key) })
         .eq('id', keyRecord.id);
@@ -780,7 +784,7 @@ export async function POST(req: NextRequest) {
     // watermark write. Run scripts/add_security_tier.sql to add the column. Once present
     // an admin can filter the fleet by posture (e.g. all TEE_LEGACY_NOATTEST panels).
     if (security_tier) {
-      const { error: stError } = await supabaseAdmin
+      const { error: stError } = await tables
         .from('activation_keys')
         .update({ security_tier })
         .eq('id', keyRecord.id);
@@ -803,7 +807,7 @@ export async function POST(req: NextRequest) {
     // non-blocking update; run scripts/add_attestation_verified_tier.sql to add the
     // column (until then this logs and is skipped).
     {
-      const { error: avtError } = await supabaseAdmin
+      const { error: avtError } = await tables
         .from('activation_keys')
         .update({ attestation_verified_tier: serverAttestationTier })
         .eq('id', keyRecord.id);
@@ -817,7 +821,7 @@ export async function POST(req: NextRequest) {
     // from Android tablets. Separate non-blocking update; run scripts/add_platform.sql
     // to add the column (until then this logs and is skipped).
     {
-      const { error: pfError } = await supabaseAdmin
+      const { error: pfError } = await tables
         .from('activation_keys')
         .update({ platform })
         .eq('id', keyRecord.id);
@@ -831,7 +835,7 @@ export async function POST(req: NextRequest) {
     // still activates, but the heartbeat proof-of-possession stays off for it.
     if (panelKey) {
       // The enrolled device key — the heartbeat keeps proving possession of it (src/lib/panelPop.ts).
-      const { error: pbError } = await supabaseAdmin
+      const { error: pbError } = await tables
         .from('activation_keys')
         .update({
           device_wrap_pubkey,
@@ -846,7 +850,7 @@ export async function POST(req: NextRequest) {
       if (pbError) logger.warn({ event: 'PANEL_BIND_PERSIST_FAILED', keyId: keyRecord.id, error: pbError.message });
 
       // The SAME device legitimately re-activating this key after an admin Reset lifts its kill.
-      const { error: rbError } = await supabaseAdmin
+      const { error: rbError } = await tables
         .from('revoked_device_bindings')
         .delete()
         .eq('activation_key_id', keyRecord.id)
@@ -855,7 +859,7 @@ export async function POST(req: NextRequest) {
 
       // Informational only (no kill): older panel keys this same panel activated before — e.g.
       // after an APK reinstall with a new key — are marked as replaced by this one.
-      const { error: rpError } = await supabaseAdmin
+      const { error: rpError } = await tables
         .from('activation_keys')
         .update({ replaced_at: activatedAt.toISOString(), replaced_by_key_id: keyRecord.id })
         .eq('device_fingerprint', hardware_fingerprint)
@@ -874,7 +878,7 @@ export async function POST(req: NextRequest) {
     // activation actually changes the pin (productMatch.pin set) — an already-pinned,
     // matching license is left untouched.
     if (productMatch.pin) {
-      const { error: prError } = await supabaseAdmin
+      const { error: prError } = await tables
         .from('activation_keys')
         .update({ product_id: product })
         .eq('id', keyRecord.id);
@@ -890,7 +894,7 @@ export async function POST(req: NextRequest) {
     // A fresh (re)activation also clears any previous expiry-tamper flag. Non-blocking:
     // run scripts/add_expiry_tamper.sql to add these columns (until then this logs + skips).
     {
-      const { error: etError } = await supabaseAdmin
+      const { error: etError } = await tables
         .from('activation_keys')
         .update({
           signed_expires_at: expiresAt.toISOString(),
@@ -909,7 +913,7 @@ export async function POST(req: NextRequest) {
     // returns (a) the entity-specific license fields (school info / generic vendor /
     // student), and (b) the content-class entitlement — full parity across entities.
     const entityRef = entityRefFromRow(keyRecord);
-    const resolved = await resolveEntity(entityRef, { keyAcademicYear: keyRecord.academic_year });
+    const resolved = await resolveEntity(entityRef, { keyAcademicYear: keyRecord.academic_year, panel: tablesPanel });
 
     // ── 5. Construct licensing JWT payload ────────────────────────────────
     // Common fields + the entity-specific license portion. `entity_type` lets each
@@ -953,9 +957,13 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 8. Envelope key wrapping of CEK ──────────────────────────────────
-    const masterCekRaw = process.env.LMS_MASTER_CEK;
+    // Each LMS-Lab product has its own content master (src/lib/labCourses.ts), so one
+    // product's drive never decrypts in another product. School keeps LMS_MASTER_CEK.
+    const labPackage = isProductId(product) ? labPackageFor(product) : null;
+    const masterCekRaw = labPackage ? masterCekFor(labPackage) : process.env.LMS_MASTER_CEK;
     if (!masterCekRaw) {
-      logger.error({ event: 'CRITICAL_CONFIG_ERROR', message: 'LMS_MASTER_CEK missing' });
+      const envName = labPackage ? LAB_MASTER_CEK_ENV[labPackage] : 'LMS_MASTER_CEK';
+      logger.error({ event: 'CRITICAL_CONFIG_ERROR', message: `${envName} missing` });
       return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
     }
     const masterCek = masterCekRaw;
@@ -998,9 +1006,9 @@ export async function POST(req: NextRequest) {
     // Driven by the canonical product's family (src/lib/productIdentity.ts) — the same
     // value just validated by the product identity gate above — never by the WIN_* tier
     // (shared by School and Lab desktop builds, proves nothing about family).
-    const useCourseScopes = isProductId(product) && familyFor(product) === 'lab';
-    if (useCourseScopes) {
-      for (const scopeId of labScopeIds()) {
+    // Lab products get only their own courses' scopes (Composite: every course + reserved).
+    if (labPackage) {
+      for (const scopeId of labScopeIdsForPackage(labPackage)) {
         wrappedCeks[scopeId] = wrapOne(deriveScopePassphrase(masterCek, scopeId));
       }
     } else {
@@ -1038,7 +1046,7 @@ export async function POST(req: NextRequest) {
     if (terms_version) {
       const d = new Date(terms_accepted_at ?? '');
       const nowIso = new Date().toISOString();
-      const { error: termsErr } = await supabaseAdmin.from('terms_acceptances').upsert({
+      const { error: termsErr } = await tables.from('terms_acceptances').upsert({
         device_fingerprint: hardware_fingerprint,
         terms_version,
         accepted_at: Number.isNaN(d.getTime()) ? nowIso : d.toISOString(),
@@ -1052,13 +1060,13 @@ export async function POST(req: NextRequest) {
       } else {
         // Consent audit (scripts/add_interactive_panel.sql): Privacy version + the SERVER's own
         // receipt time, which is authoritative (accepted_at above is the device clock).
-        const { error: auditErr } = await supabaseAdmin
+        const { error: auditErr } = await tables
           .from('terms_acceptances')
           .update({ server_received_at: nowIso, ...(privacy_version ? { privacy_version } : {}) })
           .eq('device_fingerprint', hardware_fingerprint);
         if (auditErr) logger.warn({ event: 'ACTIVATE_DEFERRED_TERMS_AUDIT_FAILED', error: auditErr.message });
         if (product) {
-          const { error: prodErr } = await supabaseAdmin
+          const { error: prodErr } = await tables
             .from('terms_acceptances')
             .update({ product_id: product })
             .eq('device_fingerprint', hardware_fingerprint);

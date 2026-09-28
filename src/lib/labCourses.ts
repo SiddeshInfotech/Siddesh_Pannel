@@ -7,6 +7,8 @@
 //   - the curriculum: NEW_COURSES               (LMS-Lab add_lab_courses.py → class_lab.json)
 // A course's number is permanent once content is encrypted with it — never renumber or reuse.
 
+import type { LabPackage } from './productIdentity';
+
 export type LabCourse = {
   /** course_<number> CEK scope. */
   number: number;
@@ -51,4 +53,39 @@ export const LAB_SCOPE_MAX = 20;
 export function labScopeIds(): string[] {
   const top = Math.max(LAB_SCOPE_MAX, ...LAB_COURSES.map((c) => c.number));
   return Array.from({ length: top }, (_, i) => `course_${i + 1}`);
+}
+
+/**
+ * Courses sold in each LMS-Lab product (ThinkSphere 360 booklet). Must match the app's
+ * LabPackage.kt and encrypt_lab_videos.py LAB_PACKAGES. 'composite' keeps every course plus
+ * the reserved slots (see labScopeIds) — it is the original single Lab product.
+ */
+export const LAB_PACKAGE_COURSES: Readonly<Record<Exclude<LabPackage, 'composite'>, readonly number[]>> = {
+  stem: [1, 2, 3, 10],
+  robodrone: [1, 2, 5, 10],
+  iotrobo: [1, 2, 3, 10],
+  aifuture: [1, 3, 4, 6, 7, 8, 9, 10],
+};
+
+/** course_<N> scopes one Lab activation carries for [pkg]. */
+export function labScopeIdsForPackage(pkg: LabPackage): string[] {
+  if (pkg === 'composite') return labScopeIds();
+  return LAB_PACKAGE_COURSES[pkg].map((n) => `course_${n}`);
+}
+
+/**
+ * Env var holding each product's content master key. Every product has its own master, so a
+ * drive encrypted for one product never decrypts in another. Composite keeps LMS_MASTER_CEK.
+ */
+export const LAB_MASTER_CEK_ENV: Readonly<Record<LabPackage, string>> = {
+  composite: 'LMS_MASTER_CEK',
+  stem: 'LMS_LAB_MASTER_CEK_STEM',
+  robodrone: 'LMS_LAB_MASTER_CEK_ROBODRONE',
+  iotrobo: 'LMS_LAB_MASTER_CEK_IOTROBO',
+  aifuture: 'LMS_LAB_MASTER_CEK_AIFUTURE',
+};
+
+/** Content master key for [pkg], or null when its env var is unset (callers fail closed). */
+export function masterCekFor(pkg: LabPackage, env: Record<string, string | undefined> = process.env): string | null {
+  return env[LAB_MASTER_CEK_ENV[pkg]] || null;
 }

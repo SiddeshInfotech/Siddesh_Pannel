@@ -1,6 +1,5 @@
 'use server';
 
-import { supabaseAdmin } from '@/lib/supabase';
 import { revalidatePath } from 'next/cache';
 import { getAdminSession } from '@/lib/auth';
 import { sanitize } from '@/lib/sanitize';
@@ -9,6 +8,7 @@ import { logger } from '@/lib/logger';
 import { randomInt } from 'crypto';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { indianAcademicYear } from '@/lib/entity';
+import { adminDb } from '@/lib/panelTables';
 
 // Activation keys are CREDENTIALS — generate the random portion with a CSPRNG
 // (crypto.randomInt is unbiased), never Math.random() which is predictable and
@@ -63,7 +63,7 @@ export async function createPayment(formData: any /* eslint-disable-line @typesc
       validData.transactionId ||
       'TXN-' + Math.random().toString(36).substring(2, 9).toUpperCase();
 
-    const { data: payment, error: paymentError } = await supabaseAdmin
+    const { data: payment, error: paymentError } = await (await adminDb())
       .from('payments')
       .insert({
         school_id: validData.entityType === 'School' ? validData.schoolId : null,
@@ -87,13 +87,13 @@ export async function createPayment(formData: any /* eslint-disable-line @typesc
 
     let entityName = 'ENTITY';
     if (validData.entityType === 'School') {
-      const { data: school } = await supabaseAdmin.from('schools').select('name').eq('id', validData.schoolId).single();
+      const { data: school } = await (await adminDb()).from('schools').select('name').eq('id', validData.schoolId).single();
       if (school) entityName = school.name;
     } else if (validData.entityType === 'Vendor') {
-      const { data: vendor } = await supabaseAdmin.from('vendors').select('vendor_name').eq('vendor_id', validData.vendorId).single();
+      const { data: vendor } = await (await adminDb()).from('vendors').select('vendor_name').eq('vendor_id', validData.vendorId).single();
       if (vendor) entityName = vendor.vendor_name;
     } else if (validData.entityType === 'Individual') {
-      const { data: parent } = await supabaseAdmin.from('parents').select('parent_name').eq('id', validData.parentId).single();
+      const { data: parent } = await (await adminDb()).from('parents').select('parent_name').eq('id', validData.parentId).single();
       if (parent) entityName = parent.parent_name;
     }
 
@@ -121,16 +121,16 @@ export async function createPayment(formData: any /* eslint-disable-line @typesc
     });
 
     if (keyRows.length > 0) {
-      await supabaseAdmin.from('activation_keys').insert(keyRows);
+      await (await adminDb()).from('activation_keys').insert(keyRows);
     }
 
     if (keyStatus === 'Paid') {
       if (validData.entityType === 'School') {
-        await supabaseAdmin.from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
+        await (await adminDb()).from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
       } else if (validData.entityType === 'Vendor') {
-        await supabaseAdmin.from('vendors').update({ status: 'Active' }).eq('vendor_id', validData.vendorId);
+        await (await adminDb()).from('vendors').update({ status: 'Active' }).eq('vendor_id', validData.vendorId);
       } else if (validData.entityType === 'Individual') {
-        await supabaseAdmin.from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
+        await (await adminDb()).from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
       }
     }
 
@@ -159,7 +159,7 @@ export async function updatePayment(id: string, formData: any /* eslint-disable-
   const validData = parsed.data;
 
   try {
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('payments')
       .update({
         school_id: validData.entityType === 'School' ? validData.schoolId : null,
@@ -184,7 +184,7 @@ export async function updatePayment(id: string, formData: any /* eslint-disable-
 
     // Sync linked activation keys' status
     const keyStatus = validData.status === 'Paid' ? 'Paid' : 'Unpaid';
-    await supabaseAdmin
+    await (await adminDb())
       .from('activation_keys')
       .update({
         school_id: validData.entityType === 'School' ? validData.schoolId : null,
@@ -196,11 +196,11 @@ export async function updatePayment(id: string, formData: any /* eslint-disable-
 
     if (keyStatus === 'Paid') {
       if (validData.entityType === 'School') {
-        await supabaseAdmin.from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
+        await (await adminDb()).from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
       } else if (validData.entityType === 'Vendor') {
-        await supabaseAdmin.from('vendors').update({ status: 'Active' }).eq('vendor_id', validData.vendorId);
+        await (await adminDb()).from('vendors').update({ status: 'Active' }).eq('vendor_id', validData.vendorId);
       } else if (validData.entityType === 'Individual') {
-        await supabaseAdmin.from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
+        await (await adminDb()).from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
       }
     }
 
@@ -222,9 +222,9 @@ export async function deletePayment(id: string): Promise<ActionResult> {
 
   try {
     // Clean up linked activation keys first
-    await supabaseAdmin.from('activation_keys').delete().eq('payment_id', id);
+    await (await adminDb()).from('activation_keys').delete().eq('payment_id', id);
 
-    const { error } = await supabaseAdmin.from('payments').delete().eq('id', id);
+    const { error } = await (await adminDb()).from('payments').delete().eq('id', id);
     if (error) {
       logger.error({ event: 'DELETE_PAYMENT_DB_ERROR', paymentId: id }, error);
       return fail(GENERIC_ERROR);
@@ -246,8 +246,8 @@ export async function cancelPayment(id: string): Promise<ActionResult> {
   if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
 
   try {
-    await supabaseAdmin.from('payments').update({ status: 'Unpaid' }).eq('id', id);
-    await supabaseAdmin
+    await (await adminDb()).from('payments').update({ status: 'Unpaid' }).eq('id', id);
+    await (await adminDb())
       .from('activation_keys')
       .update({ status: 'Unpaid' })
       .eq('payment_id', id);

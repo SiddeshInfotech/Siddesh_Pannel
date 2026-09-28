@@ -1,18 +1,24 @@
 'use server';
 
-import { supabaseAdmin } from '@/lib/supabase';
 import { getAdminSession } from '@/lib/auth';
 import { logger } from '@/lib/logger';
+import { adminDb } from '@/lib/panelTables';
 
-export async function getHandshakeLogs(page: number = 1, limit: number = 10) {
+export async function getHandshakeLogs(page: number = 1, limit: number = 10, searchQuery: string = '') {
   const session = await getAdminSession();
   if (!session) throw new Error('Unauthorized: Admin access required');
 
   const skip = (page - 1) * limit;
 
-  const { data: logs, count, error } = await supabaseAdmin
+  let query = (await adminDb())
     .from('handshake_logs')
-    .select('*', { count: 'exact' })
+    .select('*', { count: 'exact' });
+
+  if (searchQuery) {
+    query = query.ilike('activation_key', `%${searchQuery}%`);
+  }
+
+  const { data: logs, count, error } = await query
     .order('timestamp', { ascending: false })
     .range(skip, skip + limit - 1);
 
@@ -45,7 +51,7 @@ export async function getLiveSchoolsFeed() {
   const session = await getAdminSession();
   if (!session) throw new Error('Unauthorized: Admin access required');
 
-  const { data: schools, error } = await supabaseAdmin
+  const { data: schools, error } = await (await adminDb())
     .from('schools')
     .select('id, name, city, state, created_at, status')
     .eq('status', 'Active')
@@ -71,9 +77,9 @@ export async function getDashboardMetrics() {
   if (!session) throw new Error('Unauthorized: Admin access required');
 
   const [schoolsResult, keysResult, paymentsResult] = await Promise.all([
-    supabaseAdmin.from('schools').select('*', { count: 'exact', head: true }),
-    supabaseAdmin.from('activation_keys').select('*', { count: 'exact', head: true }).eq('status', 'Active'),
-    supabaseAdmin.from('payments').select('*', { count: 'exact', head: true }).eq('status', 'Pending Approval')
+    (await adminDb()).from('schools').select('*', { count: 'exact', head: true }),
+    (await adminDb()).from('activation_keys').select('*', { count: 'exact', head: true }).eq('status', 'Active'),
+    (await adminDb()).from('payments').select('*', { count: 'exact', head: true }).eq('status', 'Pending Approval')
   ]);
 
   return {

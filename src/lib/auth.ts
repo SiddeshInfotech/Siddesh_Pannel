@@ -111,14 +111,16 @@ async function getVerificationKey() {
 /**
  * Sign a new admin JWT token using asymmetric ES256
  */
-export async function signAdminToken(email: string, sessionId: string): Promise<string> {
+export async function signAdminToken(email: string, sessionId: string, panel: 'lms' | 'lab'): Promise<string> {
   const key = await getSigningKey();
   // `purpose: 'admin-session'` makes a fully-authenticated session token
   // STRUCTURALLY distinct from the pre-MFA challenge token (purpose:
   // 'mfa-challenge'). verifyAdminToken/proxy require this exact value, so a
   // challenge token can never be replayed as a session. `sid` is mandatory so
   // every session is revocable.
-  return await new SignJWT({ email, role: 'administrator', sid: sessionId, purpose: 'admin-session' })
+  // `panel` (admin_users.panel) decides which admin dashboard + table set this session uses
+  // (src/lib/panelTables.ts). It is inside the signed token, so a client cannot switch it.
+  return await new SignJWT({ email, role: 'administrator', sid: sessionId, purpose: 'admin-session', panel })
     .setProtectedHeader({ alg: 'ES256' })
     .setIssuedAt()
     .setIssuer(JWT_ISSUER)
@@ -132,7 +134,7 @@ export async function signAdminToken(email: string, sessionId: string): Promise<
  */
 export async function verifyAdminToken(
   token: string
-): Promise<{ email: string; role: string; sid?: string } | null> {
+): Promise<{ email: string; role: string; sid?: string; panel: 'lms' | 'lab' } | null> {
   try {
     const key = await getVerificationKey();
     const { payload } = await jwtVerify(token, key, {
@@ -144,6 +146,8 @@ export async function verifyAdminToken(
     const sid = payload.sid as string | undefined;
     const role = payload.role as string | undefined;
     const purpose = payload.purpose as string | undefined;
+    // Sessions issued before the Lab-Admin split carry no panel claim: they are LMS-Admin.
+    const panel = payload.panel === 'lab' ? 'lab' : 'lms';
 
     // ── Token-type gate (closes the MFA-challenge-token bypass) ───────────────
     // ONLY a fully-authenticated session token may stand in for a session. The
@@ -174,7 +178,7 @@ export async function verifyAdminToken(
     }
 
     logger.info({ event: 'TOKEN_VERIFIED', adminId: sid });
-    return { email, role, sid };
+    return { email, role, sid, panel };
   } catch (err) {
     console.error('❌ verifyAdminToken failed:', err);
     return null;
@@ -186,7 +190,7 @@ export async function verifyAdminToken(
  * Use in Server Components and Server Actions.
  * Returns null if not authenticated or token expired/revoked.
  */
-export const getAdminSession = cache(async (): Promise<{ email: string; role: string } | null> => {
+export const getAdminSession = cache(async (): Promise<{ email: string; role: string; panel: 'lms' | 'lab' } | null> => {
   const cookieStore = await cookies();
   const token = cookieStore.get(COOKIE_NAME)?.value;
   logger.info({ event: 'SESSION_CHECK', hasToken: !!token });
@@ -194,6 +198,26 @@ export const getAdminSession = cache(async (): Promise<{ email: string; role: st
   const verified = await verifyAdminToken(token);
   logger.info({ event: 'SESSION_VERIFICATION_RESULT', verified: !!verified });
   return verified;
+});
+
+/**
+ * Panel ('lms' | 'lab') of the current request's admin token, from its signature-verified
+ * claims only (no DB round trip) — used to pick the table set on every query. Authentication
+ * itself is still enforced by getAdminSession() in each page/action. Null without a valid token.
+ */
+export const getAdminPanel = cache(async (): Promise<'lms' | 'lab' | null> => {
+  const token = (await cookies()).get(COOKIE_NAME)?.value;
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, await getVerificationKey(), {
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    });
+    if (payload.purpose !== 'admin-session') return null;
+    return payload.panel === 'lab' ? 'lab' : 'lms';
+  } catch {
+    return null;
+  }
 });
 
 /**

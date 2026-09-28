@@ -28,7 +28,7 @@ import AppleDatePicker from '@/components/AppleDatePicker';
 import { createActivationKeys, deleteActivationKey, resetDeviceBinding, setKeyDeviceClass } from './actions';
 import { useToast } from '@/components/Toast';
 import CustomSelect from '@/components/CustomSelect';
-import { PRODUCT_DEFINITIONS, PRODUCT_FILTER_OPTIONS, DEFAULT_PRODUCT_ID, productDisplayName, ProductId, isProductId, targetOsFor } from '@/lib/productIdentity';
+import { DEFAULT_PRODUCT_ID, productDisplayName, ProductId, isProductId, targetOsFor, productsForFamily, familyForPanel, defaultProductForPanel, productFilterOptionsFor } from '@/lib/productIdentity';
 import {
   DEVICE_CLASS_OPTIONS,
   DEVICE_CLASS_STANDARD,
@@ -89,6 +89,8 @@ interface KeysClientProps {
   keys: KeyRow[];
   vendors: SchoolOption[];
   parents: SchoolOption[];
+  /** Signed-in admin's panel: Lab-Admin generates keys for the 5 LMS-Lab products only. */
+  panel: 'lms' | 'lab';
 }
 
 // DOM budget for the two lists that can be fed a 10,000-key vendor batch. Neither list
@@ -100,7 +102,7 @@ const BATCH_KEYS_PAGE_SIZE = 25;
 // offered — not just for the batch that happens to have been generated this session.
 const PDF_EXPORT_MIN_KEYS = 10;
 
-export default function KeysClient({ schools, keys, vendors, parents }: KeysClientProps) {
+export default function KeysClient({ schools, keys, vendors, parents, panel }: KeysClientProps) {
   const { toast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [keyList, setKeyList] = useState<KeyRow[]>(keys);
@@ -116,7 +118,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
   }
   
   const [entityType, setEntityType] = useState<'School' | 'Vendor' | 'Individual'>('School');
-  const [productId, setProductId] = useState<ProductId>(DEFAULT_PRODUCT_ID);
+  const [productId, setProductId] = useState<ProductId>(defaultProductForPanel(panel));
   // Standard (phones / tablets, full security) vs Interactive panel — Android products only.
   const [deviceClass, setDeviceClass] = useState<DeviceClass>(DEVICE_CLASS_STANDARD);
   const [activateWithinDays, setActivateWithinDays] = useState<number>(DEFAULT_PANEL_ACTIVATION_WINDOW_DAYS);
@@ -614,7 +616,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                   setProductId(next);
                   if (targetOsFor(next) !== 'ANDROID') setDeviceClass(DEVICE_CLASS_STANDARD);
                 }}
-                options={PRODUCT_DEFINITIONS.map(p => ({ value: p.id, label: p.displayName }))}
+                options={productsForFamily(familyForPanel(panel)).map(p => ({ value: p.id, label: p.displayName }))}
                 placeholder="Select Product"
               />
             </div>
@@ -1134,7 +1136,7 @@ export default function KeysClient({ schools, keys, vendors, parents }: KeysClie
                 <CustomSelect
                   value={filterProductId}
                   onChange={val => setFilterProductId(val)}
-                  options={PRODUCT_FILTER_OPTIONS}
+                  options={productFilterOptionsFor(panel)}
                 />
               </div>
             </div>

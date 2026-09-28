@@ -1,11 +1,11 @@
 'use server';
 
 import { getAdminSession } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
 import { logger } from '@/lib/logger';
 import { ok, fail, GENERIC_ERROR, type ActionResult } from '@/lib/actionResult';
 import { ONLINE_WINDOW_MS, type Ev } from './shared';
 import { fetchAllPages } from './telemetry';
+import { adminDb } from '@/lib/panelTables';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- Supabase rows */
 
@@ -25,12 +25,13 @@ const MAX_EVENTS = 5000;
  * that session is only written when the device next comes back online).
  */
 export async function getKeyTimeline(keyId: string): Promise<ActionResult<Ev[]>> {
+  const db = await adminDb();
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
   if (typeof keyId !== 'string' || keyId.length === 0) return fail(GENERIC_ERROR);
 
   try {
-    const { data: key, error: keyErr } = await supabaseAdmin
+    const { data: key, error: keyErr } = await (await adminDb())
       .from('activation_keys')
       .select('id, key, device_fingerprint, activated_at, expires_at')
       .eq('id', keyId)
@@ -46,7 +47,7 @@ export async function getKeyTimeline(keyId: string): Promise<ActionResult<Ev[]>>
     const activatedMs = new Date(key.activated_at).getTime();
 
     // When the NEXT key was activated on this same device — this key's window ends there.
-    const { data: next } = await supabaseAdmin
+    const { data: next } = await (await adminDb())
       .from('activation_keys')
       .select('activated_at')
       .eq('device_fingerprint', fp)
@@ -56,7 +57,7 @@ export async function getKeyTimeline(keyId: string): Promise<ActionResult<Ev[]>>
     const supersededAt: string | null = next?.[0]?.activated_at ?? null;
 
     const { data: rows, error: evErr } = await fetchAllPages<any>((from, to) => {
-      let q = supabaseAdmin
+      let q = db
         .from('device_timeline')
         .select('id, event_type, detail, created_at, device_fingerprint')
         .eq('device_fingerprint', fp)
@@ -90,7 +91,7 @@ export async function getKeyTimeline(keyId: string): Promise<ActionResult<Ev[]>>
     // Still this device's key and the device is offline now: mark where the current
     // session ended (its last heartbeat) and how long that session lasted.
     if (!supersededAt) {
-      const { data: ds } = await supabaseAdmin
+      const { data: ds } = await (await adminDb())
         .from('device_status')
         .select('activation_key, last_seen, session_start')
         .eq('device_fingerprint', fp)

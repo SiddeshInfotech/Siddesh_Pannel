@@ -1,8 +1,8 @@
 import React from 'react';
 import { notFound } from 'next/navigation';
 import { getAdminSession } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
 import EditVendorClient from './EditVendorClient';
+import { adminDb } from '@/lib/panelTables';
 
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
@@ -12,7 +12,7 @@ interface PageProps {
 }
 
 async function getVendor(id: string) {
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await (await adminDb())
     .from('vendors')
     .select('*')
     .eq('vendor_id', id)

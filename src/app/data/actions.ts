@@ -1,12 +1,12 @@
 'use server';
 
-import { supabaseAdmin } from '@/lib/supabase';
 import { revalidatePath } from 'next/cache';
 import { getAdminSession } from '@/lib/auth';
 import { sanitize } from '@/lib/sanitize';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
+import { adminDb } from '@/lib/panelTables';
 
 const UpdateSchoolSchema = z.object({
   name: z.string().trim().min(1, 'School name is required.').max(120, 'School name is too long.'),
@@ -66,10 +66,10 @@ export async function deleteSchoolAction(id: string): Promise<ActionResult> {
 
   try {
     // Manually cascade delete dependent records
-    await supabaseAdmin.from('activation_keys').delete().eq('school_id', id);
-    await supabaseAdmin.from('payments').delete().eq('school_id', id);
+    await (await adminDb()).from('activation_keys').delete().eq('school_id', id);
+    await (await adminDb()).from('payments').delete().eq('school_id', id);
 
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('schools')
       .delete()
       .eq('id', id);
@@ -95,10 +95,10 @@ export async function deleteVendorAction(id: string): Promise<ActionResult> {
 
   try {
     // Manually cascade delete dependent records
-    await supabaseAdmin.from('activation_keys').delete().eq('vendor_id', id);
-    await supabaseAdmin.from('payments').delete().eq('vendor_id', id);
+    await (await adminDb()).from('activation_keys').delete().eq('vendor_id', id);
+    await (await adminDb()).from('payments').delete().eq('vendor_id', id);
 
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('vendors')
       .delete()
       .eq('vendor_id', id);
@@ -147,7 +147,7 @@ export async function updateSchoolAction(id: string, formData: any /* eslint-dis
   }
 
   try {
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('schools')
       .update({
         name: sanitize(validData.name),
@@ -221,7 +221,7 @@ export async function updateVendorAction(
   }
 
   try {
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('vendors')
       .update({
         vendor_name: sanitize(validData.vendorName),
@@ -307,10 +307,10 @@ export async function deleteParentAction(id: string): Promise<ActionResult> {
 
   try {
     // Manually cascade delete dependent records
-    await supabaseAdmin.from('activation_keys').delete().eq('parent_id', id);
-    await supabaseAdmin.from('payments').delete().eq('parent_id', id);
+    await (await adminDb()).from('activation_keys').delete().eq('parent_id', id);
+    await (await adminDb()).from('payments').delete().eq('parent_id', id);
 
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('parents')
       .delete()
       .eq('id', id);

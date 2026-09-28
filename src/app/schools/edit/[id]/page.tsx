@@ -1,8 +1,8 @@
 import React from 'react';
 import { getAdminSession } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
 import EditSchoolClient from './EditSchoolClient';
 import { notFound } from 'next/navigation';
+import { adminDb } from '@/lib/panelTables';
 
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
@@ -14,7 +14,7 @@ interface PageProps {
 // Direct fetch (page is force-dynamic): avoids the Next 16 unstable_cache
 // failure that 500'd this page in production.
 async function getSchool(id: string) {
-  const { data: school, error } = await supabaseAdmin
+  const { data: school, error } = await (await adminDb())
     .from('schools')
     .select('*')
     .eq('id', id)

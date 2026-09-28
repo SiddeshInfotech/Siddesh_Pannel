@@ -1,12 +1,12 @@
 'use server';
 
-import { supabaseAdmin } from '@/lib/supabase';
 import { revalidatePath } from 'next/cache';
 import { getAdminSession } from '@/lib/auth';
 import { sanitize } from '@/lib/sanitize';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
+import { adminDb } from '@/lib/panelTables';
 
 // Per-field validation with safe, human messages. The FIRST failing message is
 // returned to the UI — specific enough to be useful, never leaking internals.
@@ -55,7 +55,7 @@ export async function createSchool(formData: any /* eslint-disable-line @typescr
   }
 
   try {
-    const { data: newSchool, error } = await supabaseAdmin.from('schools').insert({
+    const { data: newSchool, error } = await (await adminDb()).from('schools').insert({
       school_id: generateSchoolId(validData.board, validData.city),
       name: sanitize(validData.name),
       board: validData.board,

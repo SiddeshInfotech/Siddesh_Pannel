@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { panelDb, panelForProduct } from '@/lib/panelTables';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
@@ -256,7 +257,9 @@ export async function POST(req: NextRequest) {
   // Which product recorded this consent: explicit product_id if sent, else the legacy
   // heuristic (device_os only — no app_version at this pre-activation stage).
   const product = resolveEffectiveProductId({ productId: product_id, securityTier: reportedTier, deviceOs: device_os });
-  const { error: upErr } = await supabaseAdmin.from('terms_acceptances').upsert({
+  // Lab products record consent in Lab-Admin's lab_* tables, School in LMS-Admin's.
+  const tables = panelDb(panelForProduct(product));
+  const { error: upErr } = await tables.from('terms_acceptances').upsert({
     device_fingerprint,
     terms_version,
     accepted_at: acceptedAtIso,
@@ -277,7 +280,7 @@ export async function POST(req: NextRequest) {
   // columns): the Privacy Policy version accepted and the SERVER's own receipt time, which is
   // the authoritative timestamp (accepted_at above is the device's clock, kept as advisory).
   {
-    const { error: auditErr } = await supabaseAdmin
+    const { error: auditErr } = await tables
       .from('terms_acceptances')
       .update({ server_received_at: now, ...(privacy_version ? { privacy_version } : {}) })
       .eq('device_fingerprint', device_fingerprint);
@@ -288,7 +291,7 @@ export async function POST(req: NextRequest) {
   // column (run product-identity-upgrade.sql) can never fail an otherwise-successful
   // consent record. Skipped when unresolved.
   if (product !== 'UNKNOWN') {
-    const { error: prodErr } = await supabaseAdmin
+    const { error: prodErr } = await tables
       .from('terms_acceptances')
       .update({ product_id: product })
       .eq('device_fingerprint', device_fingerprint);

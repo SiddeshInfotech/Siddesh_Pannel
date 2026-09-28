@@ -1,12 +1,12 @@
 import React from 'react';
 import { getAdminSession } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
 import UpdateClient from './UpdateClient';
 import {
   IST, ONLINE_WINDOW_MS, SECURITY_EVENT_TYPES,
   type Connection, type Device, type Ev, type KeyState,
 } from './shared';
 import { agoFrom, chunk, fetchAllPages, humanDuration, istDateTime, istDayKey, relativeTo } from './telemetry';
+import { adminDb } from '@/lib/panelTables';
 
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
@@ -25,6 +25,7 @@ const KEY_COLS_BASE = 'id, key, status, expires_at, activated_at, school_id, ven
 // track the whole fleet here, not just the currently-live subset. Never-activated keys sort
 // last (nullsFirst: false); `id` is a tiebreaker so paging is stable.
 async function fetchAllKeys(includeTier: boolean) {
+  const db = await adminDb();
   // security_tier / product_id are NEW columns (scripts/add_security_tier.sql,
   // product-identity-upgrade.sql). If either isn't migrated yet, selecting it 400s the
   // whole query and blanks the list — so retry without both on error. Tiers/product
@@ -33,7 +34,7 @@ async function fetchAllKeys(includeTier: boolean) {
     ? `${KEY_COLS_BASE}, security_tier, product_id, ${SCHOOL_COLS}, ${VENDOR_COLS}, ${PARENT_COLS}`
     : `${KEY_COLS_BASE}, ${SCHOOL_COLS}, ${VENDOR_COLS}, ${PARENT_COLS}`;
   return fetchAllPages<any>((from, to) =>
-    supabaseAdmin
+    db
       .from('activation_keys')
       .select(sel)
       .order('activated_at', { ascending: false, nullsFirst: false })
@@ -49,12 +50,13 @@ async function fetchAllKeys(includeTier: boolean) {
 // /api/device/ping refreshes them on EVERY heartbeat, while activation_keys only gets them
 // once at activation time — device_status is the fresher of the two whenever it has a row.
 async function fetchDeviceStatusByFingerprint(): Promise<Map<string, any>> {
+  const db = await adminDb();
   // activation_key is the key that sent the MOST RECENT heartbeat for this device — /api/device/
   // ping upserts it on every beat. It is the only authoritative answer to "which of this
   // device's keys is actually live right now", which the connection column depends on.
   const DS_BASE = 'device_fingerprint, activation_key, app_version, first_seen, last_seen, session_start, total_online_seconds, last_ip';
   const page = (sel: string) => (from: number, to: number) =>
-    supabaseAdmin.from('device_status').select(sel).order('device_fingerprint').range(from, to);
+    db.from('device_status').select(sel).order('device_fingerprint').range(from, to);
   let res = await fetchAllPages<any>(page(`${DS_BASE}, security_tier, product_id`));
   if (res.error) res = await fetchAllPages<any>(page(DS_BASE));
   const map = new Map<string, any>();
@@ -71,9 +73,10 @@ async function fetchDailyOnlineByFingerprint(
   fingerprints: string[]
 ): Promise<{ ok: boolean; map: Map<string, DailyRow[]> }> {
   const map = new Map<string, DailyRow[]>();
+  const db = await adminDb();
   for (const part of chunk(fingerprints)) {
     const { data, error } = await fetchAllPages<any>((from, to) =>
-      supabaseAdmin
+      db
         .from('device_daily_online')
         .select('device_fingerprint, day, seconds')
         .in('device_fingerprint', part)
@@ -97,8 +100,9 @@ async function fetchDailyOnlineByFingerprint(
 // opened (actions.ts getKeyTimeline), so routine ONLINE/OFFLINE traffic no longer has to fit
 // into one fleet-wide capped query that pushed quieter devices' history out of the window.
 async function fetchSecurityEvents(fleet: Set<string>): Promise<Ev[]> {
+  const db = await adminDb();
   const { data } = await fetchAllPages<any>((from, to) =>
-    supabaseAdmin
+    db
       .from('device_timeline')
       .select('id, event_type, detail, created_at, device_fingerprint')
       .in('event_type', [...SECURITY_EVENT_TYPES])
@@ -253,5 +257,5 @@ export default async function UpdatePage() {
   const session = await getAdminSession();
   if (!session) return null; // fail-closed: never render telemetry without an admin session
   const data = await getTelemetry();
-  return <UpdateClient {...data} />;
+  return <UpdateClient {...data} panel={session.panel} />;
 }

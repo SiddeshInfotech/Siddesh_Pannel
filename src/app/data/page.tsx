@@ -1,16 +1,16 @@
 import React from 'react';
 import { getAdminSession } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
 import DataTabs from './DataTabs';
 import MetricCard from '@/components/MetricCard';
 import MetricGroup from '@/components/MetricGroup';
 import PageHeader from '@/components/PageHeader';
 import { School, Building2, Users, Database } from 'lucide-react';
+import { adminDb } from '@/lib/panelTables';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
 async function getSchoolsData() {
-  const { data: schools, error } = await supabaseAdmin
+  const { data: schools, error } = await (await adminDb())
     .from('schools')
     .select('*')
     .order('created_at', { ascending: false });
@@ -38,7 +38,7 @@ async function getSchoolsData() {
 }
 
 async function getVendorsData() {
-  const { data: vendors, error } = await supabaseAdmin
+  const { data: vendors, error } = await (await adminDb())
     .from('vendors')
     .select('*')
     .order('created_at', { ascending: false });
@@ -68,7 +68,7 @@ async function getVendorsData() {
 }
 
 async function getParentsData() {
-  const { data: parents, error } = await supabaseAdmin
+  const { data: parents, error } = await (await adminDb())
     .from('parents')
     .select('*')
     .order('created_at', { ascending: false });
@@ -109,13 +109,11 @@ export default async function SchoolsPage(props: { searchParams: Promise<{ [key:
   const totalParents = parentsData.length;
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      <PageHeader
-        title="Data"
-        description="Schools, vendors and parents registered on the platform."
-        icon={Database}
-      />
-      <MetricGroup className="grid-cols-1 md:grid-cols-3">
+    <div className="space-y-8 w-full">
+      <div className="h-6" />
+      
+      <div className="space-y-4">
+        <MetricGroup className="grid-cols-1 md:grid-cols-3">
         <MetricCard
           title="Total Schools"
           value={totalSchools.toString()}
@@ -145,9 +143,9 @@ export default async function SchoolsPage(props: { searchParams: Promise<{ [key:
         initialSchools={schoolsData}
         initialVendors={vendorsData}
         initialParents={parentsData}
-        initialTab={(searchParams.tab === 'vendors' || searchParams.tab === 'parents') ? searchParams.tab : 'schools'}
+        initialTab={(searchParams.tab === 'schools' || searchParams.tab === 'parents') ? searchParams.tab : 'vendors'}
       />
-
+      </div>
     </div>
   );
 }

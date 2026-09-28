@@ -1,12 +1,12 @@
 'use server';
 
-import { supabaseAdmin } from '@/lib/supabase';
 import { revalidatePath } from 'next/cache';
 import { getAdminSession } from '@/lib/auth';
 import { sanitize } from '@/lib/sanitize';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
+import { adminDb } from '@/lib/panelTables';
 
 const UpdateSchoolSchema = z.object({
   name: z.string().trim().min(1, 'School name is required.').max(120, 'School name is too long.'),
@@ -28,7 +28,7 @@ export async function deleteSchoolAction(id: string): Promise<ActionResult> {
   if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
 
   try {
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('schools')
       .delete()
       .eq('id', id);
@@ -67,7 +67,7 @@ export async function updateSchoolAction(id: string, formData: any): Promise<Act
   }
 
   try {
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('schools')
       .update({
         name: sanitize(validData.name),

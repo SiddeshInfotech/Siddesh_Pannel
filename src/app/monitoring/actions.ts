@@ -6,6 +6,7 @@ import { getAdminSession } from '@/lib/auth';
 import { verifyPassword } from '@/lib/crypto';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
+import { adminDb } from '@/lib/panelTables';
 
 const ERR_BADPASS = 'Incorrect password.';
 
@@ -35,7 +36,7 @@ export async function deactivateDevice(keyId: string, password: string): Promise
   }
 
   try {
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('activation_keys')
       .update({ status: 'Revoked' })
       .eq('id', keyId);

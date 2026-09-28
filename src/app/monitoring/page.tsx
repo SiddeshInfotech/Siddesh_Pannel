@@ -1,7 +1,7 @@
 import React from 'react';
 import { getAdminSession } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
 import MonitoringClient from './MonitoringClient';
+import { adminDb } from '@/lib/panelTables';
 
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
@@ -42,7 +42,7 @@ async function fetchActivatedKeys(includeTier: boolean) {
   const sel = includeTier
     ? `${KEY_COLS_BASE}, security_tier, attestation_verified_tier, product, product_id, ${SCHOOL_COLS}, ${VENDOR_COLS}, ${PARENT_COLS}`
     : `${KEY_COLS_BASE}, ${SCHOOL_COLS}, ${VENDOR_COLS}, ${PARENT_COLS}`;
-  return supabaseAdmin
+  return (await adminDb())
     .from('activation_keys')
     .select(sel)
     .not('device_fingerprint', 'is', null)
@@ -56,7 +56,7 @@ async function fetchActivatedKeys(includeTier: boolean) {
 async function fetchTermsAcceptances(fingerprints: string[]): Promise<Map<string, any>> {
   const map = new Map<string, any>();
   if (fingerprints.length === 0) return map;
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await (await adminDb())
     .from('terms_acceptances')
     .select('device_fingerprint, terms_version, accepted_at')
     .in('device_fingerprint', fingerprints);
@@ -70,7 +70,7 @@ async function fetchTermsAcceptances(fingerprints: string[]): Promise<Map<string
 async function fetchDeviceClasses(keyIds: string[]): Promise<Map<string, string>> {
   const map = new Map<string, string>();
   if (keyIds.length === 0) return map;
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await (await adminDb())
     .from('activation_keys')
     .select('id, device_class')
     .in('id', keyIds)
@@ -86,7 +86,7 @@ async function fetchDeviceClasses(keyIds: string[]): Promise<Map<string, string>
 async function fetchTamperFlags(keyIds: string[]): Promise<Map<string, { flag: boolean; at: string | null; detail: unknown }>> {
   const map = new Map<string, { flag: boolean; at: string | null; detail: unknown }>();
   if (keyIds.length === 0) return map;
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await (await adminDb())
     .from('activation_keys')
     .select('id, expiry_tamper_flag, expiry_tamper_at, expiry_tamper_detail')
     .in('id', keyIds);
@@ -116,7 +116,7 @@ type AttestationIssue = {
 async function fetchAttestationIssues(fingerprints: string[]): Promise<Map<string, AttestationIssue>> {
   const map = new Map<string, AttestationIssue>();
   if (fingerprints.length === 0) return map;
-  const { data, error } = await supabaseAdmin
+  const { data, error } = await (await adminDb())
     .from('device_timeline')
     .select('device_fingerprint, detail, created_at')
     .eq('event_type', 'ATTESTATION_ISSUE')
@@ -313,5 +313,5 @@ export default async function MonitoringPage() {
   // failure that 500'd this page in production.
   const devices = await getDevicesData();
   const totalCount = devices.filter(d => d.status === 'Active').length;
-  return <MonitoringClient initialDevices={devices} totalDevicesCount={totalCount} />;
+  return <MonitoringClient initialDevices={devices} totalDevicesCount={totalCount} panel={session.panel} />;
 }

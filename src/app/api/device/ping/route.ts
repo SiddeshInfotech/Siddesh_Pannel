@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { panelDb, panelForProduct } from '@/lib/panelTables';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { getClientIp } from '@/lib/sanitize';
@@ -144,6 +145,8 @@ export async function POST(req: NextRequest) {
     securityTier: reportedTier,
     appVersion: app_version,
   });
+  // Lab products report to Lab-Admin's lab_* tables, School to LMS-Admin's.
+  const tables = panelDb(panelForProduct(clientProductId));
 
   // Gate 1 — per-device rate limit.
   if (isProd && !(await bump(`ping_fp:${device_fingerprint}`, RL_FP_WIN.win, RL_FP_WIN.max))) {
@@ -163,7 +166,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Gate 4 — device-bound authorization: key must be Active AND bound to THIS device.
-  const { data: key, error: keyErr } = await supabaseAdmin
+  const { data: key, error: keyErr } = await tables
     .from('activation_keys')
     .select('id, school_id, vendor_id, parent_id, status, device_fingerprint, expires_at, product_id')
     .eq('key', activation_key)
@@ -213,7 +216,7 @@ export async function POST(req: NextRequest) {
     // device keeps pinging (its client purge is idempotent), so we skip the insert if a
     // REMOTE_KILL row already exists for this device — no timeline spam. Never blocks the kill.
     try {
-      const { data: priorKill } = await supabaseAdmin
+      const { data: priorKill } = await tables
         .from('device_timeline')
         .select('id')
         .eq('device_fingerprint', device_fingerprint)
@@ -221,7 +224,7 @@ export async function POST(req: NextRequest) {
         .limit(1)
         .maybeSingle();
       if (!priorKill) {
-        const { error: ktErr } = await supabaseAdmin.from('device_timeline').insert({
+        const { error: ktErr } = await tables.from('device_timeline').insert({
           device_fingerprint,
           ...entityCols(key),
           product_id: product,
@@ -253,7 +256,7 @@ export async function POST(req: NextRequest) {
   // licence + keys and blocks. Without this the old device would just see a 403, treat it as
   // "offline" and keep playing. Best-effort: a not-yet-migrated table simply skips this check.
   if (key && key.device_fingerprint !== device_fingerprint) {
-    const { data: revokedPair, error: rpErr } = await supabaseAdmin
+    const { data: revokedPair, error: rpErr } = await tables
       .from('revoked_device_bindings')
       .select('reason')
       .eq('activation_key_id', key.id)
@@ -262,7 +265,7 @@ export async function POST(req: NextRequest) {
     if (!rpErr && revokedPair) {
       logger.warn({ event: 'PING_REPLACED_DEVICE_KILL', device_fingerprint, reason: revokedPair.reason, app_version });
       try {
-        const { data: priorKill } = await supabaseAdmin
+        const { data: priorKill } = await tables
           .from('device_timeline')
           .select('id')
           .eq('device_fingerprint', device_fingerprint)
@@ -270,7 +273,7 @@ export async function POST(req: NextRequest) {
           .limit(1)
           .maybeSingle();
         if (!priorKill) {
-          await supabaseAdmin.from('device_timeline').insert({
+          await tables.from('device_timeline').insert({
             device_fingerprint,
             ...entityCols(key),
             product_id: product,
@@ -306,7 +309,7 @@ export async function POST(req: NextRequest) {
   //    a fresh session (device came back online after a gap). Idempotent-ish:
   //    replayed pings are already blocked by the nonce gate above.
   const now = Date.now();
-  const { data: prev } = await supabaseAdmin
+  const { data: prev } = await tables
     .from('device_status')
     .select('last_seen, session_start, total_online_seconds')
     .eq('device_fingerprint', device_fingerprint)
@@ -328,7 +331,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const { error: upErr } = await supabaseAdmin.from('device_status').upsert({
+  const { error: upErr } = await tables.from('device_status').upsert({
     device_fingerprint,
     ...entityCols(key),
     activation_key,
@@ -350,14 +353,14 @@ export async function POST(req: NextRequest) {
   if (dailyCreditSeconds > 0) {
     try {
       const dayKey = new Date(now).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-      const { data: dayRow, error: daySelErr } = await supabaseAdmin
+      const { data: dayRow, error: daySelErr } = await tables
         .from('device_daily_online')
         .select('seconds')
         .eq('device_fingerprint', device_fingerprint)
         .eq('day', dayKey)
         .maybeSingle();
       if (!daySelErr) {
-        const { error: dayUpErr } = await supabaseAdmin
+        const { error: dayUpErr } = await tables
           .from('device_daily_online')
           .upsert({
             device_fingerprint,
@@ -377,7 +380,7 @@ export async function POST(req: NextRequest) {
   // the whole heartbeat write. Skipped when unresolved (null) so we never clobber a
   // previously-pinned value with "don't know" on a genuinely ambiguous heartbeat.
   if (product) {
-    const { error: prodErr } = await supabaseAdmin
+    const { error: prodErr } = await tables
       .from('device_status')
       .update({ product_id: product })
       .eq('device_fingerprint', device_fingerprint);
@@ -388,7 +391,7 @@ export async function POST(req: NextRequest) {
   // the upsert above so a not-yet-migrated `security_tier` column can't blackout the
   // whole heartbeat write). Run scripts/add_security_tier.sql to add the column.
   if (reportedTier) {
-    const { error: stErr } = await supabaseAdmin
+    const { error: stErr } = await tables
       .from('device_status')
       .update({ security_tier: reportedTier })
       .eq('device_fingerprint', device_fingerprint);
@@ -405,7 +408,7 @@ export async function POST(req: NextRequest) {
       os_platform === 'windows' ? 'lms_lab_windows_last_seen'
       : os_platform === 'linux' ? 'lms_lab_linux_last_seen'
       : 'lms_lab_android_last_seen';
-    const { error: platErr } = await supabaseAdmin
+    const { error: platErr } = await tables
       .from('device_status')
       .update({ [platformColumn]: new Date(now).toISOString() })
       .eq('device_fingerprint', device_fingerprint);
@@ -423,7 +426,7 @@ export async function POST(req: NextRequest) {
       security_tier: reportedTier || null,
       app_version,
     });
-    await supabaseAdmin.from('device_timeline').insert({
+    await tables.from('device_timeline').insert({
       device_fingerprint,
       ...entityCols(key),
       product_id: product,
@@ -456,7 +459,7 @@ export async function POST(req: NextRequest) {
       app_version,
       ip,
     });
-    await supabaseAdmin.from('device_timeline').insert({
+    await tables.from('device_timeline').insert({
       device_fingerprint,
       ...entityCols(key),
       product_id: product,
@@ -479,7 +482,7 @@ export async function POST(req: NextRequest) {
   // Fully fail-open: a missing column, parse error, or race just skips — never breaks the ping.
   if (reported_expiry) {
     try {
-      const { data: exRow, error: exErr } = await supabaseAdmin
+      const { data: exRow, error: exErr } = await tables
         .from('activation_keys')
         .select('signed_expires_at, expiry_tamper_flag')
         .eq('id', key.id)
@@ -498,7 +501,7 @@ export async function POST(req: NextRequest) {
           ip,
         };
         // Conditional false→true flip → exactly-once even under concurrent heartbeats.
-        const { data: flipped, error: flagErr } = await supabaseAdmin
+        const { data: flipped, error: flagErr } = await tables
           .from('activation_keys')
           .update({ expiry_tamper_flag: true, expiry_tamper_at: new Date(now).toISOString(), expiry_tamper_detail: detail })
           .eq('id', key.id)
@@ -506,7 +509,7 @@ export async function POST(req: NextRequest) {
           .select('id');
         if (!flagErr && flipped && flipped.length > 0) {
           logger.warn({ event: 'PING_EXPIRY_TAMPER_SERVER', device_fingerprint, school_id: key.school_id, ...detail });
-          await supabaseAdmin.from('device_timeline').insert({
+          await tables.from('device_timeline').insert({
             device_fingerprint,
             ...entityCols(key),
             product_id: product,
@@ -532,7 +535,7 @@ export async function POST(req: NextRequest) {
     if (prev?.last_seen) {
       const endMs = new Date(prev.last_seen).getTime();
       const startMs = prev.session_start ? new Date(prev.session_start).getTime() : endMs;
-      const { error: offErr } = await supabaseAdmin.from('device_timeline').insert({
+      const { error: offErr } = await tables.from('device_timeline').insert({
         device_fingerprint,
         ...entityCols(key),
         product_id: product,
@@ -545,7 +548,7 @@ export async function POST(req: NextRequest) {
       });
       if (offErr) logger.warn({ event: 'PING_OFFLINE_EVENT_PERSIST_FAILED', error: offErr.message });
     }
-    await supabaseAdmin.from('device_timeline').insert({
+    await tables.from('device_timeline').insert({
       device_fingerprint,
       ...entityCols(key),
       product_id: product,
@@ -562,7 +565,7 @@ export async function POST(req: NextRequest) {
   // licence. Best-effort: missing columns (migration not run) or no stored key → skipped.
   let pop_challenge: string | undefined;
   {
-    const { data: panel, error: panelErr } = await supabaseAdmin
+    const { data: panel, error: panelErr } = await tables
       .from('activation_keys')
       .select('device_class, device_wrap_pubkey, pop_challenge_hash, pop_prev_hash, pop_failures, pop_last_ok_at, activated_at')
       .eq('id', key.id)
@@ -580,7 +583,7 @@ export async function POST(req: NextRequest) {
 
       if (verdict.alert) {
         logger.warn({ event: 'PING_PANEL_POP_FAILED', device_fingerprint, outcome, failures: verdict.failures, app_version });
-        const { error: popTlErr } = await supabaseAdmin.from('device_timeline').insert({
+        const { error: popTlErr } = await tables.from('device_timeline').insert({
           device_fingerprint,
           ...entityCols(key),
           product_id: product,
@@ -595,13 +598,13 @@ export async function POST(req: NextRequest) {
 
       if (verdict.kill) {
         // Revoke through the normal remote-kill path (conditional on still Active → exactly once).
-        await supabaseAdmin
+        await tables
           .from('activation_keys')
           .update({ status: 'Revoked', pop_failures: verdict.failures, pop_challenge_hash: null, pop_prev_hash: null })
           .eq('id', key.id)
           .eq('status', 'Active');
         logger.warn({ event: 'PING_PANEL_POP_REVOKED', device_fingerprint, failures: verdict.failures });
-        await supabaseAdmin.from('device_timeline').insert({
+        await tables.from('device_timeline').insert({
           device_fingerprint,
           ...entityCols(key),
           product_id: product,
@@ -612,7 +615,7 @@ export async function POST(req: NextRequest) {
       }
 
       const fresh = createPopChallenge(panel.device_wrap_pubkey);
-      const { error: popErr } = await supabaseAdmin
+      const { error: popErr } = await tables
         .from('activation_keys')
         .update({
           pop_challenge_hash: fresh?.expectedHash ?? null,
@@ -651,7 +654,7 @@ export async function POST(req: NextRequest) {
       lease_sig = signPayload(lease_str);
       // Audit only (best-effort): when we last leased this device. Column added by
       // scripts/add_device_lease.sql; a not-yet-migrated column must not break the ping.
-      const { error: leErr } = await supabaseAdmin
+      const { error: leErr } = await tables
         .from('activation_keys')
         .update({ last_lease_issued_at: nowIso })
         .eq('id', key.id);

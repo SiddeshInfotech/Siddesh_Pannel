@@ -19,7 +19,7 @@
   --group-gap: 4px;
   --radius-group: var(--radius-log);
   --radius-metric: var(--radius-log);
-  --radius-log: 0.5rem;
+  --radius-log: 1.0rem;
   --log-row-border: var(--surface-inset-border);
   --log-row-open-border: var(--surface-inset-border);
   --log-icon-bg: var(--icon-surface);
@@ -46,16 +46,16 @@
   --text-body: #3f3f46;           /* zinc-700 */
   --text-muted: #71717a;          /* zinc-500 */
   --card: #ffffff;
-  --card-border: #e4e4e7;         /* zinc-200 */
+  --card-border: #d4d4d8;         /* zinc-300 (Darker border) */
   --card-border-width: 1px;
-  --card-shadow: 0 1px 2px rgba(24, 24, 27, 0.04), 0 1px 3px rgba(24, 24, 27, 0.03);
+  --card-shadow: none;
   --surface-inset: #fafafa;       /* zinc-50: rows and inner boxes inside cards */
-  --surface-inset-border: #ededef;
+  --surface-inset-border: #e4e4e7; /* zinc-200 */
   --surface-inset-border-width: 1px;
   --surface-raised: #ffffff;
   --surface-hover: #f4f4f5;
   --icon-surface: #ffffff;
-  --icon-ring: #e4e4e7;
+  --icon-ring: #d4d4d8;           /* zinc-300 */
   --metric-group-bg: transparent;
   --metric-group-border: transparent;
   --panel-group-bg: var(--card);
@@ -69,10 +69,10 @@
   --log-icon-bg: var(--icon-surface);
   --chip-bg: #ffffff;
   --chip-fg: #71717a;
-  --field-border: #e4e4e7;
-  --divider: #f0f0f1;
+  --field-border: #d4d4d8;        /* zinc-300 */
+  --divider: #e4e4e7;             /* zinc-200 */
   --sidebar: #f4f4f5;
-  --sidebar-border: #e4e4e7;
+  --sidebar-border: #d4d4d8;      /* zinc-300 */
   --accent-violet: #7c3aed;
   --accent-blue: #2563eb;
 }
@@ -86,6 +86,7 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-accent-violet: var(--accent-violet);
   --color-accent-blue: var(--accent-blue);
+  --color-surface-hover: var(--surface-hover);
   
   --font-sans: 'Roboto', 'Inter', system-ui, -apple-system, sans-serif;
 
@@ -394,7 +395,7 @@ body {
   display: flex;
   flex-direction: column;
   padding-top: 4px;
-  padding-left: 30px;
+  padding-left: 12px;
 }
 .sidebar-tree-item {
   position: relative;
@@ -747,20 +748,30 @@ select option {
     text-transform: none;
     white-space: nowrap;
     color: var(--text-muted);
-    background: var(--surface-inset);
+    background: var(--surface-hover);
     border-bottom: 1px solid var(--divider);
+  }
+  .ui-table thead th:first-child {
+    border-top-left-radius: 14px;
+  }
+  .ui-table thead th:last-child {
+    border-top-right-radius: 14px;
   }
   .ui-table tbody td {
     padding: 12px 14px;
     vertical-align: middle;
     color: var(--text-body);
+    background: var(--surface-hover);
     border-bottom: 1px solid var(--divider);
   }
   .ui-table tbody tr:last-child td {
     border-bottom: 0;
   }
-  .ui-table tbody tr:hover td {
-    background: var(--surface-hover);
+  .ui-table tbody tr:last-child td:first-child {
+    border-bottom-left-radius: 14px;
+  }
+  .ui-table tbody tr:last-child td:last-child {
+    border-bottom-right-radius: 14px;
   }
   .ui-table .num {
     text-align: right;

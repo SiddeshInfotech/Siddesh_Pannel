@@ -19,7 +19,7 @@
 // populated with sensible generic values so OLDER app builds still render.
 // ============================================================================
 
-import { supabaseAdmin } from '@/lib/supabase';
+import { panelDb, type Panel } from '@/lib/panelTables';
 
 export type EntityType = 'school' | 'vendor' | 'student';
 
@@ -117,12 +117,14 @@ export interface ResolvedEntity {
 // generic payload with no content keys (fail-closed), and the caller logs it.
 export async function resolveEntity(
   ref: EntityRef,
-  opts?: { keyAcademicYear?: string | null }
+  opts?: { keyAcademicYear?: string | null; panel?: Panel }
 ): Promise<ResolvedEntity> {
+  // Lab-Admin entities live in lab_* tables (src/lib/panelTables.ts).
+  const db = panelDb(opts?.panel ?? 'lms');
   // Year stored on THIS key at generation (operator's chosen validity year) wins.
   const keyYear = opts?.keyAcademicYear || null;
   if (ref.type === 'vendor') {
-    const { data: vendor } = await supabaseAdmin
+    const { data: vendor } = await db
       .from('vendors')
       .select('vendor_id, vendor_name, standard, academic_year')
       .eq('vendor_id', ref.vendorId)
@@ -162,7 +164,7 @@ export async function resolveEntity(
   }
 
   if (ref.type === 'student') {
-    const { data: parent } = await supabaseAdmin
+    const { data: parent } = await db
       .from('parents')
       .select('id, parent_name, kid_name, grade')
       .eq('id', ref.parentId)
@@ -196,7 +198,7 @@ export async function resolveEntity(
   }
 
   // ── school (default / unchanged shape) ──────────────────────────────────
-  const { data: school } = await supabaseAdmin
+  const { data: school } = await db
     .from('schools')
     .select('*')
     .eq('id', ref.schoolId)

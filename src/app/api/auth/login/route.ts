@@ -273,7 +273,7 @@ export async function POST(req: NextRequest) {
           revoked: false,
         });
 
-        const token = await signAdminToken(matchedUser.email, sessionId);
+        const token = await signAdminToken(matchedUser.email, sessionId, matchedUser.panel === 'lab' ? 'lab' : 'lms');
         const res = NextResponse.json({
           success: true,
           message: 'MFA bypassed using recovery code. Please re-enable MFA immediately.',
@@ -374,7 +374,7 @@ export async function POST(req: NextRequest) {
           revoked: false,
         });
 
-        const token = await signAdminToken(matchedUser.email, sessionId);
+        const token = await signAdminToken(matchedUser.email, sessionId, matchedUser.panel === 'lab' ? 'lab' : 'lms');
         const res = NextResponse.json(responsePayload);
         return setAuthCookie(res, token);
       }

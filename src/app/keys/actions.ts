@@ -1,6 +1,5 @@
 'use server';
 
-import { supabaseAdmin } from '@/lib/supabase';
 import { revalidatePath } from 'next/cache';
 import { getAdminSession } from '@/lib/auth';
 import { z } from 'zod';
@@ -8,7 +7,7 @@ import { randomInt } from 'crypto';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { indianAcademicYear } from '@/lib/entity';
-import { PRODUCT_ID_ENUM, DEFAULT_PRODUCT_ID, productDisplayName, isProductId } from '@/lib/productIdentity';
+import { PRODUCT_ID_ENUM, DEFAULT_PRODUCT_ID, productDisplayName, isProductId, familyFor, familyForPanel } from '@/lib/productIdentity';
 import {
   DEVICE_CLASS_ENUM,
   DEVICE_CLASS_STANDARD,
@@ -21,6 +20,7 @@ import {
   PANEL_MIGRATION_FILE,
   type DeviceClass,
 } from '@/lib/deviceClass';
+import { adminDb } from '@/lib/panelTables';
 
 const DEVICE_CLASS_MIGRATION_MSG =
   `Interactive-panel keys need a one-time database update. Run ${PANEL_MIGRATION_FILE} in Supabase, then try again.`;
@@ -112,7 +112,7 @@ async function insertKeysInChunks(
     // Select only what the caller actually maps back (CreatedKey). A bare .select()
     // returns every column of every row — ~25 columns x up to 10,000 rows of pure
     // transfer cost for 7 fields of use.
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await (await adminDb())
       .from('activation_keys')
       .insert(chunk)
       .select('id, key, status, duration_days, expires_at, batch_id');
@@ -148,10 +148,16 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
   }
 
   const validData = parsed.data;
+  // Each panel issues keys only for its own products: Lab-Admin → the LMS-Lab products (stored in
+  // lab_activation_keys), LMS-Admin → School. Enforced here, not just by the form's dropdown.
+  if (familyFor(validData.productId) !== familyForPanel(session.panel)) {
+    logger.warn({ event: 'CREATE_KEYS_WRONG_PANEL', panel: session.panel, productId: validData.productId });
+    return fail(`${productDisplayName(validData.productId)} keys cannot be generated from this panel.`);
+  }
 
   try {
     // Business rule: the entity must have an approved (Paid) payment before keys issue.
-    const paymentQuery = supabaseAdmin.from('payments').select('id').eq('status', 'Paid').limit(1);
+    const paymentQuery = (await adminDb()).from('payments').select('id').eq('status', 'Paid').limit(1);
     
     if (validData.entityType === 'School') {
       paymentQuery.eq('school_id', validData.schoolId);
@@ -180,13 +186,13 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
     if (validData.generateCount !== undefined) {
       let entityName = 'ENTITY';
       if (validData.entityType === 'School') {
-        const { data: school } = await supabaseAdmin.from('schools').select('name').eq('id', validData.schoolId).single();
+        const { data: school } = await (await adminDb()).from('schools').select('name').eq('id', validData.schoolId).single();
         if (school?.name) entityName = school.name;
       } else if (validData.entityType === 'Vendor') {
-        const { data: vendor } = await supabaseAdmin.from('vendors').select('vendor_name').eq('vendor_id', validData.vendorId).single();
+        const { data: vendor } = await (await adminDb()).from('vendors').select('vendor_name').eq('vendor_id', validData.vendorId).single();
         if (vendor?.vendor_name) entityName = vendor.vendor_name;
       } else if (validData.entityType === 'Individual') {
-        const { data: parent } = await supabaseAdmin.from('parents').select('parent_name').eq('id', validData.parentId).single();
+        const { data: parent } = await (await adminDb()).from('parents').select('parent_name').eq('id', validData.parentId).single();
         if (parent?.parent_name) entityName = parent.parent_name;
       }
       const prefix = keyPrefixFor(entityName);
@@ -232,11 +238,11 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
     }
 
     if (validData.entityType === 'School') {
-      await supabaseAdmin.from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
+      await (await adminDb()).from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
     } else if (validData.entityType === 'Vendor') {
-      await supabaseAdmin.from('vendors').update({ status: 'Active' }).eq('vendor_id', validData.vendorId);
+      await (await adminDb()).from('vendors').update({ status: 'Active' }).eq('vendor_id', validData.vendorId);
     } else if (validData.entityType === 'Individual') {
-      await supabaseAdmin.from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
+      await (await adminDb()).from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
     }
 
     logger.info({
@@ -276,14 +282,14 @@ export async function resetDeviceBinding(id: string): Promise<ActionResult> {
   if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
 
   try {
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await (await adminDb())
       .from('activation_keys')
       .select('device_fingerprint, status')
       .eq('id', id)
       .single();
 
     // Interactive-panel key (best-effort read: before the migration no key is a panel key).
-    const { data: panelRow } = await supabaseAdmin
+    const { data: panelRow } = await (await adminDb())
       .from('activation_keys')
       .select('device_class')
       .eq('id', id)
@@ -296,7 +302,7 @@ export async function resetDeviceBinding(id: string): Promise<ActionResult> {
     // the licence expires). Done BEFORE clearing the binding: if it can't be recorded, the
     // reset is refused rather than silently leaving the old panel working.
     if (panel && existing?.device_fingerprint) {
-      const { error: rbError } = await supabaseAdmin
+      const { error: rbError } = await (await adminDb())
         .from('revoked_device_bindings')
         .upsert({
           activation_key_id: id,
@@ -312,7 +318,7 @@ export async function resetDeviceBinding(id: string): Promise<ActionResult> {
       }
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('activation_keys')
       .update({
         device_fingerprint: null,
@@ -337,7 +343,7 @@ export async function resetDeviceBinding(id: string): Promise<ActionResult> {
     // Panel keys: drop the old device key + proof-of-possession state, and re-open a fresh
     // activation window so the replacement panel can use the key.
     if (panel) {
-      const { error: pError } = await supabaseAdmin
+      const { error: pError } = await (await adminDb())
         .from('activation_keys')
         .update({
           device_wrap_pubkey: null,
@@ -378,7 +384,7 @@ export async function setKeyDeviceClass(id: string, deviceClass: string): Promis
   const next = deviceClass as DeviceClass;
 
   try {
-    const { data: existing, error: readError } = await supabaseAdmin
+    const { data: existing, error: readError } = await (await adminDb())
       .from('activation_keys')
       .select('product_id')
       .eq('id', id)
@@ -390,7 +396,7 @@ export async function setKeyDeviceClass(id: string, deviceClass: string): Promis
       return fail(`Interactive-panel keys are only available for Android products (this key is ${productDisplayName(productId)}).`);
     }
 
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('activation_keys')
       .update(next === DEVICE_CLASS_MANAGED_PANEL
         // A key switched to panel gets a fresh activation window (applies only while unbound).
@@ -419,7 +425,7 @@ export async function deleteActivationKey(id: string): Promise<ActionResult> {
   if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
 
   try {
-    const { error } = await supabaseAdmin
+    const { error } = await (await adminDb())
       .from('activation_keys')
       .delete()
       .eq('id', id);

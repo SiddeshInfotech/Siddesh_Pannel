@@ -1,12 +1,12 @@
 'use server';
 
-import { supabaseAdmin } from '@/lib/supabase';
 import { revalidatePath } from 'next/cache';
 import { getAdminSession } from '@/lib/auth';
 import { sanitize } from '@/lib/sanitize';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, fail, ok } from '@/lib/actionResult';
+import { adminDb } from '@/lib/panelTables';
 
 const CreateParentSchema = z.object({
   parentName: z.string().trim().min(1, 'Parent Name is required.').max(150, 'Parent Name is too long.'),
@@ -58,7 +58,7 @@ export async function createParent(formData: any /* eslint-disable-line @typescr
   };
 
   try {
-    const { data: newParent, error } = await supabaseAdmin
+    const { data: newParent, error } = await (await adminDb())
       .from('parents')
       .insert(parentPayload)
       .select('parent_id')

@@ -1,13 +1,13 @@
 import React from 'react';
 import { getAdminSession } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
 import KeysClient from './KeysClient';
+import { adminDb } from '@/lib/panelTables';
 
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
 async function getSchoolsList() {
-  const { data: schools } = await supabaseAdmin
+  const { data: schools } = await (await adminDb())
     .from('schools')
     .select('id, name')
     .order('name', { ascending: true });
@@ -16,7 +16,7 @@ async function getSchoolsList() {
 }
 
 async function getVendorsList() {
-  const { data: vendors } = await supabaseAdmin
+  const { data: vendors } = await (await adminDb())
     .from('vendors')
     .select('vendor_id, vendor_name')
     .order('vendor_name', { ascending: true });
@@ -25,7 +25,7 @@ async function getVendorsList() {
 }
 
 async function getParentsList() {
-  const { data: parents } = await supabaseAdmin
+  const { data: parents } = await (await adminDb())
     .from('parents')
     .select('id, parent_name')
     .order('parent_name', { ascending: true });
@@ -34,7 +34,7 @@ async function getParentsList() {
 }
 
 async function getKeysList() {
-  const { data: keys } = await supabaseAdmin
+  const { data: keys } = await (await adminDb())
     .from('activation_keys')
     // NOTE: platform / security_tier are intentionally NOT selected here — they may
     // not exist until add_platform.sql / add_security_tier.sql run, and Supabase errors
@@ -55,7 +55,7 @@ async function getKeysList() {
   // as Standard, which is exactly what they all are until the column exists.
   const panelById = new Map<string, { deviceClass: string; activateBy: string | null; replacedAt: string | null }>();
   {
-    const { data: classes, error: classError } = await supabaseAdmin
+    const { data: classes, error: classError } = await (await adminDb())
       .from('activation_keys')
       .select('id, device_class, enrollment_expires_at, replaced_at')
       .not('device_class', 'is', null);
@@ -117,5 +117,5 @@ export default async function KeysPage() {
     getVendorsList(),
     getParentsList(),
   ]);
-  return <KeysClient schools={schools} keys={keys} vendors={vendors} parents={parents} />;
+  return <KeysClient schools={schools} keys={keys} vendors={vendors} parents={parents} panel={session.panel} />;
 }

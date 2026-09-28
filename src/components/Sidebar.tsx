@@ -73,7 +73,7 @@ const MENU_GROUPS: MenuGroup[] = [
   }
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ panel = 'lms' }: { panel?: 'lms' | 'lab' }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentTab = searchParams.get('tab');
@@ -134,28 +134,28 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="w-52 bg-sidebar-custom mt-24 flex flex-col h-screen fixed left-0 top-0 z-40">
+    <aside className="w-40 bg-surface-hover border-r border-sidebar-border flex flex-col h-screen fixed left-0 top-0 z-40 rounded-r-[14px]">
       {/* Brand Header */}
-      <div className="p-6 pb-2 flex items-center gap-3 mt-[-100px]">
-        <Image src="/lms-admin/siddesh_logo.png" alt="Siddesh Logo" width={40} height={40} className="w-10 h-10 object-contain rounded-xl" />
-        <div>
-          <h1 className="text-lg font-bold tracking-tight text-foreground transition-colors">
+      <div className="px-4 pt-6 pb-2 flex items-center gap-2">
+        <Image src="/lms-admin/siddesh_logo.png" alt="Siddesh Logo" width={32} height={32} className="w-8 h-8 object-contain rounded-lg" />
+        <div className="min-w-0">
+          <h1 className="text-[13px] font-bold tracking-tight text-foreground transition-colors leading-tight truncate">
             Siddesh Tech
           </h1>
-          <p className="text-[8px] text-zinc-500 font-medium">LMS Track</p>
+          <p className="text-[8px] text-zinc-500 font-medium mt-0.5">{panel === 'lab' ? 'Lab Admin' : 'LMS Track'}</p>
         </div>
       </div>
       <div className="fading-line"></div>
 
       {/* Navigation Links */}
-      <nav className="flex-1 px-4 py-6 space-y-4 overflow-y-auto pb-32">
+      <nav className="flex-1 px-3 py-6 space-y-4 overflow-y-auto">
         {MENU_GROUPS.map((group) => {
           const isGroupOpen = openGroups.includes(group.title);
           return (
-          <div key={group.title} className="space-y-1 mb-4">
+          <div key={group.title} className="space-y-1 mb-2">
             <button
               onClick={() => toggleGroup(group.title)}
-              className="w-full flex items-center justify-between px-4 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-2 hover:text-foreground transition-colors cursor-pointer"
+              className="w-full flex items-center justify-between px-3 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 hover:text-foreground transition-colors cursor-pointer"
             >
               <span>{group.title}</span>
               {isGroupOpen ? (
@@ -169,8 +169,7 @@ export default function Sidebar() {
                 isGroupOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
               }`}
             >
-              <div className="overflow-hidden">
-                <div className="sidebar-tree">
+              <div className="overflow-hidden flex flex-col gap-0.5">
                 {group.items.map((item) => {
                   const isActive = item.path 
                     ? pathname === item.path 
@@ -185,14 +184,14 @@ export default function Sidebar() {
 
                   if (item.subItems) {
                     return (
-                      <div key={item.label} className="sidebar-tree-item space-y-1">
+                      <div key={item.label} className="space-y-1">
                         <button
                           onClick={() => toggleDropdown(item.label)}
-                          className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl text-[11px] font-medium group ${
+                          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[12px] font-medium group ${
                             isActive ? 'sidebar-nav-item-active' : 'sidebar-nav-item'
                           }`}
                         >
-                          <div className="flex items-center gap-3.5">
+                          <div className="flex items-center gap-3">
                             <Icon className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 sidebar-nav-icon`} />
                             {item.label}
                           </div>
@@ -202,13 +201,13 @@ export default function Sidebar() {
                             <ChevronRight className="w-3.5 h-3.5" />
                           )}
                         </button>
-                        {/* Dropdown Content with Animation */}
+                        {/* Dropdown Content */}
                         <div 
                           className={`grid transition-all duration-300 ease-in-out ${
                             isDropdownOpen ? 'grid-rows-[1fr] opacity-100 mt-1' : 'grid-rows-[0fr] opacity-0'
                           }`}
                         >
-                          <div className="overflow-hidden flex flex-col gap-1 pl-11 pr-2">
+                          <div className="overflow-hidden flex flex-col gap-1 pl-10 pr-2 sidebar-tree">
                             {item.subItems.map(subItem => {
                               const isSubActive = subItem.path.includes('?tab=')
                                 ? pathname === subItem.path.split('?')[0] && currentTab === subItem.path.split('?tab=')[1]
@@ -217,7 +216,7 @@ export default function Sidebar() {
                                 <Link
                                   key={subItem.path}
                                   href={subItem.path}
-                                  className={`flex items-center py-2 px-3 rounded-lg text-[11px] font-medium transition-colors ${
+                                  className={`flex items-center py-2 px-3 rounded-lg text-[11px] font-medium transition-colors sidebar-tree-item ${
                                     isSubActive 
                                       ? 'bg-white/5 text-foreground' 
                                       : 'text-zinc-500 hover:text-foreground hover:bg-white/5'
@@ -234,20 +233,18 @@ export default function Sidebar() {
                   }
 
                   return (
-                    <div key={item.path} className="sidebar-tree-item">
-                      <Link
-                        href={item.path!}
-                        className={`flex items-center gap-3.5 px-4 py-2.5 rounded-xl text-[11px] font-medium group ${
-                          isActive ? 'sidebar-nav-item-active' : 'sidebar-nav-item'
-                        }`}
-                      >
-                        <Icon className={`w-4 h-4 transition-transform duration-200 group-hover:scale-110 sidebar-nav-icon`} />
-                        {item.label}
-                      </Link>
-                    </div>
+                    <Link
+                      key={item.path}
+                      href={item.path!}
+                      className={`flex items-center gap-2.5 px-3 py-2 mr-2 rounded-xl text-[11px] font-medium group ${
+                        isActive ? 'sidebar-nav-item-active' : 'sidebar-nav-item'
+                      }`}
+                    >
+                      <Icon className={`w-3.5 h-3.5 transition-transform duration-200 group-hover:scale-110 sidebar-nav-icon`} />
+                      {item.label}
+                    </Link>
                   );
                 })}
-                </div>
               </div>
             </div>
           </div>
@@ -255,22 +252,22 @@ export default function Sidebar() {
       </nav>
 
       {/* Theme Toggle, MFA, & Logout Buttons */}
-      <div className="px-6 py-4 mb-24 space-y-2">
+      <div className="px-3 pb-3 pt-4 space-y-2">
         <button
           onClick={toggleTheme}
-          className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-full text-xs font-bold bg-white/5 hover:bg-white/10 border border-sidebar-border text-zinc-400 hover:text-white transition-all cursor-pointer shadow-sm"
+          className="w-full flex items-center justify-center gap-2 px-2 py-2 rounded-xl text-[11px] font-bold bg-white/5 hover:bg-white/10 border border-sidebar-border text-zinc-400 hover:text-white transition-all cursor-pointer"
         >
-          {isDark ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-slate-800" />}
-          {isDark ? 'Light Theme' : 'Dark Theme'}
+          {isDark ? <Sun className="w-3.5 h-3.5 text-amber-500" /> : <Moon className="w-3.5 h-3.5 text-slate-800" />}
+          <span className="whitespace-nowrap">{isDark ? 'Light Theme' : 'Dark Theme'}</span>
         </button>
 
 
         <button
           onClick={handleLogout}
-          className="w-full flex items-center justify-center gap-3 px-4 py-2.5 rounded-full text-xs font-bold bg-rose-500/5 hover:bg-rose-500/10 border border-rose-500/15 hover:border-rose-500/25 text-rose-400 hover:text-rose-300 transition-all cursor-pointer shadow-sm"
+          className="w-full flex items-center justify-center gap-2 px-2 py-2 rounded-xl text-[11px] font-bold bg-rose-500/5 hover:bg-rose-500/10 border border-rose-500/15 hover:border-rose-500/25 text-rose-400 hover:text-rose-300 transition-all cursor-pointer"
         >
-          <LogOut className="w-4 h-4" />
-          Logout
+          <LogOut className="w-3.5 h-3.5" />
+          <span>Logout</span>
         </button>
       </div>
 

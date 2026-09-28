@@ -1,13 +1,13 @@
 import React from 'react';
 import { getAdminSession } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
 import PaymentsClient from './PaymentsClient';
+import { adminDb } from '@/lib/panelTables';
 
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
 async function getPaymentsData() {
-  const { data: payments } = await supabaseAdmin
+  const { data: payments } = await (await adminDb())
     .from('payments')
     .select(`
       id, school_id, vendor_id, parent_id, amount, keys_count, bank_name, transaction_id, payment_date, status, created_at,
@@ -43,7 +43,7 @@ async function getPaymentsData() {
 }
 
 async function getSchoolsList() {
-  const { data: schools } = await supabaseAdmin
+  const { data: schools } = await (await adminDb())
     .from('schools')
     .select('id, name')
     .order('name', { ascending: true });
@@ -52,7 +52,7 @@ async function getSchoolsList() {
 }
 
 async function getVendorsList() {
-  const { data: vendors } = await supabaseAdmin
+  const { data: vendors } = await (await adminDb())
     .from('vendors')
     .select('vendor_id, vendor_name')
     .order('vendor_name', { ascending: true });
@@ -61,7 +61,7 @@ async function getVendorsList() {
 }
 
 async function getParentsList() {
-  const { data: parents } = await supabaseAdmin
+  const { data: parents } = await (await adminDb())
     .from('parents')
     .select('id, parent_name')
     .order('parent_name', { ascending: true });
