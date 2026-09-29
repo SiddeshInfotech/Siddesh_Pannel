@@ -122,9 +122,9 @@ describe('monitoring consistency: same signals always resolve to the same produc
 });
 
 describe('filter completeness', () => {
-  it('2 School products + 5 Lab products x 3 OS exist, matching the business requirement', () => {
-    expect(PRODUCT_DEFINITIONS).toHaveLength(17);
-    const labIds = ['STEM', 'ROBODRONE', 'IOTROBO', 'AIFUTURE'].flatMap((p) =>
+  it('5 LMS-Admin products + 5 Lab-Admin products x 3 OS exist, matching the business requirement', () => {
+    expect(PRODUCT_DEFINITIONS).toHaveLength(20);
+    const labIds = ['STEM', 'ROBODRONE', 'IOTROBO', 'AIFUTURE', 'COMPOSITE'].flatMap((p) =>
       ['ANDROID', 'WINDOWS', 'LINUX'].map((os) => `LAB_${p}_${os}`)
     );
     expect(new Set(PRODUCT_IDS)).toEqual(
@@ -134,7 +134,7 @@ describe('filter completeness', () => {
 
   it('"All Products" is the first filter option and is a superset (no-op filter)', () => {
     expect(PRODUCT_FILTER_OPTIONS[0]).toEqual({ value: 'all', label: 'All Products' });
-    expect(PRODUCT_FILTER_OPTIONS).toHaveLength(19); // 'all' + the 17 products + 'unresolved'
+    expect(PRODUCT_FILTER_OPTIONS).toHaveLength(22); // 'all' + the 20 products + 'unresolved'
     expect(PRODUCT_FILTER_OPTIONS[PRODUCT_FILTER_OPTIONS.length - 1].value).toBe(UNRESOLVED_PRODUCT_FILTER_VALUE);
   });
 

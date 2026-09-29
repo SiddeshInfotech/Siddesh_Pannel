@@ -56,9 +56,9 @@ export function labScopeIds(): string[] {
 }
 
 /**
- * Courses sold in each LMS-Lab product (ThinkSphere 360 booklet). Must match the app's
- * LabPackage.kt and encrypt_lab_videos.py LAB_PACKAGES. 'composite' keeps every course plus
- * the reserved slots (see labScopeIds) — it is the original single Lab product.
+ * Courses sold in each Lab-Admin product (ThinkSphere 360 booklet). Must match the app's
+ * LabPackage.kt and encrypt_lab_videos.py LAB_PACKAGES. 'composite' carries every course plus
+ * the reserved slots (see labScopeIds).
  */
 export const LAB_PACKAGE_COURSES: Readonly<Record<Exclude<LabPackage, 'composite'>, readonly number[]>> = {
   stem: [1, 2, 3, 10],
@@ -74,11 +74,12 @@ export function labScopeIdsForPackage(pkg: LabPackage): string[] {
 }
 
 /**
- * Env var holding each product's content master key. Every product has its own master, so a
- * drive encrypted for one product never decrypts in another. Composite keeps LMS_MASTER_CEK.
+ * Env var holding each Lab-Admin product's content master key. Every product has its own NEW
+ * master (none reuses LMS-Admin's LMS_MASTER_CEK), so a drive encrypted for one product never
+ * decrypts in another product or in the original LMS Lab app.
  */
 export const LAB_MASTER_CEK_ENV: Readonly<Record<LabPackage, string>> = {
-  composite: 'LMS_MASTER_CEK',
+  composite: 'LMS_LAB_MASTER_CEK_COMPOSITE',
   stem: 'LMS_LAB_MASTER_CEK_STEM',
   robodrone: 'LMS_LAB_MASTER_CEK_ROBODRONE',
   iotrobo: 'LMS_LAB_MASTER_CEK_IOTROBO',

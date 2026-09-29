@@ -16,28 +16,33 @@
 // inference used when a client has no explicit product_id.
 // ============================================================================
 
-// LMS-Lab is sold as 5 products (ThinkSphere 360 booklet), one build per product per OS.
-// `labPackage` must match the app's LabPackage.kt ids. The original LMS_LAB_* ids ARE the
-// Composite product ("ThinkSphere360 Lab") so already-activated devices keep working.
-// family 'lab' products are managed in the Lab-Admin panel (lab_* tables), 'school' in LMS-Admin.
+// `panel` = which admin panel (and database) owns the product:
+//   'lms' → LMS-Admin, the existing database. Includes the original single LMS Lab app
+//           (LMS_LAB_*), kept exactly as it was.
+//   'lab' → Lab-Admin, a SEPARATE database (src/lib/supabase.ts). The 5 LMS-Lab products of the
+//           ThinkSphere 360 booklet, one build per product per OS, each with its own content
+//           master key. `labPackage` must match the app's LabPackage.kt ids.
 export const PRODUCT_DEFINITIONS = [
-  { id: 'LMS_SCHOOL_ANDROID', displayName: 'LMS School Android', targetOs: 'ANDROID', family: 'school', labPackage: null },
-  { id: 'LMS_SCHOOL_WINDOWS', displayName: 'LMS School Windows', targetOs: 'WINDOWS', family: 'school', labPackage: null },
-  { id: 'LMS_LAB_ANDROID', displayName: 'ThinkSphere360 Lab Android', targetOs: 'ANDROID', family: 'lab', labPackage: 'composite' },
-  { id: 'LMS_LAB_WINDOWS', displayName: 'ThinkSphere360 Lab Windows', targetOs: 'WINDOWS', family: 'lab', labPackage: 'composite' },
-  { id: 'LMS_LAB_LINUX', displayName: 'ThinkSphere360 Lab Linux', targetOs: 'LINUX', family: 'lab', labPackage: 'composite' },
-  { id: 'LAB_STEM_ANDROID', displayName: 'STEM Starter Lab Android', targetOs: 'ANDROID', family: 'lab', labPackage: 'stem' },
-  { id: 'LAB_STEM_WINDOWS', displayName: 'STEM Starter Lab Windows', targetOs: 'WINDOWS', family: 'lab', labPackage: 'stem' },
-  { id: 'LAB_STEM_LINUX', displayName: 'STEM Starter Lab Linux', targetOs: 'LINUX', family: 'lab', labPackage: 'stem' },
-  { id: 'LAB_ROBODRONE_ANDROID', displayName: 'Robotics & Drone Lab Android', targetOs: 'ANDROID', family: 'lab', labPackage: 'robodrone' },
-  { id: 'LAB_ROBODRONE_WINDOWS', displayName: 'Robotics & Drone Lab Windows', targetOs: 'WINDOWS', family: 'lab', labPackage: 'robodrone' },
-  { id: 'LAB_ROBODRONE_LINUX', displayName: 'Robotics & Drone Lab Linux', targetOs: 'LINUX', family: 'lab', labPackage: 'robodrone' },
-  { id: 'LAB_IOTROBO_ANDROID', displayName: 'IoT & Robotics Lab Android', targetOs: 'ANDROID', family: 'lab', labPackage: 'iotrobo' },
-  { id: 'LAB_IOTROBO_WINDOWS', displayName: 'IoT & Robotics Lab Windows', targetOs: 'WINDOWS', family: 'lab', labPackage: 'iotrobo' },
-  { id: 'LAB_IOTROBO_LINUX', displayName: 'IoT & Robotics Lab Linux', targetOs: 'LINUX', family: 'lab', labPackage: 'iotrobo' },
-  { id: 'LAB_AIFUTURE_ANDROID', displayName: 'AI & Future Tech Lab Android', targetOs: 'ANDROID', family: 'lab', labPackage: 'aifuture' },
-  { id: 'LAB_AIFUTURE_WINDOWS', displayName: 'AI & Future Tech Lab Windows', targetOs: 'WINDOWS', family: 'lab', labPackage: 'aifuture' },
-  { id: 'LAB_AIFUTURE_LINUX', displayName: 'AI & Future Tech Lab Linux', targetOs: 'LINUX', family: 'lab', labPackage: 'aifuture' },
+  { id: 'LMS_SCHOOL_ANDROID', displayName: 'LMS School Android', targetOs: 'ANDROID', family: 'school', panel: 'lms', labPackage: null },
+  { id: 'LMS_SCHOOL_WINDOWS', displayName: 'LMS School Windows', targetOs: 'WINDOWS', family: 'school', panel: 'lms', labPackage: null },
+  { id: 'LMS_LAB_ANDROID', displayName: 'LMS Lab Android', targetOs: 'ANDROID', family: 'lab', panel: 'lms', labPackage: null },
+  { id: 'LMS_LAB_WINDOWS', displayName: 'LMS Lab Windows', targetOs: 'WINDOWS', family: 'lab', panel: 'lms', labPackage: null },
+  { id: 'LMS_LAB_LINUX', displayName: 'LMS Lab Linux', targetOs: 'LINUX', family: 'lab', panel: 'lms', labPackage: null },
+  { id: 'LAB_STEM_ANDROID', displayName: 'STEM Starter Lab Android', targetOs: 'ANDROID', family: 'lab', panel: 'lab', labPackage: 'stem' },
+  { id: 'LAB_STEM_WINDOWS', displayName: 'STEM Starter Lab Windows', targetOs: 'WINDOWS', family: 'lab', panel: 'lab', labPackage: 'stem' },
+  { id: 'LAB_STEM_LINUX', displayName: 'STEM Starter Lab Linux', targetOs: 'LINUX', family: 'lab', panel: 'lab', labPackage: 'stem' },
+  { id: 'LAB_ROBODRONE_ANDROID', displayName: 'Robotics & Drone Lab Android', targetOs: 'ANDROID', family: 'lab', panel: 'lab', labPackage: 'robodrone' },
+  { id: 'LAB_ROBODRONE_WINDOWS', displayName: 'Robotics & Drone Lab Windows', targetOs: 'WINDOWS', family: 'lab', panel: 'lab', labPackage: 'robodrone' },
+  { id: 'LAB_ROBODRONE_LINUX', displayName: 'Robotics & Drone Lab Linux', targetOs: 'LINUX', family: 'lab', panel: 'lab', labPackage: 'robodrone' },
+  { id: 'LAB_IOTROBO_ANDROID', displayName: 'IoT & Robotics Lab Android', targetOs: 'ANDROID', family: 'lab', panel: 'lab', labPackage: 'iotrobo' },
+  { id: 'LAB_IOTROBO_WINDOWS', displayName: 'IoT & Robotics Lab Windows', targetOs: 'WINDOWS', family: 'lab', panel: 'lab', labPackage: 'iotrobo' },
+  { id: 'LAB_IOTROBO_LINUX', displayName: 'IoT & Robotics Lab Linux', targetOs: 'LINUX', family: 'lab', panel: 'lab', labPackage: 'iotrobo' },
+  { id: 'LAB_AIFUTURE_ANDROID', displayName: 'AI & Future Tech Lab Android', targetOs: 'ANDROID', family: 'lab', panel: 'lab', labPackage: 'aifuture' },
+  { id: 'LAB_AIFUTURE_WINDOWS', displayName: 'AI & Future Tech Lab Windows', targetOs: 'WINDOWS', family: 'lab', panel: 'lab', labPackage: 'aifuture' },
+  { id: 'LAB_AIFUTURE_LINUX', displayName: 'AI & Future Tech Lab Linux', targetOs: 'LINUX', family: 'lab', panel: 'lab', labPackage: 'aifuture' },
+  { id: 'LAB_COMPOSITE_ANDROID', displayName: 'ThinkSphere 360 Composite Skill Lab Android', targetOs: 'ANDROID', family: 'lab', panel: 'lab', labPackage: 'composite' },
+  { id: 'LAB_COMPOSITE_WINDOWS', displayName: 'ThinkSphere 360 Composite Skill Lab Windows', targetOs: 'WINDOWS', family: 'lab', panel: 'lab', labPackage: 'composite' },
+  { id: 'LAB_COMPOSITE_LINUX', displayName: 'ThinkSphere 360 Composite Skill Lab Linux', targetOs: 'LINUX', family: 'lab', panel: 'lab', labPackage: 'composite' },
 ] as const;
 
 export type LabPackage = NonNullable<(typeof PRODUCT_DEFINITIONS)[number]['labPackage']>;
@@ -69,14 +74,19 @@ export function familyFor(id: ProductId): 'school' | 'lab' {
   return PRODUCT_DEFINITIONS.find((p) => p.id === id)!.family;
 }
 
-/** The LMS-Lab product a lab product id belongs to; null for School products. */
+/** The Lab-Admin product package of a product id; null for LMS-Admin products. */
 export function labPackageFor(id: ProductId): LabPackage | null {
   return PRODUCT_DEFINITIONS.find((p) => p.id === id)!.labPackage;
 }
 
-/** Products an admin panel manages: 'lab' → Lab-Admin, 'school' → LMS-Admin. */
-export function productsForFamily(family: 'school' | 'lab') {
-  return PRODUCT_DEFINITIONS.filter((p) => p.family === family);
+/** Admin panel (and database) that owns a product: 'lab' → Lab-Admin, 'lms' → LMS-Admin. */
+export function panelFor(id: ProductId): 'lms' | 'lab' {
+  return PRODUCT_DEFINITIONS.find((p) => p.id === id)!.panel;
+}
+
+/** Products one admin panel manages (its Key Generation dropdown). */
+export function productsForPanel(panel: 'lms' | 'lab') {
+  return PRODUCT_DEFINITIONS.filter((p) => p.panel === panel);
 }
 
 // Sentinel filter value for a key/device whose product never resolved (productId is null —
@@ -92,20 +102,12 @@ export const PRODUCT_FILTER_OPTIONS = [
   { value: UNRESOLVED_PRODUCT_FILTER_VALUE, label: 'Unresolved' },
 ];
 
-/** Product family an admin panel manages: Lab-Admin → 'lab', LMS-Admin → 'school'. */
-export function familyForPanel(panel: 'lms' | 'lab'): 'school' | 'lab' {
-  return panel === 'lab' ? 'lab' : 'school';
-}
-
 /** Default product in a panel's Key Generation form. */
 export function defaultProductForPanel(panel: 'lms' | 'lab'): ProductId {
-  return panel === 'lab' ? 'LMS_LAB_ANDROID' : DEFAULT_PRODUCT_ID;
+  return panel === 'lab' ? 'LAB_COMPOSITE_ANDROID' : DEFAULT_PRODUCT_ID;
 }
 
 /** Product filter dropdown for one panel: "All Products", that panel's products, "Unresolved". */
 export function productFilterOptionsFor(panel: 'lms' | 'lab') {
-  const family = familyForPanel(panel);
-  return PRODUCT_FILTER_OPTIONS.filter(
-    (o) => !isProductId(o.value) || familyFor(o.value) === family
-  );
+  return PRODUCT_FILTER_OPTIONS.filter((o) => !isProductId(o.value) || panelFor(o.value) === panel);
 }

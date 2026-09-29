@@ -17,6 +17,8 @@ interface CustomSelectProps {
   placeholder?: string;
   required?: boolean;
   className?: string;
+  /** 'sm' matches the compact inputs of the Add Vendor / School / Parent forms. */
+  size?: 'md' | 'sm';
 }
 
 export default function CustomSelect({
@@ -26,6 +28,7 @@ export default function CustomSelect({
   placeholder = 'Select option',
   required = false,
   className = '',
+  size = 'md',
 }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -54,7 +57,7 @@ export default function CustomSelect({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full px-4 py-3 bg-[#121216]/40 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-left flex items-center justify-between text-zinc-300 transition-all cursor-pointer select-none custom-select-btn"
+        className={`w-full ${size === 'sm' ? 'px-3 py-2 text-xs rounded-[14px] outline-none focus:shadow-[0_0_0_3px_rgba(124,58,237,0.15)]' : 'px-4 py-3 text-sm rounded-xl'} bg-[#121216]/40 border border-white/10 hover:border-white/15 focus:border-accent-violet text-left flex items-center justify-between text-zinc-300 transition-all cursor-pointer select-none custom-select-btn`}
       >
         <span className={!selectedOption ? 'text-zinc-500 font-medium' : 'text-white font-semibold'}>
           {selectedOption ? selectedOption.label : placeholder}

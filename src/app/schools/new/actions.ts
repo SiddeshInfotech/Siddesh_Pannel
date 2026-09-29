@@ -89,7 +89,7 @@ export async function createSchool(formData: any /* eslint-disable-line @typescr
     }
 
     logger.info({ event: 'SCHOOL_CREATED', schoolId: newSchool.id, adminEmail: session.email });
-    revalidatePath('/data');
+    revalidatePath('/accounts');
     return ok(newSchool.id as string);
   } catch (err: unknown) {
     logger.error({ event: 'CREATE_SCHOOL_CRITICAL_ERROR' }, err);

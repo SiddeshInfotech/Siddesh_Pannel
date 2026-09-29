@@ -4,8 +4,7 @@ import React, { useState } from 'react';
 import {
   Lock,
   ShieldAlert,
-  ShieldCheck,
-  ChevronDown,
+  ShieldCheck,
   Cpu,
   Laptop,
   Monitor,
@@ -17,6 +16,7 @@ import {
   Hash,
   Copy,
   Check,
+  X,
 } from 'lucide-react';
 
 interface HandshakeLogItem {
@@ -91,25 +91,22 @@ function DetailRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 py-2.5">
-      <span className="flex items-center gap-2 text-[11px] text-zinc-500 shrink-0">
-        <Icon className="w-3.5 h-3.5 text-zinc-400" />
+    <div className="flex items-center justify-between gap-4 py-3">
+      <span className="flex items-center gap-2 text-[12px] text-zinc-500 shrink-0">
+        <Icon className="w-4 h-4 text-zinc-400" />
         {label}
       </span>
-      <div className="flex items-center gap-1.5 min-w-0 text-right">{children}</div>
+      <div className="flex items-center gap-1.5 min-w-0 text-right whitespace-nowrap overflow-x-auto">{children}</div>
     </div>
   );
 }
 
 export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
-  const toggleExpand = (id: string) => {
-    setExpandedId(expandedId === id ? null : id);
-  };
+  const [selectedLog, setSelectedLog] = useState<HandshakeLogItem | null>(null);
 
   return (
-    <div className="overflow-x-auto">
+    <>
+      <div className="overflow-x-auto">
       <table className="ui-table w-full">
         <thead>
           <tr>
@@ -126,9 +123,7 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
             </tr>
           ) : (
             logs.map((item) => {
-              const isExpanded = expandedId === item.id;
               const isSuccess = item.status === 'SUCCESS';
-              const formattedTime = formatDateTime(item.time);
               const StatusIcon = isSuccess ? Lock : ShieldAlert;
 
               const statusBadge = (
@@ -142,113 +137,131 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
                 </span>
               );
 
-              const toggle = () => toggleExpand(item.id);
-
               return (
-                <React.Fragment key={item.id}>
-                  {/* Main Row */}
-                  <tr onClick={toggle} className="cursor-pointer bg-surface-hover hover:bg-white/5 transition-colors">
-                    <td>
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className="metric-icon">
-                          <StatusIcon className="w-4 h-4 text-foreground" />
-                        </span>
-                        <span className="text-[13px] font-semibold text-white font-mono truncate">{item.activationKey}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <div className="flex items-center justify-end gap-4 pr-2">
-                        {statusBadge}
-                        <span className={`log-chevron transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
-                          <ChevronDown className="w-4 h-4 text-zinc-400" />
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-
-                  {/* Expanded Details */}
-                  {isExpanded && (
-                    <tr>
-                      <td colSpan={2} className="!p-0 border-0">
-                        <div className="bg-[#121216]/50 p-4 border-b border-white/5">
-                          <div className="log-details">
-                            {item.errorMessage && (
-                              <div className="md:col-span-2 text-xs bg-rose-500/10 text-rose-500 px-3 py-2 rounded-xl flex items-center gap-2 font-medium">
-                                <ShieldAlert className="w-3.5 h-3.5 flex-shrink-0" />
-                                <span>{item.errorMessage}</span>
-                              </div>
-                            )}
-
-                            {/* Device & network */}
-                            <div className="metric-card bg-surface-inset border-white/5">
-                              <div className="flex items-center gap-3 pb-3 border-b border-white/5">
-                                <span className="metric-icon">
-                                  <Cpu className="w-4 h-4 text-accent-violet" />
-                                </span>
-                                <div className="min-w-0">
-                                  <span className="block text-[11px] font-semibold text-foreground">Device & Network</span>
-                                  <span className="block text-[10px] text-zinc-500">Hardware reported at handshake</span>
-                                </div>
-                              </div>
-                              <div className="divide-y divide-white/5">
-                                <DetailRow icon={Laptop} label="Device Model">
-                                  <span className="text-xs font-semibold text-white">{item.deviceModel}</span>
-                                </DetailRow>
-                                <DetailRow icon={Monitor} label="OS Version">
-                                  <span className="text-xs font-semibold text-white">{item.deviceOS}</span>
-                                </DetailRow>
-                                <DetailRow icon={Globe} label="IP Address">
-                                  <span className="text-xs font-semibold text-white">{item.ipAddress}</span>
-                                </DetailRow>
-                                <DetailRow icon={Clock} label="Monitored Time">
-                                  <span className="text-xs font-semibold text-white">{formattedTime}</span>
-                                </DetailRow>
-                              </div>
-                            </div>
-
-                            {/* Security payload */}
-                            <div className="metric-card bg-surface-inset border-white/5">
-                              <div className="flex items-center gap-3 pb-3 border-b border-white/5">
-                                <span className="metric-icon">
-                                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                                </span>
-                                <div>
-                                  <span className="block text-[11px] font-semibold text-foreground">Security Payload</span>
-                                  <span className="block text-[10px] text-zinc-500">Signed license handshake</span>
-                                </div>
-                              </div>
-                              <div className="divide-y divide-white/5">
-                                <DetailRow icon={KeyRound} label="License Alg">
-                                  <span className="text-xs font-semibold text-white">ES256 · ECDSA</span>
-                                </DetailRow>
-                                <DetailRow icon={Fingerprint} label="Fingerprint">
-                                  <span className="text-[10px] font-semibold text-white font-mono break-all max-w-[220px]">
-                                    {item.deviceFingerprint || 'N/A'}
-                                  </span>
-                                  {item.deviceFingerprint && <CopyButton value={item.deviceFingerprint} />}
-                                </DetailRow>
-                                <DetailRow icon={BadgeCheck} label="Activation">
-                                  <span className="text-xs font-semibold text-white">
-                                    {item.status}
-                                  </span>
-                                </DetailRow>
-                                <DetailRow icon={Hash} label="Handshake ID">
-                                  <span className="text-xs font-semibold text-white font-mono truncate">{item.id}</span>
-                                  <CopyButton value={item.id} />
-                                </DetailRow>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
+                <tr key={item.id} onClick={() => setSelectedLog(item)} className="cursor-pointer bg-surface-hover hover:bg-white/5 transition-colors">
+                  <td>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className="metric-icon">
+                        <StatusIcon className="w-4 h-4 text-foreground" />
+                      </span>
+                      <span className="text-[13px] font-semibold text-white font-mono truncate">{item.activationKey}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <div className="flex items-center justify-end gap-4 pr-2">
+                      {statusBadge}
+                    </div>
+                  </td>
+                </tr>
               );
             })
           )}
         </tbody>
       </table>
     </div>
+
+    {/* Modal Overlay */}
+    {selectedLog && (
+      <div 
+        className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/50 backdrop-blur-sm animate-fade-in" 
+        onClick={() => setSelectedLog(null)}
+      >
+        <div 
+          className="glass-interactive w-full max-w-6xl max-h-[90vh] overflow-y-auto relative animate-slide-up rounded-2xl flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Modal Header */}
+          <div className="flex items-center justify-between p-5 border-b border-white/5 sticky top-0 z-10 glass">
+            <h3 className="text-base font-semibold text-white flex items-center gap-2.5">
+              <ShieldCheck className="w-5 h-5 text-emerald-500" />
+              Handshake Details
+            </h3>
+            <button 
+              onClick={() => setSelectedLog(null)} 
+              className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-zinc-400 hover:text-white"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          {/* Modal Body */}
+          <div className="p-6">
+            {selectedLog.errorMessage && (
+              <div className="mb-6 text-sm bg-rose-500/10 text-rose-500 px-4 py-3 rounded-xl flex items-center gap-3 font-medium">
+                <ShieldAlert className="w-5 h-5 flex-shrink-0" />
+                <span>{selectedLog.errorMessage}</span>
+              </div>
+            )}
+
+            <div className="grid lg:grid-cols-[2fr_3fr] gap-8">
+              {/* Device & network */}
+              <div>
+                <div className="flex items-center gap-4 pb-4 border-b border-white/5 mb-2">
+                  <div className="metric-icon flex items-center justify-center bg-violet-500/10 text-violet-500 border border-violet-500/20">
+                    <Cpu className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="block text-sm font-semibold text-white">Device & Network</span>
+                    <span className="block text-xs text-zinc-500">Hardware reported at handshake</span>
+                  </div>
+                </div>
+                <div className="divide-y divide-white/5">
+                  <DetailRow icon={Laptop} label="Device Model">
+                    <span className="text-[13px] font-semibold text-white">{selectedLog.deviceModel}</span>
+                  </DetailRow>
+                  <DetailRow icon={Monitor} label="OS Version">
+                    <span className="text-[13px] font-semibold text-white">{selectedLog.deviceOS}</span>
+                  </DetailRow>
+                  <DetailRow icon={Globe} label="IP Address">
+                    <span className="text-[13px] font-semibold text-white">{selectedLog.ipAddress}</span>
+                  </DetailRow>
+                  <DetailRow icon={Clock} label="Monitored Time">
+                    <span className="text-[13px] font-semibold text-white">{formatDateTime(selectedLog.time)}</span>
+                  </DetailRow>
+                </div>
+              </div>
+
+              {/* Security payload */}
+              <div>
+                <div className="flex items-center gap-4 pb-4 border-b border-white/5 mb-2">
+                  <div className="metric-icon flex items-center justify-center bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                    <ShieldCheck className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="block text-sm font-semibold text-white">Security Payload</span>
+                    <span className="block text-xs text-zinc-500">Signed license handshake</span>
+                  </div>
+                </div>
+                <div className="divide-y divide-white/5">
+                  <DetailRow icon={KeyRound} label="License Alg">
+                    <span className="text-[13px] font-semibold text-white">ES256 · ECDSA</span>
+                  </DetailRow>
+                  <DetailRow icon={Fingerprint} label="Fingerprint">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-semibold text-white font-mono whitespace-nowrap">
+                        {selectedLog.deviceFingerprint || 'N/A'}
+                      </span>
+                      {selectedLog.deviceFingerprint && <CopyButton value={selectedLog.deviceFingerprint} />}
+                    </div>
+                  </DetailRow>
+                  <DetailRow icon={BadgeCheck} label="Activation">
+                    <span className="text-[13px] font-semibold text-emerald-500">
+                      {selectedLog.status}
+                    </span>
+                  </DetailRow>
+                  <DetailRow icon={Hash} label="Handshake ID">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-semibold text-white font-mono whitespace-nowrap">{selectedLog.id}</span>
+                      <CopyButton value={selectedLog.id} />
+                    </div>
+                  </DetailRow>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+  </>
   );
 }

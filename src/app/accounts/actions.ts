@@ -80,7 +80,7 @@ export async function deleteSchoolAction(id: string): Promise<ActionResult> {
     }
 
     logger.info({ event: 'SCHOOL_DELETED', schoolId: id, adminEmail: session.email });
-    revalidatePath('/data');
+    revalidatePath('/accounts');
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'DELETE_SCHOOL_CRITICAL_ERROR', schoolId: id }, err);
@@ -114,7 +114,7 @@ export async function deleteVendorAction(id: string): Promise<ActionResult> {
       adminEmail: session.email,
     });
 
-    revalidatePath('/data');
+    revalidatePath('/accounts');
 
     return ok(undefined);
   } catch (err: unknown) {
@@ -175,7 +175,7 @@ export async function updateSchoolAction(id: string, formData: any /* eslint-dis
     }
 
     logger.info({ event: 'SCHOOL_UPDATED', schoolId: id, adminEmail: session.email });
-    revalidatePath('/data');
+    revalidatePath('/accounts');
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'UPDATE_SCHOOL_CRITICAL_ERROR', schoolId: id }, err);
@@ -284,7 +284,7 @@ export async function updateVendorAction(
       adminEmail: session.email,
     });
 
-    revalidatePath('/data');
+    revalidatePath('/accounts');
 
     return ok(undefined);
   } catch (err) {
@@ -321,7 +321,7 @@ export async function deleteParentAction(id: string): Promise<ActionResult> {
     }
 
     logger.info({ event: 'PARENT_DELETED', parentDbId: id, adminEmail: session.email });
-    revalidatePath('/data');
+    revalidatePath('/accounts');
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'DELETE_PARENT_CRITICAL_ERROR', parentDbId: id }, err);

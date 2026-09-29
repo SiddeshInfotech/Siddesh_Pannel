@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/auth';
 import { verifyTOTP } from '@/lib/crypto';
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseFor } from '@/lib/supabase';
 
 export async function POST(req: NextRequest) {
   try {
@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Retrieve secret from DB
-    const { data: user, error } = await supabaseAdmin
+    const { data: user, error } = await supabaseFor(session.panel)
       .from('admin_users')
       .select('totp_secret')
       .eq('email', session.email)
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Update DB to enable MFA
-    const { error: updateError } = await supabaseAdmin
+    const { error: updateError } = await supabaseFor(session.panel)
       .from('admin_users')
       .update({ mfa_enabled: true })
       .eq('email', session.email);

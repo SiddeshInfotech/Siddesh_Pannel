@@ -1,6 +1,6 @@
 'use server';
 
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseFor } from '@/lib/supabase';
 import { revalidatePath } from 'next/cache';
 import { getAdminSession } from '@/lib/auth';
 import { verifyPassword } from '@/lib/crypto';
@@ -20,7 +20,7 @@ export async function deactivateDevice(keyId: string, password: string): Promise
   // destructive action. No hardcoded secret, no client-side comparison, no hint.
   if (typeof password !== 'string' || password.length === 0) return fail(ERR_BADPASS);
 
-  const { data: admin, error: adminErr } = await supabaseAdmin
+  const { data: admin, error: adminErr } = await supabaseFor(session.panel)
     .from('admin_users')
     .select('password_hash, salt')
     .eq('email', session.email)

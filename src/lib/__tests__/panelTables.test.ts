@@ -1,29 +1,34 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../supabase', () => ({ supabaseAdmin: { from: vi.fn() } }));
+const lmsFrom = vi.fn();
+const labFrom = vi.fn();
+vi.mock('../supabase', () => ({
+  supabaseFor: (panel: string) => ({ from: panel === 'lab' ? labFrom : lmsFrom }),
+}));
 
-import { labEmbeds, panelForProduct, tableFor, PANEL_TABLES } from '../panelTables';
+import { panelDb, panelForProduct } from '../panelTables';
+import { PRODUCT_DEFINITIONS, productsForPanel } from '../productIdentity';
 
-describe('LMS-Admin / Lab-Admin table split', () => {
-  it('Lab-Admin uses lab_* tables, LMS-Admin the originals', () => {
-    for (const t of PANEL_TABLES) {
-      expect(tableFor('lms', t)).toBe(t);
-      expect(tableFor('lab', t)).toBe(`lab_${t}`);
-    }
+describe('LMS-Admin / Lab-Admin database split', () => {
+  it('each panel queries only its own database', () => {
+    panelDb('lab').from('activation_keys');
+    expect(labFrom).toHaveBeenCalledWith('activation_keys');
+    expect(lmsFrom).not.toHaveBeenCalled();
+    panelDb('lms').from('schools');
+    expect(lmsFrom).toHaveBeenCalledWith('schools');
   });
 
-  it('routes devices by product family', () => {
+  it('routes devices by product: only the 5 booklet products go to Lab-Admin', () => {
     expect(panelForProduct('LAB_STEM_ANDROID')).toBe('lab');
-    expect(panelForProduct('LMS_LAB_WINDOWS')).toBe('lab');
+    expect(panelForProduct('LAB_COMPOSITE_LINUX')).toBe('lab');
+    expect(panelForProduct('LMS_LAB_WINDOWS')).toBe('lms'); // original LMS Lab app stays put
     expect(panelForProduct('LMS_SCHOOL_ANDROID')).toBe('lms');
     expect(panelForProduct('UNKNOWN')).toBe('lms');
     expect(panelForProduct(null)).toBe('lms');
   });
 
-  it('aliases embedded selects to lab tables without changing row shape', () => {
-    expect(labEmbeds('id, schools ( name ), vendors(vendor_name), parents ( parent_name )')).toBe(
-      'id, schools:lab_schools ( name ), vendors:lab_vendors (vendor_name), parents:lab_parents ( parent_name )'
-    );
-    expect(labEmbeds('id, school_id, schools_count')).toBe('id, school_id, schools_count');
+  it('Lab-Admin owns exactly 5 products x 3 OS', () => {
+    expect(productsForPanel('lab')).toHaveLength(15);
+    expect(PRODUCT_DEFINITIONS.filter((p) => p.panel === 'lab').every((p) => p.labPackage)).toBe(true);
   });
 });

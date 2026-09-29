@@ -113,7 +113,7 @@ describe('recordAttestationIssue', () => {
 
   it('does NOT write anything for UNSUPPORTED or a VERIFIED_* success', async () => {
     const { admin, calls } = makeFakeSupabase(null);
-    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin }));
+    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin, supabaseFor: () => admin }));
     const { recordAttestationIssue } = await import('@/lib/attestationTelemetry');
 
     await recordAttestationIssue({
@@ -129,7 +129,7 @@ describe('recordAttestationIssue', () => {
 
   it('writes a NEW row as event_type ATTESTATION_ISSUE for INVALID/REVOKED/REPLAY_OR_SKEW', async () => {
     const { admin, calls } = makeFakeSupabase(null);
-    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin }));
+    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin, supabaseFor: () => admin }));
     const { recordAttestationIssue } = await import('@/lib/attestationTelemetry');
 
     await recordAttestationIssue({
@@ -148,7 +148,7 @@ describe('recordAttestationIssue', () => {
 
   it('writes a DIFFERENT event_type (ATTESTATION_HEALTH_WARNING) for TEMPORARY_ERROR — never mixed with security events', async () => {
     const { admin, calls } = makeFakeSupabase(null);
-    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin }));
+    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin, supabaseFor: () => admin }));
     const { recordAttestationIssue } = await import('@/lib/attestationTelemetry');
 
     await recordAttestationIssue({
@@ -168,7 +168,7 @@ describe('recordAttestationIssue', () => {
       detail: { reason_code: 'CHAIN_MISSING', count: 3 },
     };
     const { admin, calls } = makeFakeSupabase(recentExisting);
-    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin }));
+    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin, supabaseFor: () => admin }));
     const { recordAttestationIssue } = await import('@/lib/attestationTelemetry');
 
     await recordAttestationIssue({
@@ -190,7 +190,7 @@ describe('recordAttestationIssue', () => {
       detail: { reason_code: 'CHAIN_MISSING', count: 5 },
     };
     const { admin, calls } = makeFakeSupabase(oldDifferentReason);
-    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin }));
+    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin, supabaseFor: () => admin }));
     const { recordAttestationIssue } = await import('@/lib/attestationTelemetry');
 
     await recordAttestationIssue({
@@ -213,7 +213,7 @@ describe('recordAttestationIssue', () => {
       detail: { reason_code: 'CHAIN_MISSING', count: 7 },
     };
     const { admin, calls } = makeFakeSupabase(stale);
-    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin }));
+    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin, supabaseFor: () => admin }));
     const { recordAttestationIssue } = await import('@/lib/attestationTelemetry');
 
     await recordAttestationIssue({
@@ -235,7 +235,7 @@ describe('recordAttestationIssue', () => {
         }) }) }) }) }),
       }),
     };
-    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin }));
+    vi.doMock('@/lib/supabase', () => ({ supabaseAdmin: admin, supabaseFor: () => admin }));
     const { recordAttestationIssue } = await import('@/lib/attestationTelemetry');
 
     await expect(

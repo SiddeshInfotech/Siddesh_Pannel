@@ -5,9 +5,10 @@ import Sidebar from '@/components/Sidebar';
 import { ToastProvider } from '@/components/Toast';
 import AuthWrapper from '@/components/AuthWrapper';
 import { getAdminSession } from '@/lib/auth';
+import { APP_PANEL } from '@/lib/appPanel';
 
 export const metadata: Metadata = {
-  title: 'LMS Admin Console',
+  title: APP_PANEL === 'lab' ? 'Lab Admin Console' : 'LMS Admin Console',
   description: 'Premium enterprise suite for school license provisioning and device tracking.',
 };
 
@@ -27,7 +28,7 @@ export default async function RootLayout({
             {/* Sidebar Nav */}
             {sessionExists && (
               <Suspense fallback={<div className="w-40 h-screen bg-surface-hover border-r border-sidebar-border fixed left-0 top-0 rounded-r-[14px]"></div>}>
-                <Sidebar panel={session?.panel} />
+                <Sidebar />
               </Suspense>
             )}
 

@@ -28,7 +28,7 @@ import AppleDatePicker from '@/components/AppleDatePicker';
 import { createActivationKeys, deleteActivationKey, resetDeviceBinding, setKeyDeviceClass } from './actions';
 import { useToast } from '@/components/Toast';
 import CustomSelect from '@/components/CustomSelect';
-import { DEFAULT_PRODUCT_ID, productDisplayName, ProductId, isProductId, targetOsFor, productsForFamily, familyForPanel, defaultProductForPanel, productFilterOptionsFor } from '@/lib/productIdentity';
+import { DEFAULT_PRODUCT_ID, productDisplayName, ProductId, isProductId, targetOsFor, productsForPanel, defaultProductForPanel, productFilterOptionsFor } from '@/lib/productIdentity';
 import {
   DEVICE_CLASS_OPTIONS,
   DEVICE_CLASS_STANDARD,
@@ -616,7 +616,7 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
                   setProductId(next);
                   if (targetOsFor(next) !== 'ANDROID') setDeviceClass(DEVICE_CLASS_STANDARD);
                 }}
-                options={productsForFamily(familyForPanel(panel)).map(p => ({ value: p.id, label: p.displayName }))}
+                options={productsForPanel(panel).map(p => ({ value: p.id, label: p.displayName }))}
                 placeholder="Select Product"
               />
             </div>

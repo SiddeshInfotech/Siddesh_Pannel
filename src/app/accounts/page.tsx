@@ -1,10 +1,11 @@
 import React from 'react';
 import { getAdminSession } from '@/lib/auth';
 import DataTabs from './DataTabs';
+import type { Metadata } from 'next';
+import { APP_PANEL } from '@/lib/appPanel';
 import MetricCard from '@/components/MetricCard';
 import MetricGroup from '@/components/MetricGroup';
-import PageHeader from '@/components/PageHeader';
-import { School, Building2, Users, Database } from 'lucide-react';
+import { School, Building2, Users } from 'lucide-react';
 import { adminDb } from '@/lib/panelTables';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
@@ -94,7 +95,11 @@ async function getParentsData() {
   }));
 }
 
-export default async function SchoolsPage(props: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
+export const metadata: Metadata = {
+  title: `Accounts · ${APP_PANEL === 'lab' ? 'Lab' : 'LMS'} Admin Console`,
+};
+
+export default async function AccountsPage(props: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   const searchParams = await props.searchParams;
   const session = await getAdminSession();
 
@@ -117,24 +122,18 @@ export default async function SchoolsPage(props: { searchParams: Promise<{ [key:
         <MetricCard
           title="Total Schools"
           value={totalSchools.toString()}
-          badgeText="Registered"
-          badgeType="positive"
           icon={School}
         />
 
         <MetricCard
           title="Total Vendors"
           value={totalVendors.toString()}
-          badgeText="Registered"
-          badgeType="stable"
           icon={Building2}
         />
 
         <MetricCard
           title="Total Parents"
           value={totalParents.toString()}
-          badgeText="Registered"
-          badgeType="stable"
           icon={Users}
         />
       </MetricGroup>

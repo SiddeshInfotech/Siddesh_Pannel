@@ -15,22 +15,16 @@ export default async function DashboardMetrics() {
         <MetricCard
           title="Total Schools"
           value={metrics.totalSchools.toString()}
-          badgeText="Live"
-          badgeType="positive"
           icon={School}
         />
         <MetricCard
           title="Active Keys"
           value={metrics.activeKeys.toString()}
-          badgeText="Active"
-          badgeType="stable"
           icon={Key}
         />
         <MetricCard
           title="Pending Payments"
           value={metrics.pendingPayments.toString()}
-          badgeText="Pending"
-          badgeType="warning"
           icon={CreditCard}
         />
       </MetricGroup>

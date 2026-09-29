@@ -15,6 +15,7 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import Image from 'next/image';
+import { APP_PANEL, BASE_PATH } from '@/lib/appPanel';
 import { AuthProvider } from '@/context/AuthContext';
 import {
   Mail,
@@ -139,7 +140,7 @@ export default function AuthWrapper({
         payload.password = password;
       }
 
-      const response = await fetch('/lms-admin/api/auth/login', {
+      const response = await fetch(`${BASE_PATH}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -193,7 +194,7 @@ export default function AuthWrapper({
   // ── Logout ────────────────────────────────────────────────────────────────
   const handleLogout = async () => {
     try {
-      await fetch('/lms-admin/api/auth/logout', {
+      await fetch(`${BASE_PATH}/api/auth/logout`, {
         method: 'POST',
         credentials: 'same-origin',
       });
@@ -302,7 +303,7 @@ export default function AuthWrapper({
             {/* Logo header */}
             <div className="flex items-center gap-4 mb-6 px-1">
               <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-lg backdrop-blur-xl relative overflow-hidden flex-shrink-0">
-                <Image src="/siddesh_logo.png" alt="Siddesh Logo" width={32} height={32} className="w-8 h-8 object-contain rounded-lg" />
+                <Image src={`${BASE_PATH}/siddesh_logo.png`} alt="Siddesh Logo" width={32} height={32} className="w-8 h-8 object-contain rounded-lg" />
               </div>
               <div className="text-left">
                 <h1 className="text-2xl font-black tracking-tight text-white leading-none">
@@ -310,7 +311,7 @@ export default function AuthWrapper({
                 </h1>
                 <p className="text-[9px] text-zinc-500 mt-1.5 uppercase tracking-widest font-extrabold flex items-center gap-1.5 leading-none">
                   <span className="w-1.5 h-1.5 rounded-full bg-accent-violet animate-pulse" />
-                  LMS Admin Console
+                  {APP_PANEL === 'lab' ? 'Lab Admin Console' : 'LMS Admin Console'}
                 </p>
               </div>
             </div>

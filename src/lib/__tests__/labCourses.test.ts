@@ -45,15 +45,16 @@ describe('LMS Lab products (booklet packages)', () => {
     expect(labScopeIdsForPackage('composite')).toEqual(labScopeIds());
   });
 
-  it('every lab product maps to a package and School products to none', () => {
+  it('only Lab-Admin products map to a package', () => {
     for (const p of PRODUCT_DEFINITIONS) {
-      expect(labPackageFor(p.id) === null).toBe(p.family === 'school');
+      expect(labPackageFor(p.id) === null).toBe(p.panel === 'lms');
     }
   });
 
   it('each package reads its own master key and fails closed when unset', () => {
-    const env = { LMS_MASTER_CEK: 'composite-master', LMS_LAB_MASTER_CEK_STEM: 'stem-master' };
+    const env = { LMS_MASTER_CEK: 'lms-master', LMS_LAB_MASTER_CEK_COMPOSITE: 'composite-master', LMS_LAB_MASTER_CEK_STEM: 'stem-master' };
     expect(masterCekFor('composite', env)).toBe('composite-master');
+    expect(Object.values(LAB_MASTER_CEK_ENV)).not.toContain('LMS_MASTER_CEK'); // never reuses LMS-Admin's master
     expect(masterCekFor('stem', env)).toBe('stem-master');
     expect(masterCekFor('aifuture', env)).toBeNull();
     expect(new Set(Object.values(LAB_MASTER_CEK_ENV)).size).toBe(5);

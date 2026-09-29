@@ -16,9 +16,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { signAdminToken, setAuthCookie, logSecurityEvent, signChallengeToken, verifyChallengeToken, getAdminSession } from '@/lib/auth';
+import { signAdminToken, setAuthCookie, logSecurityEvent, signChallengeToken, verifyChallengeToken, getAdminSession, findAdminUser } from '@/lib/auth';
 import { verifyPassword, verifyTOTP, encryptAES, decryptAES, generateTOTPSecret, generateRecoveryCodes, hashRecoveryCode } from '@/lib/crypto';
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseAdmin, supabaseFor } from '@/lib/supabase';
+import { APP_PANEL } from '@/lib/appPanel';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
@@ -152,7 +153,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Session expired. Please sign in again.' }, { status: 401 });
       }
 
-      const { data: adminUsers, error: queryError } = await supabaseAdmin
+      // The account lives in the database of the panel this session belongs to.
+      const authDb = supabaseFor(session.panel);
+      const { data: adminUsers, error: queryError } = await authDb
         .from('admin_users')
         .select('*')
         .eq('email', session.email)
@@ -166,10 +169,10 @@ export async function POST(req: NextRequest) {
 
       const success = await verifyPassword(password, matchedUser.password_hash, matchedUser.salt);
       if (success) {
-        await logSecurityEvent(matchedUser.email, 'CONSOLE_UNLOCKED', ip, req.headers.get('user-agent'));
+        await logSecurityEvent(matchedUser.email, 'CONSOLE_UNLOCKED', ip, req.headers.get('user-agent'), session.panel);
         return NextResponse.json({ success: true, message: 'Console unlocked.' });
       }
-      await logSecurityEvent(matchedUser.email, 'FAILED_CONSOLE_UNLOCK', ip, req.headers.get('user-agent'));
+      await logSecurityEvent(matchedUser.email, 'FAILED_CONSOLE_UNLOCK', ip, req.headers.get('user-agent'), session.panel);
       return NextResponse.json({ error: 'Invalid security key.' }, { status: 401 });
     }
 
@@ -190,7 +193,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Challenge expired. Please sign in again.' }, { status: 401 });
       }
 
-      const { data: adminUsers, error: queryError } = await supabaseAdmin
+      // The challenge token carries (signed) which panel the account was found in; it must be
+      // this app's panel, so a challenge from the other admin app cannot finish here.
+      if (challenge.panel !== APP_PANEL) {
+        return NextResponse.json({ error: 'Challenge expired. Please sign in again.' }, { status: 401 });
+      }
+      const authPanel = APP_PANEL;
+      const authDb = supabaseFor(authPanel);
+      const { data: adminUsers, error: queryError } = await authDb
         .from('admin_users')
         .select('*')
         .eq('email', challenge.email)
@@ -228,12 +238,12 @@ export async function POST(req: NextRequest) {
           // Increment failures
           const failures = matchedUser.mfa_failures + 1;
           const lockedUntil = failures >= 5 ? new Date(Date.now() + WINDOW_MS).toISOString() : null;
-          await supabaseAdmin
+          await authDb
             .from('admin_users')
             .update({ mfa_failures: failures, mfa_locked_until: lockedUntil })
             .eq('id', matchedUser.id);
 
-          await logSecurityEvent(matchedUser.email, failures >= 5 ? 'MFA_LOCKOUT' : 'FAILED_RECOVERY_CODE', ip, req.headers.get('user-agent'));
+          await logSecurityEvent(matchedUser.email, failures >= 5 ? 'MFA_LOCKOUT' : 'FAILED_RECOVERY_CODE', ip, req.headers.get('user-agent'), authPanel);
 
           if (failures >= 5) {
             return NextResponse.json({
@@ -247,7 +257,7 @@ export async function POST(req: NextRequest) {
         const updatedHashes = [...matchedUser.recovery_code_hashes];
         updatedHashes.splice(codeIndex, 1);
 
-        await supabaseAdmin
+        await authDb
           .from('admin_users')
           .update({
             mfa_enabled: false,
@@ -259,12 +269,12 @@ export async function POST(req: NextRequest) {
           })
           .eq('id', matchedUser.id);
 
-        await logSecurityEvent(matchedUser.email, 'MFA_RECOVERY_CODE_USED', ip, req.headers.get('user-agent'));
+        await logSecurityEvent(matchedUser.email, 'MFA_RECOVERY_CODE_USED', ip, req.headers.get('user-agent'), authPanel);
 
         // Log active session
         const sessionId = randomUUID();
         const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
-        await supabaseAdmin.from('admin_sessions').insert({
+        await authDb.from('admin_sessions').insert({
           email: matchedUser.email,
           session_id: sessionId,
           user_agent: req.headers.get('user-agent') || 'Unknown',
@@ -273,7 +283,7 @@ export async function POST(req: NextRequest) {
           revoked: false,
         });
 
-        const token = await signAdminToken(matchedUser.email, sessionId, matchedUser.panel === 'lab' ? 'lab' : 'lms');
+        const token = await signAdminToken(matchedUser.email, sessionId, authPanel);
         const res = NextResponse.json({
           success: true,
           message: 'MFA bypassed using recovery code. Please re-enable MFA immediately.',
@@ -304,12 +314,12 @@ export async function POST(req: NextRequest) {
           // Increment failures
           const failures = matchedUser.mfa_failures + 1;
           const lockedUntil = failures >= 5 ? new Date(Date.now() + WINDOW_MS).toISOString() : null;
-          await supabaseAdmin
+          await authDb
             .from('admin_users')
             .update({ mfa_failures: failures, mfa_locked_until: lockedUntil })
             .eq('id', matchedUser.id);
 
-          await logSecurityEvent(matchedUser.email, failures >= 5 ? 'MFA_LOCKOUT' : 'FAILED_MFA_OTP', ip, req.headers.get('user-agent'));
+          await logSecurityEvent(matchedUser.email, failures >= 5 ? 'MFA_LOCKOUT' : 'FAILED_MFA_OTP', ip, req.headers.get('user-agent'), authPanel);
 
           if (failures >= 5) {
             return NextResponse.json({
@@ -322,7 +332,7 @@ export async function POST(req: NextRequest) {
         // Check for OTP replay attacks (only for enabled MFA)
         if (matchedUser.mfa_enabled && matchedUser.totp_last_counter !== null) {
           if (BigInt(matchedCounter) <= BigInt(matchedUser.totp_last_counter)) {
-            await logSecurityEvent(matchedUser.email, 'MFA_REPLAY_REJECTED', ip, req.headers.get('user-agent'));
+            await logSecurityEvent(matchedUser.email, 'MFA_REPLAY_REJECTED', ip, req.headers.get('user-agent'), authPanel);
             return NextResponse.json({ error: 'Authenticator code already used. Please wait for the next code.' }, { status: 401 });
           }
         }
@@ -347,12 +357,12 @@ export async function POST(req: NextRequest) {
           const recoveryCodes = generateRecoveryCodes();
           updateData.recovery_code_hashes = recoveryCodes.map(c => hashRecoveryCode(c));
           responsePayload.recoveryCodes = recoveryCodes;
-          await logSecurityEvent(matchedUser.email, 'MFA_ENABLED', ip, req.headers.get('user-agent'));
+          await logSecurityEvent(matchedUser.email, 'MFA_ENABLED', ip, req.headers.get('user-agent'), authPanel);
         } else {
-          await logSecurityEvent(matchedUser.email, 'MFA_LOGIN_SUCCESS', ip, req.headers.get('user-agent'));
+          await logSecurityEvent(matchedUser.email, 'MFA_LOGIN_SUCCESS', ip, req.headers.get('user-agent'), authPanel);
         }
 
-        const { error: finalUpdateError } = await supabaseAdmin
+        const { error: finalUpdateError } = await authDb
           .from('admin_users')
           .update(updateData)
           .eq('id', matchedUser.id);
@@ -365,7 +375,7 @@ export async function POST(req: NextRequest) {
         // Create session
         const sessionId = randomUUID();
         const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
-        await supabaseAdmin.from('admin_sessions').insert({
+        await authDb.from('admin_sessions').insert({
           email: matchedUser.email,
           session_id: sessionId,
           user_agent: req.headers.get('user-agent') || 'Unknown',
@@ -374,7 +384,7 @@ export async function POST(req: NextRequest) {
           revoked: false,
         });
 
-        const token = await signAdminToken(matchedUser.email, sessionId, matchedUser.panel === 'lab' ? 'lab' : 'lms');
+        const token = await signAdminToken(matchedUser.email, sessionId, authPanel);
         const res = NextResponse.json(responsePayload);
         return setAuthCookie(res, token);
       }
@@ -386,27 +396,25 @@ export async function POST(req: NextRequest) {
     }
 
     const trimmedEmail = email.trim().toLowerCase();
-    const { data: adminUsers, error: queryError } = await supabaseAdmin
-      .from('admin_users')
-      .select('*')
-      .eq('email', trimmedEmail)
-      .order('created_at', { ascending: true })
-      .limit(1);
-
-    const matchedUser = adminUsers?.[0];
+    // Each admin app (LMS-Admin / Lab-Admin, src/lib/appPanel.ts) signs in only its own panel's
+    // accounts; the panel is carried through the MFA challenge into the session token.
+    const authPanel = APP_PANEL;
+    const { user: matchedUser, error: lookupError } = await findAdminUser(trimmedEmail, authPanel);
+    const queryError = lookupError ? { message: lookupError } : null;
+    const authDb = supabaseFor(authPanel);
 
     if (queryError || !matchedUser || matchedUser.email.trim().toLowerCase() !== trimmedEmail) {
       const fakeSalt = '00000000000000000000000000000000';
       const fakeHash = '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
       await verifyPassword(password, fakeHash, fakeSalt);
-      await logSecurityEvent(trimmedEmail, 'FAILED_LOGIN_USER_NOT_FOUND', ip, req.headers.get('user-agent'));
+      await logSecurityEvent(trimmedEmail, 'FAILED_LOGIN_USER_NOT_FOUND', ip, req.headers.get('user-agent'), authPanel);
       return NextResponse.json({ error: 'Invalid credentials.' }, { status: 401 });
     }
 
     // Check lockout status
     if (matchedUser.mfa_locked_until && new Date() < new Date(matchedUser.mfa_locked_until)) {
       const lockedRemainingSecs = Math.ceil((new Date(matchedUser.mfa_locked_until).getTime() - Date.now()) / 1000);
-      await logSecurityEvent(trimmedEmail, 'LOGIN_BLOCKED_MFA_LOCKED', ip, req.headers.get('user-agent'));
+      await logSecurityEvent(trimmedEmail, 'LOGIN_BLOCKED_MFA_LOCKED', ip, req.headers.get('user-agent'), authPanel);
       return NextResponse.json({
         error: `MFA is locked out. Try again in ${Math.ceil(lockedRemainingSecs / 60)} minute(s).`,
       }, { status: 423 });
@@ -414,7 +422,7 @@ export async function POST(req: NextRequest) {
 
     const isPasswordValid = await verifyPassword(password, matchedUser.password_hash, matchedUser.salt);
     if (!isPasswordValid) {
-      await logSecurityEvent(trimmedEmail, 'FAILED_LOGIN_PASSWORD_INVALID', ip, req.headers.get('user-agent'));
+      await logSecurityEvent(trimmedEmail, 'FAILED_LOGIN_PASSWORD_INVALID', ip, req.headers.get('user-agent'), authPanel);
       return NextResponse.json({ error: 'Invalid credentials.' }, { status: 401 });
     }
 
@@ -424,7 +432,7 @@ export async function POST(req: NextRequest) {
 
     // Password is valid! Initiate MFA challenge
     const nonce = randomUUID();
-    const signedChallengeToken = await signChallengeToken(matchedUser.email, nonce);
+    const signedChallengeToken = await signChallengeToken(matchedUser.email, nonce, authPanel);
 
     const updatePayload: any /* eslint-disable-line @typescript-eslint/no-explicit-any */ = {
       mfa_challenge_nonce: nonce,
@@ -455,7 +463,7 @@ export async function POST(req: NextRequest) {
       responseData.totpSecret = tempSecret;
     }
 
-    const { error: updateError } = await supabaseAdmin
+    const { error: updateError } = await authDb
       .from('admin_users')
       .update(updatePayload)
       .eq('id', matchedUser.id);
@@ -468,7 +476,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await logSecurityEvent(matchedUser.email, 'PASSWORD_VERIFIED_MFA_CHALLENGE_ISSUED', ip, req.headers.get('user-agent'));
+    await logSecurityEvent(matchedUser.email, 'PASSWORD_VERIFIED_MFA_CHALLENGE_ISSUED', ip, req.headers.get('user-agent'), authPanel);
 
     return NextResponse.json(responseData);
   } catch (err: unknown) {

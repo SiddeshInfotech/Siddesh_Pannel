@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { COOKIE_NAME, clearAuthCookie, verifyAdminToken } from '@/lib/auth';
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseFor } from '@/lib/supabase';
 
 /**
  * POST /api/auth/logout
@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
       const session = await verifyAdminToken(token);
       if (session && session.sid) {
         // Mark session as revoked in the database so existing JWTs are invalidated
-        await supabaseAdmin
+        await supabaseFor(session.panel)
           .from('admin_sessions')
           .update({ revoked: true })
           .eq('session_id', session.sid);

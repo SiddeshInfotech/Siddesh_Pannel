@@ -1,0 +1,11 @@
+﻿# Never commit keys, logs or encrypted output from these scripts.
+.master_cek*
+*.key
+*.log
+encryption_log.txt
+*.enc
+*.enc.part
+__pycache__/
+
+# Test-only demo content (hard links to demo.mp4)
+data/

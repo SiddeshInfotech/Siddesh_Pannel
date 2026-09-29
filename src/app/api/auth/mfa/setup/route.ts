@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getAdminSession } from '@/lib/auth';
 import { generateTOTPSecret } from '@/lib/crypto';
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseFor } from '@/lib/supabase';
 import QRCode from 'qrcode';
 
 export async function POST() {
@@ -20,7 +20,7 @@ export async function POST() {
     const qrCode = await QRCode.toDataURL(otpAuthUri);
 
     // Save temporary TOTP secret in DB (mfa_enabled stays false until verified)
-    const { error } = await supabaseAdmin
+    const { error } = await supabaseFor(session.panel)
       .from('admin_users')
       .update({ totp_secret: secret, mfa_enabled: false })
       .eq('email', email);

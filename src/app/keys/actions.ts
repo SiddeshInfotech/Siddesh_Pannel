@@ -7,7 +7,7 @@ import { randomInt } from 'crypto';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { indianAcademicYear } from '@/lib/entity';
-import { PRODUCT_ID_ENUM, DEFAULT_PRODUCT_ID, productDisplayName, isProductId, familyFor, familyForPanel } from '@/lib/productIdentity';
+import { PRODUCT_ID_ENUM, DEFAULT_PRODUCT_ID, productDisplayName, isProductId, panelFor } from '@/lib/productIdentity';
 import {
   DEVICE_CLASS_ENUM,
   DEVICE_CLASS_STANDARD,
@@ -148,9 +148,9 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
   }
 
   const validData = parsed.data;
-  // Each panel issues keys only for its own products: Lab-Admin → the LMS-Lab products (stored in
-  // lab_activation_keys), LMS-Admin → School. Enforced here, not just by the form's dropdown.
-  if (familyFor(validData.productId) !== familyForPanel(session.panel)) {
+  // Each panel issues keys only for its own products (Lab-Admin → the 5 LMS-Lab products, in the
+  // Lab database). Enforced here, not just by the form's dropdown.
+  if (panelFor(validData.productId) !== session.panel) {
     logger.warn({ event: 'CREATE_KEYS_WRONG_PANEL', panel: session.panel, productId: validData.productId });
     return fail(`${productDisplayName(validData.productId)} keys cannot be generated from this panel.`);
   }
@@ -231,7 +231,7 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
       // database, so still make them visible instead of leaving the admin unsure.
       if (createdKeys && createdKeys.length > 0) {
         revalidatePath('/keys');
-        revalidatePath('/data');
+        revalidatePath('/accounts');
       }
       if (error.code === '23505') return fail('One or more of these keys already exist.');
       return fail(GENERIC_ERROR);
@@ -254,7 +254,7 @@ export async function createActivationKeys(formData: any /* eslint-disable-line 
       adminEmail: session.email,
     });
     revalidatePath('/keys');
-    revalidatePath('/data');
+    revalidatePath('/accounts');
 
     return ok((createdKeys ?? []).map(k => ({
       id: k.id,

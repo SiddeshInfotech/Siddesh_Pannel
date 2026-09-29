@@ -11,10 +11,10 @@ import { verifyAttestation, checkRevocation } from '@/lib/attestation';
 import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
 import { signPayload } from '@/lib/licenseSign';
 import { resolveEffectiveProductId, resolveLegacyProductId, checkProductMatch } from '@/lib/product';
-import { PRODUCT_ID_ENUM, productDisplayName, isProductId, labPackageFor } from '@/lib/productIdentity';
+import { PRODUCT_ID_ENUM, productDisplayName, isProductId, labPackageFor, familyFor } from '@/lib/productIdentity';
 import { entityRefFromRow, resolveEntity, isEntitledToAll } from '@/lib/entity';
 import { shouldEnforceAttestation, deriveServerTier, validateAttestationConfig } from '@/lib/attestationPolicy';
-import { LAB_MASTER_CEK_ENV, labScopeIdsForPackage, masterCekFor } from '@/lib/labCourses';
+import { LAB_MASTER_CEK_ENV, labScopeIds, labScopeIdsForPackage, masterCekFor } from '@/lib/labCourses';
 import { recordAttestationIssue } from '@/lib/attestationTelemetry';
 import { isPanelKey, isPanelActivationWindowClosed, DEVICE_CLASS_MANAGED_PANEL } from '@/lib/deviceClass';
 import { wrapToPublicKey } from '@/lib/deviceWrap';
@@ -957,8 +957,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ── 8. Envelope key wrapping of CEK ──────────────────────────────────
-    // Each LMS-Lab product has its own content master (src/lib/labCourses.ts), so one
-    // product's drive never decrypts in another product. School keeps LMS_MASTER_CEK.
+    // Each Lab-Admin product has its own content master (src/lib/labCourses.ts), so one
+    // product's drive never decrypts in another product. LMS-Admin products keep LMS_MASTER_CEK.
     const labPackage = isProductId(product) ? labPackageFor(product) : null;
     const masterCekRaw = labPackage ? masterCekFor(labPackage) : process.env.LMS_MASTER_CEK;
     if (!masterCekRaw) {
@@ -1006,9 +1006,14 @@ export async function POST(req: NextRequest) {
     // Driven by the canonical product's family (src/lib/productIdentity.ts) — the same
     // value just validated by the product identity gate above — never by the WIN_* tier
     // (shared by School and Lab desktop builds, proves nothing about family).
-    // Lab products get only their own courses' scopes (Composite: every course + reserved).
+    // Lab-Admin products get only their own courses' scopes (Composite: every course + reserved);
+    // the original LMS Lab app (LMS_LAB_*) keeps every course under LMS_MASTER_CEK, as before.
     if (labPackage) {
       for (const scopeId of labScopeIdsForPackage(labPackage)) {
+        wrappedCeks[scopeId] = wrapOne(deriveScopePassphrase(masterCek, scopeId));
+      }
+    } else if (isProductId(product) && familyFor(product) === 'lab') {
+      for (const scopeId of labScopeIds()) {
         wrappedCeks[scopeId] = wrapOne(deriveScopePassphrase(masterCek, scopeId));
       }
     } else {

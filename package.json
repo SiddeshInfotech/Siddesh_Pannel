@@ -4,6 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:lab": "node run-lab.mjs dev -p 3001",
+    "build:lab": "node run-lab.mjs build",
+    "start:lab": "node run-lab.mjs start -p 3001",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

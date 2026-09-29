@@ -854,4 +854,52 @@ select option {
     color: var(--text-body);
     background: transparent;
   }
+
+  /* Range slider (Add School → Classrooms Limit): purple fill up to the value (--range-fill set
+     inline), visible grey remainder, white thumb with a violet ring. */
+  .range-fancy {
+    appearance: none;
+    -webkit-appearance: none;
+    height: 6px;
+    border-radius: 9999px;
+    background: linear-gradient(to right, var(--accent-violet) 0 var(--range-fill, 0%), var(--card-border) var(--range-fill, 0%) 100%);
+    outline: none;
+    cursor: pointer;
+  }
+  .range-fancy::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 9999px;
+    background: #ffffff;
+    border: 2px solid var(--accent-violet);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .range-fancy::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 9999px;
+    background: #ffffff;
+    border: 2px solid var(--accent-violet);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .range-fancy::-moz-range-track {
+    background: transparent;
+  }
+  .range-fancy:hover::-webkit-slider-thumb { transform: scale(1.15); }
+  .range-fancy:hover::-moz-range-thumb { transform: scale(1.15); }
+  .range-fancy:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.2); }
+  .range-fancy:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.2); }
+
+  /* Dashed upload drop zones (Add Vendor form): CSS dashed borders can't set the dash gap, so the
+     border is an SVG — 1.5px line, 6px dashes, 1.5px gaps, corners matching rounded-xl. */
+  .upload-dashed {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3e%3crect width='100%25' height='100%25' fill='none' rx='16' ry='16' stroke='rgba(255%2c255%2c255%2c0.16)' stroke-width='3' stroke-dasharray='6%2c1.5' stroke-linecap='butt'/%3e%3c/svg%3e");
+  }
+  .light .upload-dashed {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' width='100%25' height='100%25'%3e%3crect width='100%25' height='100%25' fill='none' rx='16' ry='16' stroke='%23d4d4d8' stroke-width='3' stroke-dasharray='6%2c1.5' stroke-linecap='butt'/%3e%3c/svg%3e");
+  }
 }

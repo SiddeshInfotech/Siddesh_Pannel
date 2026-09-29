@@ -29,7 +29,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify, importSPKI } from 'jose';
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { verifyAdminToken, COOKIE_NAME } from './lib/auth';
-import { supabaseAdmin } from './lib/supabase';
+import { supabaseFor } from './lib/supabase';
+import { APP_PANEL, BASE_PATH } from './lib/appPanel';
 import { logger } from './lib/logger';
 
 // Must match auth.ts: admin JWTs are verified with the admin signing key
@@ -247,6 +248,10 @@ export async function proxy(req: NextRequest) {
 
     const email = payload.email as string;
     const sid = payload.sid as string | undefined;
+    // Each admin app accepts only sessions of its own panel (LMS-Admin / Lab-Admin); the panel
+    // is a signed claim, and a token from the other app is treated like no session.
+    const authDb = supabaseFor(APP_PANEL);
+    const tokenPanel = payload.panel === 'lab' ? 'lab' : 'lms';
     const role = payload.role as string | undefined;
     const purpose = payload.purpose as string | undefined;
 
@@ -254,11 +259,11 @@ export async function proxy(req: NextRequest) {
     // A pre-MFA challenge token (purpose:'mfa-challenge', no sid/role) is signed
     // with the same key/issuer/audience but must NEVER grant page/API access.
     // Require an explicit admin-session token. Fail closed.
-    if (purpose !== 'admin-session' || role !== 'administrator' || !sid) {
+    if (purpose !== 'admin-session' || role !== 'administrator' || !sid || tokenPanel !== APP_PANEL) {
       console.error('[proxy] Access blocked: token is not a valid admin session.');
       const response = pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
-        : NextResponse.redirect(new URL('/lms-admin/', req.url));
+        : NextResponse.redirect(new URL(`${BASE_PATH}/`, req.url));
       response.cookies.set(COOKIE_NAME, '', {
         maxAge: 0, path: '/', secure: isProd, httpOnly: true, sameSite: 'strict',
       });
@@ -270,7 +275,7 @@ export async function proxy(req: NextRequest) {
     // JWT whose email matches a row in admin_users (case-insensitive). This
     // replaces the previous single-admin lock that only accepted the
     // first-created account. Session revocation/expiry is still enforced below.
-    const { data: adminUsers, error: queryError } = await supabaseAdmin
+    const { data: adminUsers, error: queryError } = await authDb
       .from('admin_users')
       .select('email')
       .ilike('email', email)
@@ -282,7 +287,7 @@ export async function proxy(req: NextRequest) {
 
       const response = pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Unauthorized email.' }, { status: 401 })
-        : NextResponse.redirect(new URL('/lms-admin/', req.url));
+        : NextResponse.redirect(new URL(`${BASE_PATH}/`, req.url));
       
       response.cookies.set(COOKIE_NAME, '', {
         maxAge: 0,
@@ -297,7 +302,7 @@ export async function proxy(req: NextRequest) {
     // Stateful session check in database (mandatory — sid is guaranteed present
     // by the token-type gate above; fail closed on any error/miss).
     {
-      const { data: session, error: sessionError } = await supabaseAdmin
+      const { data: session, error: sessionError } = await authDb
         .from('admin_sessions')
         .select('revoked, expires_at')
         .eq('session_id', sid)
@@ -308,7 +313,7 @@ export async function proxy(req: NextRequest) {
 
         const response = pathname.startsWith('/api/')
           ? NextResponse.json({ error: 'Session revoked or expired.' }, { status: 401 })
-          : NextResponse.redirect(new URL('/lms-admin/', req.url));
+          : NextResponse.redirect(new URL(`${BASE_PATH}/`, req.url));
 
         response.cookies.set(COOKIE_NAME, '', {
           maxAge: 0,

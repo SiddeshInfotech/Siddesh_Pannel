@@ -66,7 +66,7 @@ export async function createParent(formData: any /* eslint-disable-line @typescr
 
     if (!error) {
       logger.info({ event: 'PARENT_CREATED_DB', parentId: newParent.parent_id, adminEmail: session.email });
-      revalidatePath('/data');
+      revalidatePath('/accounts');
       return ok(newParent.parent_id as string);
     }
     

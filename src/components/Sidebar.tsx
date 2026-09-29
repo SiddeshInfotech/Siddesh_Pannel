@@ -6,11 +6,10 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
+import { APP_PANEL, BASE_PATH } from '@/lib/appPanel';
 import {
   LayoutDashboard,
   School,
-  Store,
-  Users,
   CreditCard,
   Key,
   Activity,
@@ -44,17 +43,7 @@ const MENU_GROUPS: MenuGroup[] = [
     title: 'Overview',
     items: [
       { label: 'Dashboard', icon: LayoutDashboard, path: '/' },
-      { label: 'Data', icon: School, path: '/data' },
-    ]
-  },
-  {
-    title: 'Accounts',
-    // Clicking an entry opens its (existing) form directly — no Add/Manage dropdown.
-    // The management tables remain reachable from the "Data" tab in Overview.
-    items: [
-      { label: 'Schools', icon: School, path: '/schools/new' },
-      { label: 'Vendors', icon: Store, path: '/vendors/new' },
-      { label: 'Parents', icon: Users, path: '/parents/new' },
+      { label: 'Accounts', icon: School, path: '/accounts' },
     ]
   },
   {
@@ -73,7 +62,7 @@ const MENU_GROUPS: MenuGroup[] = [
   }
 ];
 
-export default function Sidebar({ panel = 'lms' }: { panel?: 'lms' | 'lab' }) {
+export default function Sidebar() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const currentTab = searchParams.get('tab');
@@ -137,12 +126,12 @@ export default function Sidebar({ panel = 'lms' }: { panel?: 'lms' | 'lab' }) {
     <aside className="w-40 bg-surface-hover border-r border-sidebar-border flex flex-col h-screen fixed left-0 top-0 z-40 rounded-r-[14px]">
       {/* Brand Header */}
       <div className="px-4 pt-6 pb-2 flex items-center gap-2">
-        <Image src="/lms-admin/siddesh_logo.png" alt="Siddesh Logo" width={32} height={32} className="w-8 h-8 object-contain rounded-lg" />
+        <Image src={`${BASE_PATH}/siddesh_logo.png`} alt="Siddesh Logo" width={32} height={32} className="w-8 h-8 object-contain rounded-lg" />
         <div className="min-w-0">
           <h1 className="text-[13px] font-bold tracking-tight text-foreground transition-colors leading-tight truncate">
             Siddesh Tech
           </h1>
-          <p className="text-[8px] text-zinc-500 font-medium mt-0.5">{panel === 'lab' ? 'Lab Admin' : 'LMS Track'}</p>
+          <p className="text-[8px] text-zinc-500 font-medium mt-0.5">{APP_PANEL === 'lab' ? 'Lab Admin' : 'LMS Track'}</p>
         </div>
       </div>
       <div className="fading-line"></div>

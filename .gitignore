@@ -46,3 +46,5 @@ next-env.d.ts
 skill.md    
 fullplan.md
 /scripts/
+# Lab-Admin app build output (npm run dev:lab / build:lab)
+/.next-lab/

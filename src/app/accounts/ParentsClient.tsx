@@ -1,12 +1,16 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { useMemo, useState, useTransition, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import FormModal from '@/components/FormModal';
+import NewParentForm from '@/components/forms/NewParentForm';
 import {
     Users,
     Pencil,
     Trash2,
     Search,
+    Plus,
     AlertTriangle,
     X
 } from 'lucide-react';
@@ -39,6 +43,15 @@ export default function ParentsClient({
     tabsNode,
 }: ParentsClientProps) {
     const [parents, setParents] = useState(initialParents);
+    // Keep the list in step with fresh server data (router.refresh() after adding from the pop-up).
+    const [prevInitial, setPrevInitial] = useState(initialParents);
+    if (initialParents !== prevInitial) {
+        setPrevInitial(initialParents);
+        setParents(initialParents);
+    }
+    const router = useRouter();
+    const [showAdd, setShowAdd] = useState(false);
+    const closeAdd = useCallback(() => setShowAdd(false), []);
     const [search, setSearch] = useState('');
     const { toast } = useToast();
     const [isPending, startTransition] = useTransition();
@@ -87,18 +100,31 @@ export default function ParentsClient({
 
     return (
         <div className="space-y-6">
+            <FormModal open={showAdd} onClose={closeAdd}>
+                <NewParentForm onClose={closeAdd} onSaved={() => { closeAdd(); router.refresh(); }} />
+            </FormModal>
             <GlassCard className="overflow-hidden !p-0">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-6 pt-5 pb-2">
                     {tabsNode}
-                    <div className="relative w-full md:w-72">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
-                        <input
-                            type="text"
-                            placeholder="Search parents..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            className="field-input pl-9"
-                        />
+                    <div className="flex items-center gap-3 w-full md:w-auto">
+                        <div className="relative flex-1 md:flex-none md:w-72">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+                            <input
+                                type="text"
+                                placeholder="Search parents..."
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                className="field-input pl-9"
+                            />
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setShowAdd(true)}
+                            className="btn btn-secondary shrink-0 whitespace-nowrap"
+                        >
+                            <Plus className="w-4 h-4" />
+                            Add Parent
+                        </button>
                     </div>
                 </div>
 

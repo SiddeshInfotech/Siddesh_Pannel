@@ -137,7 +137,7 @@ export async function createPayment(formData: any /* eslint-disable-line @typesc
     logger.info({ event: 'PAYMENT_CREATED', paymentId: payment.id, adminEmail: session.email });
     revalidatePath('/payments');
     revalidatePath('/keys');
-    revalidatePath('/data');
+    revalidatePath('/accounts');
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'CREATE_PAYMENT_CRITICAL_ERROR' }, err);
@@ -207,7 +207,7 @@ export async function updatePayment(id: string, formData: any /* eslint-disable-
     logger.info({ event: 'PAYMENT_UPDATED', paymentId: id, adminEmail: session.email });
     revalidatePath('/payments');
     revalidatePath('/keys');
-    revalidatePath('/data');
+    revalidatePath('/accounts');
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'UPDATE_PAYMENT_CRITICAL_ERROR', paymentId: id }, err);

@@ -15,11 +15,15 @@ import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { cache } from 'react';
-import { supabaseAdmin } from './supabase';
+import { supabaseFor, type Panel } from './supabase';
 import { logger } from './logger';
+import { APP_PANEL } from './appPanel';
 
 const isProd = process.env.NODE_ENV === 'production';
-export const COOKIE_NAME = isProd ? '__Host-admin_token' : 'admin_token';
+// One cookie per admin app (src/lib/appPanel.ts), so an LMS-Admin and a Lab-Admin session coexist
+// in the same browser. LMS-Admin keeps its original cookie name.
+const COOKIE_BASE = APP_PANEL === 'lab' ? 'lab_admin_token' : 'admin_token';
+export const COOKIE_NAME = isProd ? `__Host-${COOKIE_BASE}` : COOKIE_BASE;
 const EXPIRY_SECONDS = 8 * 60 * 60; // 8 hours
 const JWT_ISSUER = 'siddesh-lms-admin';
 const JWT_AUDIENCE = 'siddesh-lms-client';
@@ -159,8 +163,15 @@ export async function verifyAdminToken(
       return null;
     }
 
+    // A session is valid only in the admin app that issued it (LMS-Admin vs Lab-Admin).
+    if (panel !== APP_PANEL) {
+      logger.warn({ event: 'TOKEN_REJECTED_WRONG_PANEL', panel, appPanel: APP_PANEL });
+      return null;
+    }
+
     // ── Stateful revocation check (mandatory; fail closed) ────────────────────
-    const { data: session, error } = await supabaseAdmin
+    // Sessions live in the database of the panel that issued them (LMS-Admin or Lab-Admin).
+    const { data: session, error } = await supabaseFor(panel)
       .from('admin_sessions')
       .select('revoked, expires_at')
       .eq('session_id', sid)
@@ -214,7 +225,8 @@ export const getAdminPanel = cache(async (): Promise<'lms' | 'lab' | null> => {
       audience: JWT_AUDIENCE,
     });
     if (payload.purpose !== 'admin-session') return null;
-    return payload.panel === 'lab' ? 'lab' : 'lms';
+    const panel = payload.panel === 'lab' ? 'lab' : 'lms';
+    return panel === APP_PANEL ? panel : null;
   } catch {
     return null;
   }
@@ -259,10 +271,11 @@ export async function logSecurityEvent(
   email: string,
   eventType: string,
   ip: string | null,
-  userAgent: string | null
+  userAgent: string | null,
+  panel: Panel = 'lms'
 ): Promise<void> {
   try {
-    const { error } = await supabaseAdmin.from('security_events').insert({
+    const { error } = await supabaseFor(panel).from('security_events').insert({
       email,
       event_type: eventType,
       ip: ip || 'unknown',
@@ -279,9 +292,9 @@ export async function logSecurityEvent(
 /**
  * Sign a 2-minute temporary challenge token for Phase 1 of MFA login.
  */
-export async function signChallengeToken(email: string, nonce: string): Promise<string> {
+export async function signChallengeToken(email: string, nonce: string, panel: Panel): Promise<string> {
   const key = await getSigningKey();
-  return await new SignJWT({ email, purpose: 'mfa-challenge', nonce })
+  return await new SignJWT({ email, purpose: 'mfa-challenge', nonce, panel })
     .setProtectedHeader({ alg: 'ES256' })
     .setIssuedAt()
     .setIssuer(JWT_ISSUER)
@@ -309,6 +322,7 @@ export async function verifyChallengeToken(token: string): Promise<any | null> {
     return {
       email: payload.email as string,
       nonce: payload.nonce as string,
+      panel: (payload.panel === 'lab' ? 'lab' : 'lms') as Panel,
     };
   } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
     console.error('❌ verifyChallengeToken failed:', err);
@@ -316,3 +330,30 @@ export async function verifyChallengeToken(token: string): Promise<any | null> {
   }
 }
 
+
+/**
+ * Finds an admin account by email in ONE panel's login table (admin_users / lab_admin_users).
+ * Each admin app signs in only its own panel's accounts (src/lib/appPanel.ts).
+ */
+export async function findAdminUser(
+  email: string,
+  panel: Panel
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<{ user: any | null; error: string | null }> {
+  let db;
+  try {
+    db = supabaseFor(panel);
+  } catch (err) {
+    // Lab database not configured: fail closed, same response as an unknown account.
+    logger.error({ event: 'ADMIN_LOOKUP_DB_UNAVAILABLE', panel, error: String(err) });
+    return { user: null, error: 'Admin database unavailable' };
+  }
+  const { data, error } = await db
+    .from('admin_users')
+    .select('*')
+    .eq('email', email)
+    .order('created_at', { ascending: true })
+    .limit(1);
+  if (error) return { user: null, error: error.message };
+  return { user: data?.[0] ?? null, error: null };
+}

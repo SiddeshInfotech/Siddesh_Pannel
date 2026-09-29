@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 // Server-only: this module is never imported by a Client Component, so none of
 // these need the NEXT_PUBLIC_ prefix. Keeping them unprefixed means NOTHING
@@ -33,3 +33,37 @@ export const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
     fetch: (url, options) => fetch(url, { ...options, cache: 'no-store' })
   }
 });
+
+/** Which admin panel a request belongs to: LMS-Admin or Lab-Admin. */
+export type Panel = 'lms' | 'lab';
+
+/** Table access for one panel — the only part of the client the panel code uses per panel. */
+export type PanelClient = Pick<SupabaseClient, 'from'>;
+
+// Embedded selects like `schools ( name )` name the related table. For Lab-Admin they must read
+// lab_schools etc. — aliased back (`schools:lab_schools ( name )`) so rows keep the same shape.
+const EMBEDDED_TABLE = /\b(schools|vendors|parents|activation_keys)\s*\(/g;
+
+export function labEmbeds(columns: string): string {
+  return columns.replace(EMBEDDED_TABLE, (_, t: string) => `${t}:lab_${t} (`);
+}
+
+/**
+ * Lab-Admin lives in the SAME database but in its own `lab_*` tables (lab-admin-schema.sql):
+ * its own admin logins (lab_admin_users / lab_admin_sessions / lab_security_events), keys,
+ * schools and devices. Nothing is shared with LMS-Admin's tables.
+ */
+const labClient: PanelClient = {
+  from: ((table: string) => {
+    const query = supabaseAdmin.from(`lab_${table}`);
+    const select = query.select.bind(query);
+    query.select = ((columns?: string, options?: Parameters<typeof select>[1]) =>
+      select(columns === undefined ? columns : labEmbeds(columns), options)) as typeof query.select;
+    return query;
+  }) as PanelClient['from'],
+};
+
+/** Table access for [panel]: LMS-Admin → the original tables, Lab-Admin → the lab_* tables. */
+export function supabaseFor(panel: Panel): PanelClient {
+  return panel === 'lab' ? labClient : supabaseAdmin;
+}

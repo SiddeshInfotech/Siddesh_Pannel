@@ -17,7 +17,7 @@ import Link from 'next/link';
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import StatusBadge from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
-import { updateSchoolAction } from '@/app/data/actions';
+import { updateSchoolAction } from '@/app/accounts/actions';
 import CustomSelect from '@/components/CustomSelect';
 import { MAHARASHTRA_DISTRICTS, MAHARASHTRA_STATE } from '@/lib/constants';
 
@@ -96,7 +96,7 @@ export default function EditSchoolClient({ school }: EditSchoolClientProps) {
 
       toast(`School details for "${name}" updated successfully!`, 'success');
       setTimeout(() => {
-        router.push('/data');
+        router.push('/accounts');
       }, 1500);
     });
   };
@@ -110,7 +110,7 @@ export default function EditSchoolClient({ school }: EditSchoolClientProps) {
       <div className="flex justify-between items-center flex-wrap gap-4 border-b border-white/5 pb-6">
         <div>
           <div className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs font-semibold cursor-pointer mb-2">
-            <Link href="/data" className="flex items-center gap-1">
+            <Link href="/accounts" className="flex items-center gap-1">
               <ChevronLeft className="w-3.5 h-3.5" />
               Back to Directory
             </Link>
@@ -121,7 +121,7 @@ export default function EditSchoolClient({ school }: EditSchoolClientProps) {
 
         <div className="flex items-center gap-3">
           <Link
-            href="/data"
+            href="/accounts"
             className="px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-zinc-300 rounded-xl transition-all cursor-pointer"
           >
             Cancel

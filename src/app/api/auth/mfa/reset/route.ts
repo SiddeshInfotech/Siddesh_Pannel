@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAdminSession, logSecurityEvent } from '@/lib/auth';
 import { verifyPassword, verifyTOTP, decryptAES } from '@/lib/crypto';
-import { supabaseAdmin } from '@/lib/supabase';
+import { supabaseFor } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Fetch admin user
-    const { data: adminUsers, error: queryError } = await supabaseAdmin
+    const { data: adminUsers, error: queryError } = await supabaseFor(session.panel)
       .from('admin_users')
       .select('*')
       .eq('email', session.email)
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     // 3. Verify password
     const isPasswordValid = await verifyPassword(password, matchedUser.password_hash, matchedUser.salt);
     if (!isPasswordValid) {
-      await logSecurityEvent(session.email, 'FAILED_MFA_RESET_PASSWORD_INVALID', ip, req.headers.get('user-agent'));
+      await logSecurityEvent(session.email, 'FAILED_MFA_RESET_PASSWORD_INVALID', ip, req.headers.get('user-agent'), session.panel);
       return NextResponse.json({ error: 'Invalid credentials.' }, { status: 401 });
     }
 
@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
 
     const matchedCounter = verifyTOTP(decryptedSecret, code, 1); // strict ±30s window
     if (matchedCounter === null) {
-      await logSecurityEvent(session.email, 'FAILED_MFA_RESET_OTP_INVALID', ip, req.headers.get('user-agent'));
+      await logSecurityEvent(session.email, 'FAILED_MFA_RESET_OTP_INVALID', ip, req.headers.get('user-agent'), session.panel);
       return NextResponse.json({ error: 'Invalid authenticator code.' }, { status: 401 });
     }
 
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 5. Update user to disable MFA
-    const { error: updateError } = await supabaseAdmin
+    const { error: updateError } = await supabaseFor(session.panel)
       .from('admin_users')
       .update({
         mfa_enabled: false,
@@ -99,7 +99,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Database update failed.' }, { status: 500 });
     }
 
-    await logSecurityEvent(session.email, 'MFA_DISABLED', ip, req.headers.get('user-agent'));
+    await logSecurityEvent(session.email, 'MFA_DISABLED', ip, req.headers.get('user-agent'), session.panel);
 
     return NextResponse.json({
       success: true,

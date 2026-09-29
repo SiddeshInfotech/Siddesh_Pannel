@@ -382,8 +382,6 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
           <MetricCard
             title="Total Devices"
             value={totalDevicesCount.toString()}
-            badgeText="Active DB Nodes"
-            badgeType="stable"
             icon={Laptop}
             sparklineType="progress"
             progress={totalDevicesCount > 0 ? Math.min(100, (totalDevicesCount / 100) * 100) : 0}

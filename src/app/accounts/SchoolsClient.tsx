@@ -1,12 +1,10 @@
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { useState, useTransition, useCallback } from 'react';
 import { 
-  Building2,
   Search,
   School as SchoolIcon, 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  Plus, 
+  Plus,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
   ChevronRight,
   Edit2,
@@ -17,6 +15,8 @@ import {
 import GlassCard from '@/components/GlassCard';
 import StatusBadge from '@/components/StatusBadge';
 import Link from 'next/link';
+import FormModal from '@/components/FormModal';
+import NewSchoolForm from '@/components/forms/NewSchoolForm';
 import { deleteSchoolAction } from './actions';
 import { useToast } from '@/components/Toast';
 
@@ -46,6 +46,14 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
   const [search, setSearch] = useState('');
   const [isPending, startTransition] = useTransition();
   const [schools, setSchools] = useState<SchoolRow[]>(initialSchools);
+  // Keep the list in step with fresh server data (router.refresh() after adding from the pop-up).
+  const [prevInitial, setPrevInitial] = useState(initialSchools);
+  if (initialSchools !== prevInitial) {
+      setPrevInitial(initialSchools);
+      setSchools(initialSchools);
+  }
+  const [showAdd, setShowAdd] = useState(false);
+  const closeAdd = useCallback(() => setShowAdd(false), []);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [schoolToDelete, setSchoolToDelete] = useState<SchoolRow | null>(null);
 
@@ -74,18 +82,31 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
 
   return (
     <div className="space-y-6 relative">
+        <FormModal open={showAdd} onClose={closeAdd}>
+            <NewSchoolForm onClose={closeAdd} />
+        </FormModal>
       {/* Directory Table */}
       <GlassCard className="overflow-hidden !p-0">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-6 pt-5 pb-2">
           {tabsNode}
-          <div className="relative w-full md:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search schools..."
-              className="field-input pl-9"
-            />
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="relative flex-1 md:flex-none md:w-72">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search schools..."
+                className="field-input pl-9"
+              />
+            </div>
+            <button
+                type="button"
+                onClick={() => setShowAdd(true)}
+                className="btn btn-secondary shrink-0 whitespace-nowrap"
+            >
+              <Plus className="w-4 h-4" />
+              Add School
+            </button>
           </div>
         </div>
         <div className="overflow-x-auto px-6 pb-6">
