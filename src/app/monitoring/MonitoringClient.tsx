@@ -1,13 +1,12 @@
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { useState, useTransition, useRef, useEffect } from 'react';
 import { 
   Laptop, 
   Smartphone, 
   Tv, 
   Monitor, 
   Search, 
-  Globe,
   AlertCircle,
   X,
   Shield,
@@ -17,8 +16,8 @@ import {
   User,
   Mail,
   Phone,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
   Layers,
+  ChevronDown,
   Award,
   Clock,
   Key,
@@ -28,11 +27,8 @@ import {
   FileCheck,
   ShieldAlert
 } from 'lucide-react';
-import MetricCard from '@/components/MetricCard';
-import MetricGroup from '@/components/MetricGroup';
 import StatusBadge from '@/components/StatusBadge';
 import GlassCard from '@/components/GlassCard';
-import CustomSelect from '@/components/CustomSelect';
 import { deactivateDevice } from './actions';
 import { useToast } from '@/components/Toast';
 import { productFilterOptionsFor, UNRESOLVED_PRODUCT_FILTER_VALUE, isProductId, productDisplayName } from '@/lib/productIdentity';
@@ -247,6 +243,19 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
   const [search, setSearch] = useState('');
   const [entityFilter, setEntityFilter] = useState<'All' | 'Schools' | 'Vendors' | 'Users'>('All');
   const [productFilter, setProductFilter] = useState<string>('all');
+  const [isProductMenuOpen, setIsProductMenuOpen] = useState(false);
+  const productMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close custom dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (productMenuRef.current && !productMenuRef.current.contains(event.target as Node)) {
+        setIsProductMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   const [selectedDevice, setSelectedDevice] = useState<DeviceRow | null>(null);
   const [page, setPage] = useState(1);
   const [devicesList, setDevicesList] = useState<DeviceRow[]>(initialDevices);
@@ -362,94 +371,100 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
   const pagedDevices = filteredDevices.slice(pageStart, pageStart + DEVICES_PER_PAGE);
 
   return (
-    <div className="space-y-8 max-w-7xl mx-auto">
+    <div className="space-y-4 max-w-7xl mx-auto">
       {/* Spacer to maintain layout height */}
       <div className="h-10"></div>
 
-      {/* Header */}
-      <div>
-        <h2 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
-          <Globe className="w-8 h-8 text-accent-violet animate-pulse" />
-          Device Monitoring
-        </h2>
-        <p className="text-xs text-zinc-400 mt-1">Real-time hardware fingerprint validation and device states.</p>
-      </div>
-
-      {/* Count on the left, the controls that narrow it on the right — one row, so the
-          number and the filters acting on it read as a single unit. */}
-      <div className="flex flex-col xl:flex-row xl:items-start gap-4">
-        <MetricGroup className="w-full xl:w-[320px] xl:shrink-0">
-          <MetricCard
-            title="Total Devices"
-            value={totalDevicesCount.toString()}
-            icon={Laptop}
-            sparklineType="progress"
-            progress={totalDevicesCount > 0 ? Math.min(100, (totalDevicesCount / 100) * 100) : 0}
-          />
-        </MetricGroup>
-
-        <div className="flex-1 min-w-0 flex flex-col justify-center gap-3 p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Filter devices</span>
-            <span className="text-[10px] font-bold text-zinc-300 px-3 py-1 bg-white/5 border border-white/10 rounded-lg">
-              {filteredDevices.length} shown
-            </span>
+      {/* Header & Filters — Payments style */}
+      <div className="flex flex-col gap-3 pb-2">
+        <div className="flex justify-between items-center flex-wrap gap-4">
+          <h2 className="text-2xl font-bold text-foreground">Device Monitoring</h2>
+          <div className="flex items-center gap-4 text-xs font-bold text-zinc-400">
+            <span>Total Devices <span className="text-sm text-foreground ml-1">{totalDevicesCount}</span></span>
+            <span>{filteredDevices.length} shown</span>
           </div>
-          <div className="flex flex-col sm:flex-row items-stretch gap-3">
-            <div className="relative flex-1 min-w-0">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search by fingerprint, model, entity…"
-                value={search}
-                onChange={e => { setSearch(e.target.value); setPage(1); }}
-                className="w-full pl-10 pr-4 py-2.5 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
-              />
+        </div>
+
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border mt-2">
+          <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+            {(['All', 'Schools', 'Vendors', 'Users'] as const).map(t => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => { setEntityFilter(t); setPage(1); }}
+                className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${entityFilter === t ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400'}`}
+              >
+                {t}
+              </button>
+            ))}
+
+            <div ref={productMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setIsProductMenuOpen(!isProductMenuOpen)}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b transition-colors ${productFilter !== 'all' ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400'}`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>
+                  {productFilter === 'all'
+                    ? 'Product Types'
+                    : productFilterOptionsFor(panel).find(o => o.value === productFilter)?.label || 'Product Types'}
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 opacity-50 transition-transform ${isProductMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isProductMenuOpen && (
+                <div className="absolute top-full left-0 mt-2 w-48 z-50 animate-fade-in">
+                  <div className="bg-[#121216] border border-white/10 shadow-2xl py-1.5 rounded-xl flex flex-col">
+                    {productFilterOptionsFor(panel).map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => { setProductFilter(opt.value); setPage(1); setIsProductMenuOpen(false); }}
+                        className={`text-left px-4 py-2.5 text-xs font-semibold transition-colors ${productFilter === opt.value ? 'bg-accent-violet/15 text-accent-violet' : 'text-zinc-300 hover:bg-white/5 hover:text-white'}`}
+                      >
+                        {opt.label === 'All Products' ? 'All Product Types' : opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-            <div className="w-full sm:w-[170px] shrink-0">
-              <CustomSelect
-                value={entityFilter}
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                onChange={val => { setEntityFilter(val as any); setPage(1); }}
-                options={[
-                  { value: 'All', label: 'All Entities' },
-                  { value: 'Schools', label: 'Schools' },
-                  { value: 'Vendors', label: 'Vendors' },
-                  { value: 'Users', label: 'Users' }
-                ]}
-              />
-            </div>
-            <div className="w-full sm:w-[185px] shrink-0">
-              <CustomSelect
-                value={productFilter}
-                onChange={val => { setProductFilter(val); setPage(1); }}
-                options={productFilterOptionsFor(panel)}
-              />
-            </div>
+          </div>
+
+          <div className="relative w-full xl:w-[260px] mb-1">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search by fingerprint, model, entity…"
+              value={search}
+              onChange={e => { setSearch(e.target.value); setPage(1); }}
+              className="bare-input w-full pl-8 pr-2 py-1.5 bg-transparent text-xs text-foreground placeholder-zinc-500 focus:outline-none"
+            />
           </div>
         </div>
       </div>
 
       {/* Main Table list */}
-      <GlassCard className="/40 border border-card-border overflow-hidden">
-        <div className="overflow-x-auto">
+      <GlassCard className="!p-0 overflow-hidden">
+        <div className="overflow-x-auto px-[15px]">
           <table className="w-full min-w-[1200px] text-left border-collapse">
             <thead>
-              <tr className="border-b border-card-border text-[10px] uppercase font-bold text-zinc-500 tracking-wider">
-                <th className="py-4 px-3">Device (Model + OS)</th>
-                <th className="py-4 px-3">Hardware Fingerprint</th>
-                <th className="py-4 px-3">{entityFilter === 'Vendors' ? 'Vendor Name' : entityFilter === 'Users' ? 'Student Name' : entityFilter === 'All' ? 'Entity Name' : 'School Name'}</th>
-                <th className="py-4 px-3">Security Tier (Verified / Reported)</th>
-                <th className="py-4 px-3">Product</th>
-                <th className="py-4 px-3">Consent</th>
-                <th className="py-4 px-3">Activation</th>
-                <th className="py-4 px-3">Last Sync</th>
-                <th className="py-4 px-3">Remaining Time</th>
-                <th className="py-4 px-3">Status</th>
-                <th className="py-4 px-3 text-right">Deactivate</th>
+              <tr className="border-b border-sidebar-border h-[44px]">
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Device (Model + OS)</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Hardware Fingerprint</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">{entityFilter === 'Vendors' ? 'Vendor Name' : entityFilter === 'Users' ? 'Student Name' : entityFilter === 'All' ? 'Entity Name' : 'School Name'}</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Security Tier (Verified / Reported)</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Product</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Consent</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Activation</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Last Sync</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Remaining Time</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Status</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle text-right">Deactivate</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-card-border">
+            <tbody className="divide-y divide-white/5">
               {pagedDevices.length > 0 ? (
                 pagedDevices.map(dev => {
                   const Icon = getDeviceIcon(dev.model, dev.os);
@@ -457,33 +472,27 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
                     <tr 
                       key={dev.id} 
                       onClick={() => setSelectedDevice(dev)}
-                      className="hover:bg-white/[0.02] active:bg-white/[0.04] transition-all cursor-pointer group"
+                      className="transition-colors group h-[44px] cursor-pointer"
                     >
-                      <td className="py-4 px-3">
-                        <div className="flex items-center gap-3">
-                          <span className="p-2 rounded-xl bg-white/5 border border-white/10 group-hover:border-accent-violet/30 transition-all">
-                            <Icon className="w-4.5 h-4.5 text-zinc-400 group-hover:text-accent-violet transition-colors" />
-                          </span>
-                          <div>
-                            <h4 className="text-sm font-semibold text-white group-hover:text-accent-violet transition-colors">{dev.model}</h4>
-                            <p className="text-[10px] text-zinc-500 font-medium">
-                              {dev.os}
-                              {dev.deviceClass === 'managed_panel' && (
-                                <span className="ml-1.5 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 text-[8px] font-bold uppercase tracking-wide">
-                                  Interactive panel
-                                </span>
-                              )}
-                            </p>
-                          </div>
+                      <td className="px-[9px] align-middle">
+                        <div className="flex items-center gap-2 whitespace-nowrap">
+                          <Icon className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                          <span className="text-sm font-medium text-white">{dev.model}</span>
+                          <span className="text-[10px] text-zinc-500">{dev.os}</span>
+                          {dev.deviceClass === 'managed_panel' && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 text-[8px] font-bold uppercase tracking-wide">
+                              Interactive panel
+                            </span>
+                          )}
                         </div>
                       </td>
-                      <td className="py-4 px-3">
-                        <code className="text-xs px-2.5 py-1 bg-white/5 border border-white/5 rounded-lg text-zinc-400 font-mono group-hover:text-zinc-200 transition-colors">
+                      <td className="px-[9px] align-middle">
+                        <code className="text-xs text-zinc-400 font-mono whitespace-nowrap">
                           {dev.fingerprint.substring(0, 12)}...
                         </code>
                       </td>
-                      <td className="py-4 px-3 text-sm font-bold text-zinc-300 group-hover:text-white transition-colors">
-                        <div className="flex items-center gap-2">
+                      <td className="px-[9px] align-middle text-sm text-zinc-300">
+                        <div className="flex items-center gap-2 whitespace-nowrap">
                           <span>{dev.entityName || dev.schoolName}</span>
                           {dev.expiryTamper && (
                             <span
@@ -495,14 +504,14 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
                           )}
                         </div>
                       </td>
-                      <td className="py-4 px-3">
-                        <div className="flex flex-col gap-1 items-start">
+                      <td className="px-[9px] align-middle">
+                        <div className="flex items-center gap-1.5 whitespace-nowrap">
                           {(() => {
                             const v = verifiedTierStyle(dev.verifiedTier);
                             return (
                               <span
                                 title={`Server-verified tier (trusted): ${dev.verifiedTier}`}
-                                className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-[10px] font-semibold whitespace-nowrap ${v.cls}`}
+                                className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${v.cls}`}
                               >
                                 {v.label}
                               </span>
@@ -530,56 +539,56 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
                           )}
                         </div>
                       </td>
-                      <td className="py-4 px-3">
+                      <td className="px-[9px] align-middle">
                         {(() => {
                           const p = productStyle(dev.product);
                           return (
                             <span
                               title={dev.product ?? undefined}
-                              className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-[10px] font-semibold whitespace-nowrap ${p.cls}`}
+                              className="text-xs text-zinc-400 whitespace-nowrap"
                             >
                               {p.label}
                             </span>
                           );
                         })()}
                       </td>
-                      <td className="py-4 px-3">
+                      <td className="px-[9px] align-middle">
                         {dev.termsAccepted ? (
                           <span
                             title={`Privacy Policy + Terms accepted${dev.termsVersion ? ` (v${dev.termsVersion})` : ''}${dev.termsAcceptedAt ? ` on ${dev.termsAcceptedAt}` : ''}`}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-[10px] font-semibold whitespace-nowrap bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
                           >
                             <CheckCircle2 className="w-3 h-3" /> Accepted
                           </span>
                         ) : (
                           <span
                             title="No pre-activation consent recorded for this device"
-                            className="inline-flex items-center px-2.5 py-1 rounded-lg border text-[10px] font-semibold whitespace-nowrap bg-zinc-500/10 border-zinc-500/25 text-zinc-400"
+                            className="inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap bg-zinc-500/10 border-zinc-500/25 text-zinc-400"
                           >
                             Not recorded
                           </span>
                         )}
                       </td>
-                      <td className="py-4 px-3 text-sm text-zinc-300 font-medium">{dev.activationDate}</td>
-                      <td className="py-4 px-3 text-sm text-zinc-400">{dev.lastSync}</td>
-                      <td className="py-4 px-3 text-sm text-zinc-400 font-medium font-mono">{dev.remainingTime}</td>
-                      <td className="py-4 px-3">
+                      <td className="px-[9px] align-middle text-xs text-zinc-400 whitespace-nowrap">{dev.activationDate}</td>
+                      <td className="px-[9px] align-middle text-xs text-zinc-400 whitespace-nowrap">{dev.lastSync}</td>
+                      <td className="px-[9px] align-middle text-xs text-zinc-400 whitespace-nowrap">{dev.remainingTime}</td>
+                      <td className="px-[9px] align-middle">
                         <StatusBadge status={dev.status} />
                       </td>
-                      <td className="py-4 px-3 text-right">
+                      <td className="px-[9px] align-middle text-right">
                         {dev.status !== 'Revoked' ? (
                           <button
                             type="button"
                             onClick={(e) => handleDeactivate(e, dev.id)}
                             disabled={isPending}
-                            className="px-3.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 text-xs font-semibold text-rose-400 rounded-lg hover:shadow-md transition-all cursor-pointer disabled:opacity-55"
+                            className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 text-[11px] font-semibold text-rose-400 rounded-md transition-colors cursor-pointer disabled:opacity-55"
                           >
                             Deactivate
                           </button>
                         ) : (
                           <button
                             disabled
-                            className="px-3.5 py-1.5 bg-zinc-800 border border-white/5 text-xs font-semibold text-zinc-500 rounded-lg cursor-not-allowed"
+                            className="px-2.5 py-1 bg-zinc-800 border border-white/5 text-[11px] font-semibold text-zinc-500 rounded-md cursor-not-allowed"
                           >
                             Deactivated
                           </button>

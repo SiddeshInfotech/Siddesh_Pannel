@@ -8,9 +8,10 @@ interface AppleDatePickerProps {
   onChange: (date: string) => void;
   placeholder?: string;
   className?: string;
+  variant?: 'default' | 'icon';
 }
 
-export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/yyyy', className = '' }: AppleDatePickerProps) {
+export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/yyyy', className = '', variant = 'default' }: AppleDatePickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   
   const [currentMonth, setCurrentMonth] = useState(() => {
@@ -33,7 +34,14 @@ export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/
       const spaceAbove = rect.top;
       const popupHeight = 320; // approximate height
 
-      let top, left = rect.left;
+      const popupWidth = 280;
+      let top;
+      let left = rect.left;
+      
+      // Ensure it doesn't overflow the right edge
+      if (left + popupWidth > window.innerWidth - 16) {
+        left = window.innerWidth - popupWidth - 16;
+      }
       
       if (spaceBelow < popupHeight && spaceAbove > popupHeight) {
         // Open upwards
@@ -47,7 +55,7 @@ export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/
         position: 'fixed',
         top: `${top}px`,
         left: `${left}px`,
-        width: '280px', // fixed width
+        width: `${popupWidth}px`, // fixed width
         zIndex: 9999
       });
     }
@@ -136,13 +144,23 @@ export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/
 
   return (
     <div className={`relative ${className}`} ref={popoverRef}>
-      <div 
-        onClick={toggleOpen}
-        className="w-full px-4 py-3 bg-[#121216] border border-white/10 hover:border-white/15 focus-within:border-accent-violet rounded-xl text-sm text-zinc-300 flex items-center justify-between cursor-pointer transition-all"
-      >
-        <span>{value ? formatDateForDisplay(value) : placeholder}</span>
-        <CalendarIcon className="w-4 h-4 text-zinc-500" />
-      </div>
+      {variant === 'icon' ? (
+        <button 
+          type="button" 
+          onClick={toggleOpen} 
+          className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+        >
+          <CalendarIcon className="w-4 h-4" />
+        </button>
+      ) : (
+        <div 
+          onClick={toggleOpen}
+          className="w-full px-4 py-3 bg-[#121216] border border-white/10 hover:border-white/15 focus-within:border-accent-violet rounded-xl text-sm text-zinc-300 flex items-center justify-between cursor-pointer transition-all"
+        >
+          <span>{value ? formatDateForDisplay(value) : placeholder}</span>
+          <CalendarIcon className="w-4 h-4 text-zinc-500" />
+        </div>
+      )}
 
       {isOpen && (
         <div 

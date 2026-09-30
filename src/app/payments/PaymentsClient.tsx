@@ -3,7 +3,7 @@
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import React, { useState, useTransition, useEffect } from 'react';
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { Edit2, Trash2, XCircle, CreditCard, School, AlertCircle, AlertTriangle, X } from 'lucide-react';
+import { Edit2, Trash2, XCircle, CreditCard, School, AlertCircle, AlertTriangle, X, Plus } from 'lucide-react';
 import AppleDatePicker from '@/components/AppleDatePicker';
 import GlassCard from '@/components/GlassCard';
 import StatusBadge from '@/components/StatusBadge';
@@ -75,6 +75,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
   // Confirmation Modal State
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [paymentToDelete, setPaymentToDelete] = useState<{ id: string; schoolName: string } | null>(null);
+  const [showPaymentForm, setShowPaymentForm] = useState(false);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const selectedSchool = schools.find(s => s.id === selectedSchoolId);
@@ -90,6 +91,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
     setAmount('');
     setBankName('');
     setTransactionId('');
+    setShowPaymentForm(false);
   };
 
   const handleEdit = (payment: PaymentRow) => {
@@ -112,6 +114,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
     setPaymentDate(`${yyyy}-${mm}-${dd}`);
     
     setStatus(payment.status);
+    setShowPaymentForm(true);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -192,239 +195,107 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
   });
 
   return (
-    <div className="space-y-8 max-w-6xl mx-auto relative">
+    <div className="space-y-4 max-w-6xl mx-auto relative">
       {/* Spacer to maintain layout height */}
       <div className="h-10"></div>
 
-      {/* Header Panel & Acceptance Form */}
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <div className="flex justify-between items-center flex-wrap gap-4 border-b border-white/5 pb-6">
-          <div>
-            <h2 className="text-3xl font-extrabold text-white tracking-tight">
-              {editingId ? 'Edit Payment Details' : 'Payment Details Acceptance'}
-            </h2>
-            <p className="text-xs text-zinc-400 mt-1">
-              {editingId ? 'Modify registered payment details.' : 'Submit and log verified school payment transactions.'}
-            </p>
+      {/* Header & Filters Panel */}
+      <div className="flex flex-col gap-3 pb-2">
+        <div className="flex justify-between items-center flex-wrap gap-4">
+          <div className="flex items-center gap-4 flex-1">
+            <div>
+              <h2 className="text-2xl font-bold text-foreground">
+                Payment Details Acceptance
+              </h2>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button
-              type="submit"
-              disabled={isPending}
-              className="px-5 py-2.5 bg-gradient-to-r from-accent-violet to-accent-blue text-xs font-semibold text-white rounded-xl shadow-[0_0_15px_rgba(139,92,246,0.25)] hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] transition-transform active:scale-95 cursor-pointer disabled:opacity-55"
-            >
-              {isPending ? 'Saving...' : editingId ? 'Update Receipt' : 'Submit Receipt'}
-            </button>
-          </div>
-        </div>
-
-        {/* Entity Type Selection */}
-        <div className="w-full md:w-1/3 mb-6">
-          <label className="text-xs font-bold text-zinc-400 block mb-2">Entity Type</label>
-          <CustomSelect
-            required
-            value={entityType}
-            onChange={val => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              setEntityType(val as any);
-              // Reset specific selections when changing type
-              setSelectedSchoolId('');
-              setSelectedVendorId('');
-              setSelectedParentId('');
-              // Keys Issued Count doesn't apply to Vendor (field is hidden) — clear any
-              // stray value from a prior School/Individual selection so switching back
-              // doesn't silently carry it over.
-              if (val === 'Vendor') setKeysCount('');
-            }}
-            options={[
-              { value: 'School', label: 'School' },
-              { value: 'Vendor', label: 'Vendor' },
-              { value: 'Individual', label: 'Normal Individual User' }
-            ]}
-            placeholder="Select Entity Type"
-          />
-        </div>
-
-        {/* Form Inputs Grid */}
-        <GlassCard className="/40 border border-white/5 p-6 space-y-6">
-          <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
-            <CreditCard className="w-4 h-4 text-accent-violet" />
-            Payment info
-          </h3>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {entityType === 'School' && (
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-400 block">Select Institution *</label>
-                <CustomSelect
-                  required
-                  value={selectedSchoolId}
-                  onChange={val => setSelectedSchoolId(val)}
-                  options={schools.map(s => ({ value: s.id, label: s.name }))}
-                  placeholder="Select School"
-                />
-              </div>
-            )}
-            
-            {entityType === 'Vendor' && (
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-400 block">Select Vendor *</label>
-                <CustomSelect
-                  required
-                  value={selectedVendorId}
-                  onChange={val => setSelectedVendorId(val)}
-                  options={vendors.map(v => ({ value: v.id, label: v.name }))}
-                  placeholder="Select Vendor"
-                />
-              </div>
-            )}
-
-            {entityType === 'Individual' && (
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-400 block">Select Individual *</label>
-                <CustomSelect
-                  required
-                  value={selectedParentId}
-                  onChange={val => setSelectedParentId(val)}
-                  options={parents.map(p => ({ value: p.id, label: p.name }))}
-                  placeholder="Select Individual"
-                />
-              </div>
-            )}
-
-            {/* Not applicable to Vendor: a vendor's payment is a licensing agreement, not a
-                fixed pre-paid key count — vendors generate keys separately, in bulk, via
-                the Keys tab's Single / Batch options. */}
-            {entityType !== 'Vendor' && (
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-400 block">Keys Issued Count *</label>
-                <input
-                  type="number"
-                  required
-                  placeholder="e.g. 5"
-                  value={keysCount}
-                  onChange={e => setKeysCount(e.target.value)}
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
-                />
-              </div>
-            )}
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-400 block">Payment Date *</label>
-              <AppleDatePicker 
-                value={paymentDate}
-                onChange={setPaymentDate}
-                placeholder="mm/dd/yyyy"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-400 block">Audit Clearance Status *</label>
-              <CustomSelect
-                required
-                value={status}
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                onChange={val => setStatus(val as any)}
-                options={[
-                  { value: 'Unpaid', label: 'Unpaid (Draft / Flagged)' },
-                  { value: 'Pending Approval', label: 'Pending Approval (Awaiting Clearance)' },
-                  { value: 'Paid', label: 'Paid (Verified & Approved)' }
-                ]}
-                placeholder="Select Status"
-              />
-            </div>
-          </div>
-        </GlassCard>
-      </form>
-
-      {/* Filters */}
-      {/* Filter bar — the two dimensions (entity, status) were two loose rows of pills
-          that read as one undifferentiated block of eight buttons. They're now labelled
-          segmented controls in a single toolbar, so it's obvious they are independent
-          axes and which axis each selection belongs to. */}
-      <div className="flex flex-col xl:flex-row xl:items-center gap-4 p-3 bg-white/[0.02] border border-white/5 rounded-2xl">
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest shrink-0">Entity</span>
-          <div className="flex items-center gap-1 p-1 bg-white/5 border border-white/10 rounded-xl overflow-x-auto">
-            {(['All', 'School', 'Vendor', 'Parent'] as const).map(t => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setEntityTab(t)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  entityTab === t
-                    ? 'bg-accent-blue text-white shadow-md'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="hidden xl:block w-px h-8 bg-white/10 shrink-0" />
-
-        <div className="flex items-center gap-3 min-w-0">
-          <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest shrink-0">Status</span>
-          <div className="flex items-center gap-1 p-1 bg-white/5 border border-white/10 rounded-xl overflow-x-auto">
-            {(['All', 'Unpaid', 'Paid', 'Pending'] as const).map(f => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFilter(f)}
-                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                  filter === f
-                    ? 'bg-accent-violet text-white shadow-md'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                }`}
-              >
-                {f}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 xl:ml-auto shrink-0">
-          <span className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[10px] font-bold text-zinc-300">
-            {filteredPayments.length} {filteredPayments.length === 1 ? 'Record' : 'Records'}
-          </span>
-          {(entityTab !== 'All' || filter !== 'All') && (
-            <button
               type="button"
-              onClick={() => { setEntityTab('All'); setFilter('All'); }}
-              className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold text-zinc-400 hover:text-white transition-colors cursor-pointer"
+              onClick={() => {
+                setEditingId(null);
+                setShowPaymentForm(true);
+              }}
+              className="btn btn-secondary shrink-0 whitespace-nowrap"
             >
-              Clear
+              <Plus className="w-4 h-4 inline-block mr-1" />
+              Add Payment
             </button>
-          )}
+          </div>
+        </div>
+
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 w-full border-b border-sidebar-border">
+          <div className="flex items-center min-w-0">
+            <div className="flex items-center gap-0 overflow-x-auto -mb-[1px]">
+              <button
+                type="button"
+                onClick={() => { setEntityTab('All'); setFilter('All'); }}
+                className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${
+                  entityTab === 'All' && filter === 'All'
+                    ? 'border-foreground text-foreground'
+                    : 'border-transparent text-zinc-400'
+                }`}
+              >
+                All
+              </button>
+              {(['School', 'Vendor', 'Parent'] as const).map(t => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => { setEntityTab(t); setFilter('All'); }}
+                  className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${
+                    entityTab === t && filter === 'All'
+                      ? 'border-foreground text-foreground'
+                      : 'border-transparent text-zinc-400'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+
+              {(['Unpaid', 'Paid', 'Pending'] as const).map(f => (
+                <button
+                  key={f}
+                  type="button"
+                  onClick={() => { setFilter(f); setEntityTab('All'); }}
+                  className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${
+                    filter === f && entityTab === 'All'
+                      ? 'border-foreground text-foreground'
+                      : 'border-transparent text-zinc-400'
+                  }`}
+                >
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Payment Table Records */}
-      <GlassCard className="/40 border border-white/5 overflow-hidden p-0">
-        <div className="overflow-x-auto">
+      <GlassCard className="!p-0 overflow-hidden">
+        <div className="overflow-x-auto px-[15px]">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="border-b border-white/10 bg-white/[0.02]">
-                <th className="py-4 px-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Transaction ID</th>
-                <th className="py-4 px-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Entity Name</th>
-                <th className="py-4 px-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Date</th>
-                <th className="py-4 px-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Status</th>
-                <th className="py-4 px-6 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Actions</th>
+              <tr className="border-b border-sidebar-border h-[44px]">
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Transaction ID</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Entity Name</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Date</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Status</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest text-right align-middle">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-white/5">
               {filteredPayments.length > 0 ? (
                 filteredPayments.map(payment => (
-                  <tr key={payment.id} className="hover:bg-white/[0.02] transition-colors group">
-                    <td className="py-4 px-6">
+                  <tr key={payment.id} className="transition-colors group h-[44px]">
+                    <td className="px-[9px] align-middle">
                       <span className="text-sm font-medium text-white">{payment.transactionId}</span>
                     </td>
-                    <td className="py-4 px-6">
+                    <td className="px-[9px] align-middle">
                       <span className="text-sm text-zinc-300">{payment.entityName}</span>
                     </td>
-                    <td className="py-4 px-6">
+                    <td className="px-[9px] align-middle">
                       <span className="text-sm text-zinc-400">
                         {payment.paymentDate ? (() => {
                           const date = new Date(payment.paymentDate);
@@ -435,10 +306,10 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
                         })() : 'N/A'}
                       </span>
                     </td>
-                    <td className="py-4 px-6">
+                    <td className="px-[9px] align-middle">
                       <StatusBadge status={payment.status === 'Paid' ? 'SUCCESS' : payment.status === 'Unpaid' ? 'Unpaid' : 'Pending'} />
                     </td>
-                    <td className="py-4 px-6 text-right">
+                    <td className="px-[9px] text-right align-middle">
                       <div className="flex items-center justify-end gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
                         <button
                           type="button"
@@ -534,6 +405,159 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
                 {isPending ? 'Deleting...' : 'Confirm Delete'}
               </button>
             </div>
+          </GlassCard>
+        </div>
+      )}
+
+      {/* Payment Form Modal */}
+      {showPaymentForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="w-full max-w-4xl border border-white/10 p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button 
+              onClick={handleCancelForm}
+              className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer z-10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <form onSubmit={handleSubmit} className="space-y-6 mt-2">
+              <div>
+                <h2 className="text-2xl font-bold text-white tracking-tight">
+                  {editingId ? 'Edit Payment Details' : 'Add Payment Details'}
+                </h2>
+                <p className="text-xs text-zinc-400 mt-1">
+                  {editingId ? 'Modify registered payment details.' : 'Submit and log verified payment transactions.'}
+                </p>
+              </div>
+
+              {/* Entity Type Selection */}
+              <div className="w-full md:w-1/2 mb-6">
+                <label className="text-xs font-bold text-zinc-400 block mb-2">Entity Type</label>
+                <CustomSelect
+                  required
+                  value={entityType}
+                  onChange={val => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    setEntityType(val as any);
+                    setSelectedSchoolId('');
+                    setSelectedVendorId('');
+                    setSelectedParentId('');
+                    if (val === 'Vendor') setKeysCount('');
+                  }}
+                  options={[
+                    { value: 'School', label: 'School' },
+                    { value: 'Vendor', label: 'Vendor' },
+                    { value: 'Individual', label: 'Normal Individual User' }
+                  ]}
+                  placeholder="Select Entity Type"
+                />
+              </div>
+
+              {/* Form Inputs Grid */}
+              <div className="bg-white/5 border border-white/10 p-6 rounded-2xl space-y-6">
+                <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-accent-violet" />
+                  Payment info
+                </h3>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {entityType === 'School' && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-zinc-400 block">Select Institution *</label>
+                      <CustomSelect
+                        required
+                        value={selectedSchoolId}
+                        onChange={val => setSelectedSchoolId(val)}
+                        options={schools.map(s => ({ value: s.id, label: s.name }))}
+                        placeholder="Select School"
+                      />
+                    </div>
+                  )}
+                  
+                  {entityType === 'Vendor' && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-zinc-400 block">Select Vendor *</label>
+                      <CustomSelect
+                        required
+                        value={selectedVendorId}
+                        onChange={val => setSelectedVendorId(val)}
+                        options={vendors.map(v => ({ value: v.id, label: v.name }))}
+                        placeholder="Select Vendor"
+                      />
+                    </div>
+                  )}
+
+                  {entityType === 'Individual' && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-zinc-400 block">Select Individual *</label>
+                      <CustomSelect
+                        required
+                        value={selectedParentId}
+                        onChange={val => setSelectedParentId(val)}
+                        options={parents.map(p => ({ value: p.id, label: p.name }))}
+                        placeholder="Select Individual"
+                      />
+                    </div>
+                  )}
+
+                  {entityType !== 'Vendor' && (
+                    <div className="space-y-2">
+                      <label className="text-xs font-bold text-zinc-400 block">Keys Issued Count *</label>
+                      <input
+                        type="number"
+                        required
+                        placeholder="e.g. 5"
+                        value={keysCount}
+                        onChange={e => setKeysCount(e.target.value)}
+                        className="w-full px-4 py-3 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-white placeholder-zinc-500 focus:outline-none transition-all"
+                      />
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400 block">Payment Date *</label>
+                    <AppleDatePicker 
+                      value={paymentDate}
+                      onChange={setPaymentDate}
+                      placeholder="mm/dd/yyyy"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400 block">Audit Clearance Status *</label>
+                    <CustomSelect
+                      required
+                      value={status}
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      onChange={val => setStatus(val as any)}
+                      options={[
+                        { value: 'Unpaid', label: 'Unpaid (Draft / Flagged)' },
+                        { value: 'Pending Approval', label: 'Pending Approval (Awaiting Clearance)' },
+                        { value: 'Paid', label: 'Paid (Verified & Approved)' }
+                      ]}
+                      placeholder="Select Status"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-white/10 mt-6">
+                <button
+                  type="button"
+                  onClick={handleCancelForm}
+                  disabled={isPending}
+                  className="btn btn-secondary"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isPending}
+                  className="btn btn-primary"
+                >
+                  {isPending ? 'Saving...' : editingId ? 'Update Receipt' : 'Submit Receipt'}
+                </button>
+              </div>
+            </form>
           </GlassCard>
         </div>
       )}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { useState, useTransition, useRef, useEffect } from 'react';
 import { 
   Key, 
   School as SchoolIcon, 
@@ -17,10 +17,13 @@ import {
   RotateCcw,
   Search,
   ChevronDown,
-  ChevronUp,
-  FileDown,
+  Plus,
+  Layers,
+  ChevronLeft,
+  ChevronRight,
+  X,
   Monitor,
-  X
+  FileDown
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
 import StatusBadge from '@/components/StatusBadge';
@@ -556,994 +559,555 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
     });
     return Object.values(map);
   }, [filteredKeyList]);
+  // New state for popup modal form & generated keys popup
+  const [showKeyForm, setShowKeyForm] = useState(false);
+  const [showGeneratedPopup, setShowGeneratedPopup] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Paid' | 'Unpaid' | 'Revoked' | 'Expired'>('All');
+  const [filterDate, setFilterDate] = useState('');
+  const [isProductMenuOpen, setIsProductMenuOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const rowsPerPage = 15;
+  const productMenuRef = useRef<HTMLDivElement>(null);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filterEntityType, filterSchoolId, filterProductId, statusFilter, filterDate, panel]);
+
+  // Close custom dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (productMenuRef.current && !productMenuRef.current.contains(event.target as Node)) {
+        setIsProductMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleCancelKeyForm = () => {
+    setShowKeyForm(false);
+  };
+
+  const tableKeys = React.useMemo(() => {
+    let list = filteredKeyList;
+    if (statusFilter !== 'All') {
+      list = list.filter(k => {
+        const s = (k.status || '').toLowerCase();
+        if (statusFilter === 'Expired') {
+          if (k.expiresAt && new Date(k.expiresAt).getTime() < Date.now()) return true;
+          if (k.activatedAt && !k.expiresAt) {
+            const activeDate = new Date(k.activatedAt).getTime();
+            const durationMs = k.durationDays * 24 * 60 * 60 * 1000;
+            if (activeDate + durationMs < Date.now()) return true;
+          }
+          return false;
+        }
+        if (statusFilter === 'Active') return s === 'active';
+        if (statusFilter === 'Paid') return s === 'paid';
+        if (statusFilter === 'Unpaid') return s === 'unpaid';
+        if (statusFilter === 'Revoked') return s === 'revoked';
+        return true;
+      });
+    }
+
+    if (filterDate) {
+      list = list.filter(k => {
+        if (!k.createdAt) return false;
+        const d = new Date(k.createdAt);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
+        return `${yyyy}-${mm}-${dd}` === filterDate;
+      });
+    }
+
+    return list;
+  }, [filteredKeyList, statusFilter, filterDate]);
+
+  const totalPages = Math.ceil(tableKeys.length / rowsPerPage);
+  const paginatedKeys = React.useMemo(() => {
+    const start = (currentPage - 1) * rowsPerPage;
+    return tableKeys.slice(start, start + rowsPerPage);
+  }, [tableKeys, currentPage]);
+
+  const handleCopyAll = () => {
+    const allKeys = generatedKeys.join('\n');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(allKeys);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = allKeys;
+      ta.style.position = "fixed";
+      ta.style.top = "0";
+      ta.style.left = "0";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { document.execCommand('copy'); } catch (err) { console.error('copy failed', err); }
+      document.body.removeChild(ta);
+    }
+    toast(`All ${generatedKeys.length} keys copied to clipboard.`, 'success');
+  };
+
+  const handleGenerateAndShowPopup = (e: React.FormEvent) => {
+    handleGenerate(e);
+  };
+
+  // Show popup when new keys are generated
+  React.useEffect(() => {
+    if (generatedKeys.length > 0) {
+      setShowGeneratedPopup(true);
+      setShowKeyForm(false);
+    }
+  }, [generatedKeys]);
 
   return (
-    <div className="space-y-8 max-w-5xl mx-auto relative">
-      {/* Spacer to maintain layout height */}
+    <div className="space-y-4 max-w-6xl mx-auto relative">
       <div className="h-10"></div>
 
-      {/* Header and branding */}
-      <div>
-        <h2 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-3">
-          <Key className="w-8 h-8 text-accent-violet" />
-          Cryptographic Key Provisioning
-        </h2>
-        <p className="text-xs text-zinc-400 mt-1">
-          Generate high-entropy activation tokens for institutional nodes. All keys are encrypted with AES-256 before storage.
-        </p>
+      {/* Header & Filters — Payments style */}
+      <div className="flex flex-col gap-3 pb-2">
+        <div className="flex justify-between items-center flex-wrap gap-4">
+          <div className="flex items-center gap-4 flex-1">
+            <div>
+              <h2 className="text-2xl font-bold text-foreground">Activation Key Management</h2>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <button type="button" onClick={() => setShowKeyForm(true)} className="btn btn-secondary shrink-0 whitespace-nowrap">
+              <Plus className="w-4 h-4 inline-block mr-1" />
+              Create Key
+            </button>
+          </div>
+        </div>
+
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 w-full border-b border-sidebar-border mt-2">
+          <div className="flex items-center min-w-0 w-full">
+            <div className="flex items-center gap-0 flex-wrap -mb-[1px] w-full">
+              <button type="button" onClick={() => { setFilterEntityType('all'); setFilterSchoolId('all'); setStatusFilter('All'); setFilterProductId('all'); }}
+                className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${filterEntityType === 'all' && statusFilter === 'All' && filterProductId === 'all' ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400'}`}>All</button>
+              {(['School', 'Vendor', 'Parent'] as const).map(t => (
+                <button key={t} type="button" onClick={() => { setFilterEntityType(t); setFilterSchoolId('all'); setStatusFilter('All'); setFilterProductId('all'); }}
+                  className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${filterEntityType === t && statusFilter === 'All' && filterProductId === 'all' ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400'}`}>{t}</button>
+              ))}
+
+              <div ref={productMenuRef} className="relative">
+                <button 
+                  type="button" 
+                  onClick={() => setIsProductMenuOpen(!isProductMenuOpen)}
+                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold whitespace-nowrap border-b cursor-pointer transition-colors ${filterProductId !== 'all' ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400 hover:text-zinc-300'}`}
+                >
+                  <Layers className="w-3.5 h-3.5" />
+                  <span>
+                    {filterProductId === 'all' 
+                      ? 'Product Types' 
+                      : productFilterOptionsFor(panel).find(o => o.value === filterProductId)?.label || 'Product Types'}
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 opacity-50 transition-transform ${isProductMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isProductMenuOpen && (
+                  <div className="absolute top-full left-0 mt-2 w-48 z-50 animate-fade-in">
+                    <div className="bg-[#121216] border border-white/10 shadow-2xl py-1.5 rounded-xl flex flex-col">
+                      {productFilterOptionsFor(panel).map(opt => (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => {
+                            setFilterProductId(opt.value);
+                            setFilterEntityType('all');
+                            setStatusFilter('All');
+                            setIsProductMenuOpen(false);
+                          }}
+                          className={`text-left px-4 py-2.5 text-xs font-semibold transition-colors ${filterProductId === opt.value ? 'bg-accent-violet/15 text-accent-violet' : 'text-zinc-300 hover:bg-white/5 hover:text-white'}`}
+                        >
+                          {opt.label === 'All Products' ? 'All Product Types' : opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {(['Expired', 'Active', 'Paid', 'Unpaid', 'Revoked'] as const).map(s => (
+                <button key={s} type="button" onClick={() => { setStatusFilter(s); setFilterEntityType('all'); setFilterSchoolId('all'); setFilterProductId('all'); }}
+                  className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${statusFilter === s && filterEntityType === 'all' && filterProductId === 'all' ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400'}`}>{s}</button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-1 mb-1">
+            {filterDate && (
+              <span className="text-[10px] font-bold text-accent-violet bg-accent-violet/10 px-2 py-1 rounded-md flex items-center gap-1">
+                {filterDate.split('-').reverse().join('/')}
+                <button type="button" onClick={() => setFilterDate('')} className="hover:text-white transition-colors cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            <AppleDatePicker 
+              value={filterDate}
+              onChange={setFilterDate}
+              variant="icon"
+            />
+          </div>
+        </div>
       </div>
 
-      {/* Main card matching layout */}
-      <GlassCard className="/40 border border-white/5 p-6 relative overflow-visible">
-        <div className="absolute top-0 right-0 w-[200px] h-[200px] bg-accent-violet/5 rounded-full blur-[80px] pointer-events-none"></div>
-
-        <form onSubmit={handleGenerate} className="space-y-6">
-          {/* Identity row — who the licence is for and which client build it activates.
-              These were three stacked third-width blocks, which left two thirds of the
-              card empty and pushed the actual controls below the fold. */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-400 block">Entity Type</label>
-              <CustomSelect
-                required
-                value={entityType}
-                onChange={val => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  setEntityType(val as any);
-                  setSelectedSchoolId('');
-                  setSelectedVendorId('');
-                  setSelectedParentId('');
-                  setKeyManuallyEdited(false); // re-enable auto-fill for the new entity type
-                }}
-                options={[
-                  { value: 'School', label: 'School' },
-                  { value: 'Vendor', label: 'Vendor' },
-                  { value: 'Individual', label: 'Normal Individual User' }
-                ]}
-                placeholder="Select Entity Type"
-              />
-            </div>
-
-            {/* Which client build this key activates. Defaults to LMS School Android
-                (existing production behavior); anything else must be picked explicitly. */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-400 block">Product</label>
-              <CustomSelect
-                required
-                value={productId}
-                onChange={val => {
-                  const next = val as ProductId;
-                  setProductId(next);
-                  if (targetOsFor(next) !== 'ANDROID') setDeviceClass(DEVICE_CLASS_STANDARD);
-                }}
-                options={productsForPanel(panel).map(p => ({ value: p.id, label: p.displayName }))}
-                placeholder="Select Product"
-              />
-            </div>
-
-            {/* Which kind of device these keys are for. Standard = phones / tablets with full
-                security (default, existing behavior). Interactive panel = classroom panels of
-                any brand/model/Android version (src/lib/deviceClass.ts). Android products only. */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-400 flex items-center gap-2">
-                <Monitor className="w-3.5 h-3.5 text-zinc-500" />
-                Device Type
-              </label>
-              {productIsAndroid ? (
-                <CustomSelect
-                  required
-                  value={deviceClass}
-                  onChange={val => setDeviceClass(val as DeviceClass)}
-                  options={DEVICE_CLASS_OPTIONS.map(o => ({ value: o.value, label: o.label }))}
-                  placeholder="Select Device Type"
-                />
+      {/* Keys Table — Payments style */}
+      <GlassCard className="!p-0 overflow-hidden">
+        <div className="overflow-x-auto px-[15px]">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-sidebar-border h-[44px]">
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Activation Key</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Entity Name</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Product</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Expiry</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Status</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest text-right align-middle">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {paginatedKeys.length > 0 ? (
+                paginatedKeys.map(k => (
+                  <tr key={k.id} className="transition-colors group h-[44px]">
+                    <td className="px-[9px] align-middle"><span className="text-xs font-bold text-emerald-400 font-mono tracking-wider activation-token">{k.key}</span></td>
+                    <td className="px-[9px] align-middle"><span className="text-sm text-zinc-300">{k.entityName}</span></td>
+                    <td className="px-[9px] align-middle"><span className="text-xs text-zinc-400">{productWithDeviceClass(k.productId, k.deviceClass)}</span></td>
+                    <td className="px-[9px] align-middle"><span className="text-xs text-zinc-400">{k.expiresAt ? new Date(k.expiresAt).toLocaleDateString('en-IN') : `${k.durationDays}d`}</span></td>
+                    <td className="px-[9px] align-middle">
+                      <StatusBadge status={k.status?.toLowerCase() === 'active' ? 'Active' : k.status?.toLowerCase() === 'revoked' ? 'Revoked' : k.status?.toLowerCase() === 'paid' ? 'SUCCESS' : 'Unpaid'} />
+                    </td>
+                    <td className="px-[9px] text-right align-middle">
+                      <div className="flex items-center justify-end gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
+                        <button type="button" onClick={() => handleCopy(k.key, 0)} className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-emerald-400 transition-colors cursor-pointer" title="Copy Key"><Copy className="w-4 h-4" /></button>
+                        {k.deviceFingerprint && (
+                          <button type="button" onClick={() => confirmReset(k.id, k.key)} className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-amber-400 transition-colors cursor-pointer" title="Reset Device"><RotateCcw className="w-4 h-4" /></button>
+                        )}
+                        <button type="button" onClick={() => confirmDelete(k.id, k.key)} className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-red-400 transition-colors cursor-pointer" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
               ) : (
-                <div className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-xs text-zinc-400">
-                  Standard — interactive-panel keys are only for Android products.
-                </div>
+                <tr><td colSpan={6} className="py-12 text-center text-zinc-500 text-sm"><AlertCircle className="w-5 h-5 mx-auto mb-2 text-zinc-600" />No activation keys found.</td></tr>
               )}
-              {productIsAndroid && deviceClass === DEVICE_CLASS_MANAGED_PANEL && (
-                <>
-                  <p className="text-[11px] leading-relaxed text-amber-400/90">
-                    For interactive classroom panels only. A panel activated with this key needs no Google
-                    hardware attestation: it is bound to that one panel&apos;s device key, must keep proving it on
-                    every check-in, and may play video on panel firmware with a built-in root binary. Hand these
-                    keys only to panel installations — an unused key dies after the activation window below.
-                  </p>
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-zinc-400 block">Must be activated within (days)</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={MAX_PANEL_ACTIVATION_WINDOW_DAYS}
-                      value={activateWithinDays}
-                      onChange={e => setActivateWithinDays(Math.max(1, Math.min(MAX_PANEL_ACTIVATION_WINDOW_DAYS, Number(e.target.value) || 1)))}
-                      className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-accent-violet/50"
-                    />
-                  </div>
-                </>
-              )}
+            </tbody>
+          </table>
+        </div>
+        
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-6 py-4 border-t border-sidebar-border bg-sidebar">
+            <div className="text-xs text-zinc-400 font-medium">
+              Showing <span className="text-foreground">{((currentPage - 1) * rowsPerPage) + 1}</span> to <span className="text-foreground">{Math.min(currentPage * rowsPerPage, tableKeys.length)}</span> of <span className="text-foreground">{tableKeys.length}</span> entries
             </div>
-
-            {/* Entity Selection Dropdown */}
-            {entityType === 'School' && (
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-400 flex items-center gap-2">
-                  <SchoolIcon className="w-3.5 h-3.5 text-zinc-500" />
-                  Select Institution *
-                </label>
-                <CustomSelect
-                  required
-                  value={selectedSchoolId}
-                  onChange={val => setSelectedSchoolId(val)}
-                  options={schools.map(s => ({ value: s.id, label: s.name }))}
-                  placeholder="Select School"
-                />
+            <div className="flex items-center gap-1.5">
+              <button 
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))} 
+                disabled={currentPage === 1}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-sidebar-border text-zinc-400 hover:text-foreground hover:bg-foreground/5 disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              
+              <div className="flex items-center gap-1 mx-2">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum = i + 1;
+                  if (totalPages > 5) {
+                    if (currentPage <= 3) {
+                      pageNum = i + 1;
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i;
+                    } else {
+                      pageNum = currentPage - 2 + i;
+                    }
+                  }
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`w-8 h-8 flex items-center justify-center rounded-lg text-xs font-bold transition-all cursor-pointer ${currentPage === pageNum ? 'bg-accent-violet text-white shadow-lg' : 'text-zinc-400 hover:text-foreground hover:bg-foreground/5'}`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
               </div>
-            )}
-            
-            {entityType === 'Vendor' && (
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-400 flex items-center gap-2">
-                  <SchoolIcon className="w-3.5 h-3.5 text-zinc-500" />
-                  Select Vendor *
-                </label>
-                <CustomSelect
-                  required
-                  value={selectedVendorId}
-                  onChange={val => setSelectedVendorId(val)}
-                  options={vendors.map(v => ({ value: v.id, label: v.name }))}
-                  placeholder="Select Vendor"
-                />
-              </div>
-            )}
 
-            {entityType === 'Individual' && (
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-zinc-400 flex items-center gap-2">
-                  <SchoolIcon className="w-3.5 h-3.5 text-zinc-500" />
-                  Select Individual *
-                </label>
-                <CustomSelect
-                  required
-                  value={selectedParentId}
-                  onChange={val => setSelectedParentId(val)}
-                  options={parents.map(p => ({ value: p.id, label: p.name }))}
-                  placeholder="Select Individual"
-                />
-              </div>
-            )}
-
+              <button 
+                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))} 
+                disabled={currentPage === totalPages}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-sidebar-border text-zinc-400 hover:text-foreground hover:bg-foreground/5 disabled:opacity-30 disabled:hover:bg-transparent transition-all cursor-pointer"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
+        )}
+      </GlassCard>
 
-          {/* Policy Duration — full width so the custom date/time selectors sit on one
-              line instead of stacking inside a half-width column. */}
-          <div className="p-4 bg-white/[0.02] border border-white/5 rounded-2xl">
-            <div className="space-y-3">
-              <span className="text-xs font-bold text-zinc-400 flex items-center gap-2">
-                <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-                Policy Duration *
-              </span>
-              <div className="flex flex-col gap-3">
-                {/* Options toggle */}
-                <div className="flex items-center gap-4 bg-white/5 border border-white/10 rounded-xl p-1 w-fit">
-                  <button
-                    type="button"
-                    onClick={() => setDurationMode('1year')}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      durationMode === '1year'
-                        ? 'bg-accent-violet text-white shadow-md'
-                        : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    1 Year Pre-defined
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setDurationMode('custom')}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      durationMode === 'custom'
-                        ? 'bg-accent-violet text-white shadow-md'
-                        : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    Custom Calendar
-                  </button>
-                </div>
-
-                {/* Mode views */}
-                {durationMode === '1year' ? (
-                  <div className="p-4 bg-white/[0.01] border border-white/5 rounded-xl flex items-center gap-3 h-[50px] text-zinc-300">
-                    <span className="p-1.5 rounded-lg bg-accent-violet/10 text-accent-violet">
-                      <Calendar className="w-4 h-4" />
-                    </span>
-                    <span className="text-xs font-bold text-zinc-300">
-                      Expires exactly 365 days from activation (Valid until: {oneYearDateStr})
-                    </span>
-                  </div>
-                ) : (
-                  <div className="flex flex-col md:flex-row gap-3 items-center">
-                    {/* Date Selector — the themed popover calendar used everywhere else in
-                        the panel (Payments' Payment Date), not the browser's native
-                        `<input type="date">` picker, which renders in the OS's own light
-                        chrome and clashes with the dark form around it. */}
-                    <div className="flex-1 w-full">
-                       <AppleDatePicker
-                         value={customDateOnly}
-                         onChange={setCustomDateOnly}
-                         placeholder="mm/dd/yyyy"
-                       />
-                    </div>
-
-                    {/* Hour Dropdown */}
-                    <div className="w-full md:w-[110px] relative">
-                       <select
-                         value={customHour}
-                         onChange={e => setCustomHour(e.target.value)}
-                         className="w-full pl-3 !pr-9 py-3 bg-[#121216]/60 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-zinc-300 focus:outline-none transition-all appearance-none cursor-pointer"
-                       >
-                         {Array.from({ length: 12 }, (_, i) => String(i + 1)).map(h => (
-                           <option key={h} value={h.padStart(2, '0')} className="bg-[#121216] text-white">{h.padStart(2, '0')} Hr</option>
-                         ))}
-                       </select>
-                    </div>
-
-                    {/* Minute Dropdown */}
-                    <div className="w-full md:w-[120px] relative">
-                       <select
-                         value={customMinute}
-                         onChange={e => setCustomMinute(e.target.value)}
-                         className="w-full pl-3 !pr-9 py-3 bg-[#121216]/60 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-zinc-300 focus:outline-none transition-all appearance-none cursor-pointer"
-                       >
-                         {Array.from({ length: 60 }, (_, i) => String(i)).map(m => (
-                           <option key={m} value={m.padStart(2, '0')} className="bg-[#121216] text-white">{m.padStart(2, '0')} Min</option>
-                         ))}
-                       </select>
-                    </div>
-
-                    {/* AM / PM Selector */}
-                    <div className="w-full md:w-[95px] relative">
-                       <select
-                         value={customAmpm}
-                         onChange={e => setCustomAmpm(e.target.value)}
-                         className="w-full pl-3 !pr-9 py-3 bg-[#121216]/60 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm text-zinc-300 focus:outline-none transition-all appearance-none cursor-pointer"
-                       >
-                         <option value="AM" className="bg-[#121216] text-white">AM</option>
-                         <option value="PM" className="bg-[#121216] text-white">PM</option>
-                       </select>
-                    </div>
-                  </div>
-                )}
+      {/* Key Generation Form Modal */}
+      {showKeyForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="w-full max-w-4xl border border-white/10 p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button onClick={handleCancelKeyForm} className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer z-10"><X className="w-5 h-5" /></button>
+            <form onSubmit={handleGenerateAndShowPopup} className="space-y-6 mt-2">
+              <div>
+                <h2 className="text-2xl font-bold text-white tracking-tight">Generate Activation Keys</h2>
+                <p className="text-xs text-zinc-400 mt-1">Provision high-entropy activation tokens. All keys are encrypted with AES-256 before storage.</p>
               </div>
 
-              {/* Academic year captured on the key at generation (served back at
-                  activation) — it belongs with the validity window it is derived from,
-                  not floating on its own line further down the form. */}
-              <div className="flex items-center gap-2 text-[11px] font-bold text-zinc-400 pt-1">
-                <Calendar className="w-3.5 h-3.5 text-accent-violet" />
-                <span>
-                  Academic Year on key:{' '}
-                  <span className="text-accent-violet font-mono">{licenseAcademicYear}</span>
-                  {entityType === 'Vendor' && (
-                    <span className="text-zinc-500 font-normal"> — shown as the vendor’s “Year” after activation</span>
+              {/* Identity row */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-400 block">Entity Type</label>
+                  <CustomSelect required value={entityType}
+                    onChange={val => {
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      setEntityType(val as any); setSelectedSchoolId(''); setSelectedVendorId(''); setSelectedParentId(''); setKeyManuallyEdited(false);
+                    }}
+                    options={[{ value: 'School', label: 'School' }, { value: 'Vendor', label: 'Vendor' }, { value: 'Individual', label: 'Normal Individual User' }]}
+                    placeholder="Select Entity Type" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-400 block">Product</label>
+                  <CustomSelect required value={productId}
+                    onChange={val => { const next = val as ProductId; setProductId(next); if (targetOsFor(next) !== 'ANDROID') setDeviceClass(DEVICE_CLASS_STANDARD); }}
+                    options={productsForPanel(panel).map(p => ({ value: p.id, label: p.displayName }))}
+                    placeholder="Select Product" />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-400 flex items-center gap-2"><Monitor className="w-3.5 h-3.5 text-zinc-500" /> Device Type</label>
+                  {productIsAndroid ? (
+                    <CustomSelect required value={deviceClass} onChange={val => setDeviceClass(val as DeviceClass)}
+                      options={DEVICE_CLASS_OPTIONS.map(o => ({ value: o.value, label: o.label }))} placeholder="Select Device Type" />
+                  ) : (
+                    <div className="px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-xs text-zinc-400">Standard — interactive-panel keys are only for Android products.</div>
                   )}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* NC-1: Vendor-only choice — the existing 1-10 dropdown ("Single number"), or a
-              free-form bulk count ("Batch key generation", 11-10,000) for reseller-scale
-              issuance. School/Individual never see this toggle and keep today's UI exactly. */}
-          {entityType === 'Vendor' && (
-            <div className="space-y-2">
-              <span className="text-xs font-bold text-zinc-400 flex items-center gap-2">
-                🔢 Key Generation Mode
-              </span>
-              <div className="flex items-center gap-4 bg-white/5 border border-white/10 rounded-xl p-1 w-fit">
-                <button
-                  type="button"
-                  onClick={() => setVendorKeyMode('single')}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    vendorKeyMode === 'single'
-                      ? 'bg-accent-violet text-white shadow-md'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  Single Number (1–10)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setVendorKeyMode('batch')}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    vendorKeyMode === 'batch'
-                      ? 'bg-accent-violet text-white shadow-md'
-                      : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  Batch Key Generation
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Key Count & Activation Key input row */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Key Count */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-zinc-400 flex items-center gap-2">
-                🔢 Key Generation Count
-              </label>
-              {entityType === 'Vendor' && vendorKeyMode === 'batch' ? (
-                <input
-                  type="number"
-                  min={11}
-                  max={10000}
-                  required
-                  value={batchKeyCount}
-                  onChange={e => setBatchKeyCount(e.target.value)}
-                  placeholder="e.g. 500"
-                  className="w-full px-4 py-3 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm font-bold text-white placeholder-zinc-500 focus:outline-none transition-all"
-                />
-              ) : (
-                <CustomSelect
-                  value={String(keyCount)}
-                  onChange={val => setKeyCount(Number(val))}
-                  options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => ({
-                    value: String(n),
-                    label: `${n} ${n === 1 ? 'Key' : 'Keys'}`
-                  }))}
-                />
-              )}
-            </div>
-
-            {/* Activation Key Identifier — not applicable in Vendor batch mode: every key
-                is auto-generated, same reasoning as the manual field already disabling
-                itself whenever the single-mode dropdown's keyCount > 1. */}
-            <div className="md:col-span-2 space-y-2">
-              <label className="text-xs font-bold text-zinc-400 flex items-center gap-2">
-                🔒 Activation Key Identifier
-              </label>
-              <div className="flex gap-4 items-stretch">
-                {entityType === 'Vendor' && vendorKeyMode === 'batch' ? (
-                  <div className="flex-1 flex items-center px-4 py-3.5 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-zinc-400">
-                    Auto-generating {batchKeyCount || 0} unique keys for this batch…
-                  </div>
-                ) : (
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      required={keyCount === 1}
-                      disabled={keyCount > 1}
-                      placeholder={keyCount > 1 ? "Auto-generating keys..." : "LMS-SCHOOL-ABCDEFGHJK"}
-                      value={keyCount > 1 ? "" : keyInput}
-                      onChange={e => { setKeyInput(e.target.value); setKeyManuallyEdited(true); }}
-                      className={`w-full pl-4 ${keyCount === 1 ? 'pr-24' : 'pr-4'} py-3.5 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm font-bold text-white focus:outline-none transition-all tracking-wide font-mono disabled:opacity-50`}
-                    />
-                    {keyCount === 1 && (
-                      <button
-                        type="button"
-                        onClick={handleAutoSuggest}
-                        className="absolute right-3 top-3 px-3 py-1 bg-white/5 hover:bg-white/10 border border-white/10 text-[10px] font-bold text-zinc-400 hover:text-white rounded-lg transition-colors cursor-pointer"
-                      >
-                        Auto-Suggest
-                      </button>
-                    )}
+                  {productIsAndroid && deviceClass === DEVICE_CLASS_MANAGED_PANEL && (
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-zinc-400 block">Must be activated within (days)</label>
+                      <input type="number" min={1} max={MAX_PANEL_ACTIVATION_WINDOW_DAYS} value={activateWithinDays}
+                        onChange={e => setActivateWithinDays(Math.max(1, Math.min(MAX_PANEL_ACTIVATION_WINDOW_DAYS, Number(e.target.value) || 1)))}
+                        className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-sm text-white focus:outline-none focus:border-accent-violet/50" />
+                    </div>
+                  )}
+                </div>
+                {entityType === 'School' && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400 block">Select Institution *</label>
+                    <CustomSelect required value={selectedSchoolId} onChange={val => setSelectedSchoolId(val)}
+                      options={schools.map(s => ({ value: s.id, label: s.name }))} placeholder="Select School" />
                   </div>
                 )}
+                {entityType === 'Vendor' && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400 block">Select Vendor *</label>
+                    <CustomSelect required value={selectedVendorId} onChange={val => setSelectedVendorId(val)}
+                      options={vendors.map(v => ({ value: v.id, label: v.name }))} placeholder="Select Vendor" />
+                  </div>
+                )}
+                {entityType === 'Individual' && (
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-zinc-400 block">Select Individual *</label>
+                    <CustomSelect required value={selectedParentId} onChange={val => setSelectedParentId(val)}
+                      options={parents.map(p => ({ value: p.id, label: p.name }))} placeholder="Select Individual" />
+                  </div>
+                )}
+              </div>
 
-                <button
-                  type="submit"
-                  disabled={isPending}
-                  className="px-6 py-3.5 bg-gradient-to-r from-accent-violet to-accent-blue text-xs font-bold text-white rounded-xl shadow-[0_0_15px_rgba(139,92,246,0.25)] hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] transition-transform active:scale-95 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-55"
-                >
-                  <Lock className="w-3.5 h-3.5" />
-                  {isPending ? 'Provisioning...' : 'Submit'}
+              {/* Policy Duration */}
+              <div className="bg-white/5 border border-white/10 p-6 rounded-2xl space-y-4">
+                <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2"><Calendar className="w-4 h-4 text-accent-violet" /> Policy Duration</h3>
+                <div className="flex items-center gap-4 bg-white/5 border border-white/10 rounded-xl p-1 w-fit">
+                  <button type="button" onClick={() => setDurationMode('1year')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${durationMode === '1year' ? 'bg-accent-violet text-white shadow-md' : 'text-zinc-400 hover:text-zinc-200'}`}>1 Year</button>
+                  <button type="button" onClick={() => setDurationMode('custom')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${durationMode === 'custom' ? 'bg-accent-violet text-white shadow-md' : 'text-zinc-400 hover:text-zinc-200'}`}>Custom</button>
+                </div>
+                {durationMode === '1year' ? (
+                  <div className="flex items-center gap-2 text-xs text-zinc-400"><Calendar className="w-3.5 h-3.5 text-accent-violet" /> Expires 365 days from activation (Valid until: {oneYearDateStr})</div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div><AppleDatePicker value={customDateOnly} onChange={setCustomDateOnly} placeholder="mm/dd/yyyy" /></div>
+                    <select value={customHour} onChange={e => setCustomHour(e.target.value)} className="w-full pl-3 !pr-9 py-3 bg-[#121216]/60 border border-white/10 rounded-xl text-sm text-zinc-300 focus:outline-none appearance-none cursor-pointer">
+                      {Array.from({ length: 12 }, (_, i) => String(i + 1)).map(h => (<option key={h} value={h.padStart(2, '0')} className="bg-[#121216] text-white">{h.padStart(2, '0')} Hr</option>))}
+                    </select>
+                    <select value={customMinute} onChange={e => setCustomMinute(e.target.value)} className="w-full pl-3 !pr-9 py-3 bg-[#121216]/60 border border-white/10 rounded-xl text-sm text-zinc-300 focus:outline-none appearance-none cursor-pointer">
+                      {Array.from({ length: 60 }, (_, i) => String(i)).map(m => (<option key={m} value={m.padStart(2, '0')} className="bg-[#121216] text-white">{m.padStart(2, '0')} Min</option>))}
+                    </select>
+                    <select value={customAmpm} onChange={e => setCustomAmpm(e.target.value)} className="w-full pl-3 !pr-9 py-3 bg-[#121216]/60 border border-white/10 rounded-xl text-sm text-zinc-300 focus:outline-none appearance-none cursor-pointer">
+                      <option value="AM" className="bg-[#121216] text-white">AM</option>
+                      <option value="PM" className="bg-[#121216] text-white">PM</option>
+                    </select>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-[11px] font-bold text-zinc-400"><Calendar className="w-3.5 h-3.5 text-accent-violet" /> Academic Year: <span className="text-accent-violet font-mono">{licenseAcademicYear}</span></div>
+              </div>
+
+              {/* Vendor batch mode */}
+              {entityType === 'Vendor' && (
+                <div className="space-y-2">
+                  <span className="text-xs font-bold text-zinc-400">Key Generation Mode</span>
+                  <div className="flex items-center gap-4 bg-white/5 border border-white/10 rounded-xl p-1 w-fit">
+                    <button type="button" onClick={() => setVendorKeyMode('single')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${vendorKeyMode === 'single' ? 'bg-accent-violet text-white shadow-md' : 'text-zinc-400'}`}>Single (1–10)</button>
+                    <button type="button" onClick={() => setVendorKeyMode('batch')} className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${vendorKeyMode === 'batch' ? 'bg-accent-violet text-white shadow-md' : 'text-zinc-400'}`}>Batch (11–10,000)</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Key Count & Activation Key */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-zinc-400 block">Key Count</label>
+                  {entityType === 'Vendor' && vendorKeyMode === 'batch' ? (
+                    <input type="number" min={11} max={10000} required value={batchKeyCount} onChange={e => setBatchKeyCount(e.target.value)} placeholder="e.g. 500"
+                      className="w-full px-4 py-3 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm font-bold text-white placeholder-zinc-500 focus:outline-none transition-all" />
+                  ) : (
+                    <CustomSelect value={String(keyCount)} onChange={val => setKeyCount(Number(val))}
+                      options={[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => ({ value: String(n), label: `${n} ${n === 1 ? 'Key' : 'Keys'}` }))} />
+                  )}
+                </div>
+                <div className="md:col-span-2 space-y-2">
+                  <label className="text-xs font-bold text-zinc-400 block">Activation Key Identifier</label>
+                  {entityType === 'Vendor' && vendorKeyMode === 'batch' ? (
+                    <div className="flex items-center px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-sm font-bold text-zinc-400">Auto-generating {batchKeyCount || 0} unique keys…</div>
+                  ) : (
+                    <div className="relative">
+                      <input type="text" required={keyCount === 1} disabled={keyCount > 1}
+                        placeholder={keyCount > 1 ? "Auto-generating keys..." : "LMS-SCHOOL-ABCDEFGHJK"}
+                        value={keyCount > 1 ? "" : keyInput}
+                        onChange={e => { setKeyInput(e.target.value); setKeyManuallyEdited(true); }}
+                        className={`w-full pl-4 ${keyCount === 1 ? 'pr-24' : 'pr-4'} py-3 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-sm font-bold text-white focus:outline-none transition-all tracking-wide font-mono disabled:opacity-50`} />
+                      {keyCount === 1 && (
+                        <button type="button" onClick={handleAutoSuggest} className="absolute right-3 top-3 px-3 py-1 bg-white/5 hover:bg-white/10 border border-white/10 text-[10px] font-bold text-zinc-400 hover:text-white rounded-lg transition-colors cursor-pointer">Auto-Suggest</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Audit banner */}
+              <div className="p-4 bg-amber-500/[0.01] border border-amber-500/10 rounded-2xl flex items-start gap-3">
+                <span className="p-1 rounded bg-amber-500/10 text-amber-500 mt-0.5"><ShieldAlert className="w-4 h-4" /></span>
+                <p className="text-[10px] text-zinc-400 leading-relaxed"><strong className="text-zinc-200">Audit Compliance:</strong> This generation event will be logged with your UID and timestamped.</p>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-white/10 mt-6">
+                <button type="button" onClick={handleCancelKeyForm} disabled={isPending} className="btn btn-secondary">Cancel</button>
+                <button type="submit" disabled={isPending} className="btn btn-primary">
+                  <Lock className="w-3.5 h-3.5 inline-block mr-1" />{isPending ? 'Provisioning...' : 'Generate Keys'}
                 </button>
               </div>
-            </div>
-          </div>
+            </form>
+          </GlassCard>
+        </div>
+      )}
 
-          {/* Audit Compliance banner */}
-          <div className="p-4 bg-amber-500/[0.01] border border-amber-500/10 rounded-2xl flex items-start gap-3">
-            <span className="p-1 rounded bg-amber-500/10 text-amber-500 mt-0.5">
-              <ShieldAlert className="w-4 h-4" />
-            </span>
-            <p className="text-[10px] text-zinc-400 leading-relaxed">
-              <strong className="text-zinc-200">Audit Compliance:</strong> This generation event will be logged with your UID and timestamped. Keys generated through this portal are valid for single-instance deployment only.
-            </p>
-          </div>
-        </form>
+      {/* Generated Keys Result Popup */}
+      {showGeneratedPopup && generatedKeys.length > 0 && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="w-full max-w-3xl border border-white/10 p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+            <button onClick={() => setShowGeneratedPopup(false)} className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer z-10"><X className="w-5 h-5" /></button>
+            <div className="space-y-6 mt-2">
+              <div className="flex items-center justify-between flex-wrap gap-4">
+                <div>
+                  <h2 className="text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+                    <Sparkles className="w-6 h-6 text-emerald-400" /> Keys Generated
+                  </h2>
+                  <p className="text-xs text-zinc-400 mt-1">{generatedKeys.length} activation {generatedKeys.length === 1 ? 'key' : 'keys'} provisioned successfully.</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {generatedKeys.length > 1 && (
+                    <button type="button" onClick={handleCopyAll} className="btn btn-secondary"><Copy className="w-3.5 h-3.5 inline-block mr-1" /> Copy All</button>
+                  )}
+                  {wasBatchGeneration && lastBatchMeta && (
+                    <button type="button" onClick={() => downloadActivationKeysPdf({ entityName: lastBatchMeta.entityName, batchId: lastBatchMeta.batchId, productLabel: lastBatchMeta.productLabel, durationLabel: lastBatchMeta.durationLabel, generatedAt: new Date(), keys: generatedKeys })} className="btn btn-secondary">
+                      <FileDown className="w-3.5 h-3.5 inline-block mr-1" /> PDF
+                    </button>
+                  )}
+                </div>
+              </div>
 
-        {/* Display Generated Results */}
-        {generatedKeys.length > 0 && (
-          <div className="mt-8 border-t border-white/5 pt-8 space-y-6 animate-fade-in">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-                <Sparkles className="w-4 h-4 text-emerald-400" />
-                Generated Cryptographic Activation Credentials ({generatedKeys.length})
-              </h4>
-              {/* NC-1: only for a Vendor batch — a 500+ card grid is unusable, so this
-                  path renders as a compact table instead, with a PDF export button. */}
-              {wasBatchGeneration && lastBatchMeta && (
-                <button
-                  type="button"
-                  onClick={() => downloadActivationKeysPdf({
-                    entityName: lastBatchMeta.entityName,
-                    batchId: lastBatchMeta.batchId,
-                    productLabel: lastBatchMeta.productLabel,
-                    durationLabel: lastBatchMeta.durationLabel,
-                    generatedAt: new Date(),
-                    keys: generatedKeys,
-                  })}
-                  className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-zinc-200 rounded-xl transition-colors cursor-pointer flex items-center gap-2 w-fit"
-                >
-                  📄 Download PDF ({generatedKeys.length} keys)
-                </button>
-              )}
-            </div>
-
-            {wasBatchGeneration ? (
-              <div className="overflow-x-auto rounded-2xl border border-white/5 bg-white/[0.02]">
-                {/* White-alpha background, not black-alpha: globals.css only rewrites the
-                    white-alpha utilities for the light theme, so a black-alpha panel would
-                    stay dark on a light page. */}
+              <div className="overflow-x-auto px-[15px]">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="border-b border-white/10 bg-white/[0.02]">
-                      <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest w-16">#</th>
-                      <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Activation Key</th>
-                      <th className="py-3 px-4 text-[10px] font-bold text-zinc-500 uppercase tracking-widest text-right">Copy</th>
+                    <tr className="border-b border-sidebar-border h-[44px]">
+                      <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest w-16 align-middle">#</th>
+                      <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Activation Key</th>
+                      <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest text-right align-middle">Copy</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
                     {generatedKeys.slice(0, resultsVisibleCount).map((keyVal, idx) => (
-                      <tr key={keyVal} className="hover:bg-white/[0.02] transition-colors">
-                        <td className="py-2.5 px-4 text-xs text-zinc-500 font-mono">{idx + 1}</td>
-                        {/* activation-token: globals.css darkens this text in light mode
-                            (.light .activation-token), same as the batch history list —
-                            emerald-400 alone is unreadable on a light background. */}
-                        <td className="py-2.5 px-4 font-mono text-xs font-bold text-emerald-400 tracking-wider activation-token">{keyVal}</td>
-                        <td className="py-2.5 px-4 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(keyVal, idx)}
-                            className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer inline-flex"
-                          >
-                            {copiedKeyIndex === idx ? (
-                              <span className="text-[9px] font-bold text-emerald-400">Copied!</span>
-                            ) : (
-                              <Copy className="w-3.5 h-3.5" />
-                            )}
+                      <tr key={keyVal} className="transition-colors group h-[44px]">
+                        <td className="px-[9px] text-xs text-zinc-500 font-mono align-middle">{idx + 1}</td>
+                        <td className="px-[9px] font-mono text-xs font-bold text-emerald-400 tracking-wider activation-token align-middle">{keyVal}</td>
+                        <td className="px-[9px] text-right align-middle">
+                          <button type="button" onClick={() => handleCopy(keyVal, idx)} className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer inline-flex">
+                            {copiedKeyIndex === idx ? <span className="text-[9px] font-bold text-emerald-400">Copied!</span> : <Copy className="w-3.5 h-3.5" />}
                           </button>
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {/* Only a slice is mounted: a batch can be 10,000 keys, and rendering a
-                    row (plus its copy button) for each would lock the browser up. The
-                    complete list always goes out via the PDF above. */}
-                {generatedKeys.length > resultsVisibleCount && (
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-t border-white/10">
-                    <span className="text-[11px] font-bold text-zinc-400">
-                      Showing {resultsVisibleCount} of {generatedKeys.length} keys — the PDF contains all of them.
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setResultsVisibleCount(c => c + RESULTS_PAGE_SIZE)}
-                      className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-zinc-200 rounded-xl transition-colors cursor-pointer w-fit"
-                    >
-                      Show {Math.min(RESULTS_PAGE_SIZE, generatedKeys.length - resultsVisibleCount)} more
-                    </button>
-                  </div>
-                )}
               </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {generatedKeys.map((keyVal, idx) => (
-                  <div key={keyVal} className="flex flex-col md:flex-row gap-4 items-center bg-black/35 p-5 rounded-2xl border border-white/5 relative">
-                    {/* Copy box */}
-                    <div className="flex-1 w-full space-y-3">
-                      <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest block">Activation Token {idx + 1}</span>
-                      <div className="flex items-center justify-between p-3 bg-[#121216]/50 border border-white/10 rounded-xl font-mono text-xs font-bold text-emerald-400 tracking-wider">
-                        <span className="truncate mr-2">{keyVal}</span>
-                        <button
-                          type="button"
-                          onClick={() => handleCopy(keyVal, idx)}
-                          className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer flex-shrink-0"
-                        >
-                          {copiedKeyIndex === idx ? (
-                            <span className="text-[9px] font-bold text-emerald-400">Copied!</span>
-                          ) : (
-                            <Copy className="w-3.5 h-3.5" />
-                          )}
-                        </button>
-                      </div>
-                    </div>
 
-
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </GlassCard>
-
-      {/* Batch-wise Activation Credentials View */}
-      <div className="space-y-6">
-        {/* Title row and toolbar row are separate: cramming the heading and four controls
-            onto one flex line forced the title to wrap a word per line on narrow screens. */}
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="space-y-1 min-w-0">
-              <h3 className="text-lg font-extrabold text-white tracking-tight whitespace-nowrap">
-                Generated Activation Credentials
-              </h3>
-              <p className="text-xs text-zinc-400">
-                Every provisioned batch, its licence policy, and the device each key is bound to.
-              </p>
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              <span className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-lg text-[10px] font-bold text-zinc-300">
-                {batches.length} {batches.length === 1 ? 'Batch' : 'Batches'}
-              </span>
-              <span className="px-3 py-1.5 bg-accent-violet/10 border border-accent-violet/20 rounded-lg text-[10px] font-bold text-accent-violet">
-                {filteredKeyList.length} {filteredKeyList.length === 1 ? 'Key' : 'Keys'}
-              </span>
-            </div>
-          </div>
-
-          {/* Toolbar: search takes the slack, the three filters keep a stable width so they
-              don't resize as their labels change. */}
-          <div className="flex flex-col lg:flex-row lg:items-center gap-3 p-3 bg-white/[0.02] border border-white/5 rounded-2xl">
-            <div className="relative flex-1 min-w-0">
-              <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="Search activation token or forensic WM code…"
-                className="w-full pl-9 pr-3 py-2.5 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-xs text-zinc-200 focus:outline-none transition-all font-mono tracking-wide"
-              />
-            </div>
-            <div className="flex flex-col sm:flex-row items-stretch gap-3 lg:shrink-0">
-              <div className="w-full sm:w-[150px]">
-                <CustomSelect
-                  value={filterEntityType}
-                  onChange={val => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                    setFilterEntityType(val as any);
-                    setFilterSchoolId('all'); // reset the dependent entity dropdown
-                  }}
-                  options={[
-                    { value: 'all', label: 'All Types' },
-                    { value: 'School', label: 'School' },
-                    { value: 'Vendor', label: 'Vendor' },
-                    { value: 'Parent', label: 'Parent' },
-                  ]}
-                />
-              </div>
-              <div className="w-full sm:w-[200px]">
-                <CustomSelect
-                  value={filterSchoolId}
-                  onChange={val => setFilterSchoolId(val)}
-                  options={filterOptions}
-                />
-              </div>
-              <div className="w-full sm:w-[190px]">
-                <CustomSelect
-                  value={filterProductId}
-                  onChange={val => setFilterProductId(val)}
-                  options={productFilterOptionsFor(panel)}
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {batches.length > 0 ? (
-          batches.map((batch) => {
-            const activeCount = batch.keys.filter(k => k.status?.toLowerCase() === 'active').length;
-            const isBatchActive = activeCount > 0;
-            // Each key below renders a full detail card (token, watermark, policy, device
-            // binding, actions). That was fine when a batch could only hold up to 10 keys,
-            // but a vendor batch can hold thousands — so mount a bounded slice per batch
-            // and let the operator expand on demand.
-            const visibleKeyCount = batchVisibleCounts[batch.id] ?? BATCH_KEYS_PAGE_SIZE;
-            const visibleKeys = batch.keys.slice(0, visibleKeyCount);
-            const isCollapsed = collapsedBatches[batch.id] ?? false;
-
-            return (
-              <GlassCard key={batch.id} className="/30 border border-white/5 p-6 space-y-4 hover:border-white/10 transition-all">
-                {/* Batch Header */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/5">
-                  <div className="space-y-1">
-                    <span className="text-[9px] font-bold text-accent-violet uppercase tracking-widest block font-mono">
-                      {batch.id.startsWith('BATCH-') ? batch.id : 'Legacy Batch Run'}
-                    </span>
-                    <h4 className="text-base font-bold text-white flex items-center gap-2">
-                      <SchoolIcon className="w-4 h-4 text-zinc-400" />
-                      {batch.entityName}
-                    </h4>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-3 text-xs font-semibold text-zinc-400">
-                    <span className="px-3 py-1 bg-white/5 border border-white/10 rounded-lg text-[10px] font-mono">
-                      📅 Provisioned: {batch.createdAt}
-                    </span>
-                    <span className={`px-3 py-1 rounded-lg text-[10px] font-bold ${
-                      activeCount === batch.keys.length 
-                        ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' 
-                        : isBatchActive
-                        ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400'
-                        : 'bg-zinc-500/10 border border-white/10 text-zinc-400'
-                    }`}>
-                      📱 {activeCount} / {batch.keys.length} Activated
-                    </span>
-
-                    {/* Persistent export for any batch big enough that reading it on screen
-                        isn't practical — not just the one just generated in this session. */}
-                    {batch.keys.length > PDF_EXPORT_MIN_KEYS && (
-                      <button
-                        type="button"
-                        onClick={() => downloadActivationKeysPdf({
-                          entityName: batch.entityName,
-                          batchId: batch.id.startsWith('BATCH-') ? batch.id : null,
-                          productLabel: productWithDeviceClass(batch.keys[0]?.productId, batch.keys[0]?.deviceClass),
-                          durationLabel: batch.keys[0]?.expiresAt
-                            ? new Date(batch.keys[0].expiresAt as string).toLocaleString('en-IN')
-                            : `${batch.keys[0]?.durationDays ?? 365} Days`,
-                          generatedAt: new Date(),
-                          keys: batch.keys.map(k => k.key),
-                        })}
-                        title={`Download all ${batch.keys.length} keys in this batch as PDF`}
-                        className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[10px] font-bold text-zinc-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1.5"
-                      >
-                        <FileDown className="w-3.5 h-3.5" />
-                        PDF
-                      </button>
-                    )}
-
-                    {/* Collapse / expand this batch. Defaults to expanded, so a batch that
-                        isn't touched behaves exactly as it did before. */}
-                    <button
-                      type="button"
-                      onClick={() => setCollapsedBatches(prev => ({ ...prev, [batch.id]: !isCollapsed }))}
-                      aria-expanded={!isCollapsed}
-                      aria-label={isCollapsed ? `Expand batch ${batch.id}` : `Collapse batch ${batch.id}`}
-                      title={isCollapsed ? 'Expand batch' : 'Collapse batch'}
-                      className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer"
-                    >
-                      {isCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
-                    </button>
-                  </div>
+              {generatedKeys.length > resultsVisibleCount && (
+                <div className="flex items-center justify-between gap-3 pt-2">
+                  <span className="text-[11px] font-bold text-zinc-400">Showing {resultsVisibleCount} of {generatedKeys.length} keys</span>
+                  <button type="button" onClick={() => setResultsVisibleCount(c => c + RESULTS_PAGE_SIZE)} className="btn btn-secondary">Show {Math.min(RESULTS_PAGE_SIZE, generatedKeys.length - resultsVisibleCount)} more</button>
                 </div>
+              )}
 
-                {/* Batch Keys List - Flex row cards for maximum contrast and legibility */}
-                {!isCollapsed && (
-                <div className="space-y-3 pt-2">
-                  {visibleKeys.map((k) => {
-                    const expiryDate = k.expiresAt ? new Date(k.expiresAt) : null;
-                    let daysLeftText = 'Not Activated';
-                    let isExpired = false;
-
-                    if (expiryDate) {
-                      const diffTime = expiryDate.getTime() - currentTime.getTime();
-                      if (diffTime <= 0) {
-                        daysLeftText = 'Expired';
-                        isExpired = true;
-                      } else {
-                        const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                        const diffHours = Math.floor((diffTime % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-                        const diffMins = Math.floor((diffTime % (1000 * 60 * 60)) / (1000 * 60));
-
-                        if (diffDays > 0) {
-                          daysLeftText = `${diffDays}d ${diffHours}h left`;
-                        } else if (diffHours > 0) {
-                          daysLeftText = `${diffHours}h ${diffMins}m left`;
-                        } else {
-                          daysLeftText = `${diffMins}m left`;
-                        }
-                      }
-                    }
-
-                    const hasDevice = !!k.deviceFingerprint || !!k.deviceModel;
-
-                    return (
-                      <div 
-                        key={k.id} 
-                        className="flex flex-col lg:flex-row lg:items-center justify-between p-4 bg-[#09090b]/40 border border-white/5 hover:border-white/10 rounded-xl gap-4 transition-all"
-                      >
-                        {/* Token and Copy Button */}
-                        <div className="flex items-center justify-between lg:justify-start gap-3 min-w-[220px]">
-                          <span className="font-mono text-sm font-bold text-emerald-500 select-all tracking-wide activation-token">
-                            {k.key}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => handleCopy(k.key, 0)}
-                            className="p-1.5 bg-white/5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer flex-shrink-0"
-                            title="Copy Token"
-                          >
-                            <Copy className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-
-                        {/* Forensic watermark code — matches the faint code shown during
-                            playback; paste a leaked recording's code in Search to find this. */}
-                        <div
-                          className="flex items-center gap-2 min-w-[130px]"
-                          title="Forensic watermark code shown faintly during video playback. Search a leaked recording's code above to trace the bound tablet."
-                        >
-                          <span className="text-zinc-500 uppercase tracking-widest text-[9px]">WM</span>
-                          {k.watermarkCode ? (
-                            <span className="font-mono text-xs font-bold text-accent-violet bg-accent-violet/10 border border-accent-violet/20 rounded px-2 py-1 select-all">
-                              {k.watermarkCode}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-zinc-600 font-mono" title="Code is recorded on first activation.">—</span>
-                          )}
-                        </div>
-
-                        {/* Expiry / Policy Details */}
-                        <div className="flex items-center justify-between lg:justify-start gap-2 text-xs font-semibold">
-                          <span className="text-zinc-500 uppercase tracking-widest text-[9px] lg:hidden block mr-1">Policy:</span>
-                          <div className="space-y-0.5">
-                            <span className="text-zinc-300">
-                              {k.expiresAt ? new Date(k.expiresAt).toLocaleDateString('en-IN') : `${k.durationDays} Days`}
-                            </span>
-                            <span className={`block text-[10px] font-bold ${
-                              isExpired 
-                                ? 'text-rose-500/90' 
-                                : daysLeftText === 'Not Activated' 
-                                ? 'text-zinc-500' 
-                                : 'text-emerald-500'
-                            }`}>
-                              {daysLeftText}
-                            </span>
-                          </div>
-                        </div>
-
-                        {/* Device Binding Info */}
-                        <div className="flex-1 min-w-[220px]">
-                          {hasDevice ? (
-                            <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-lg p-2.5 w-full max-w-[320px]">
-                              {(() => {
-                                const isWin = (k.platform || '').toLowerCase() === 'windows'
-                                  || (k.deviceOS || '').toLowerCase().includes('windows');
-                                return (
-                                  <div className={`p-1.5 rounded flex-shrink-0 text-xs ${isWin ? 'bg-sky-500/10 text-sky-400' : 'bg-accent-violet/10 text-accent-violet'}`}>
-                                    {isWin ? '💻' : '📱'}
-                                  </div>
-                                );
-                              })()}
-                              <div className="space-y-0.5 min-w-0">
-                                <div className="font-bold text-white text-xs truncate flex items-center gap-1.5">
-                                  <span className="truncate">{k.deviceBrand || ''} {k.deviceModel || 'Unknown Device'}</span>
-                                  {(() => {
-                                    const isWin = (k.platform || '').toLowerCase() === 'windows'
-                                      || (k.deviceOS || '').toLowerCase().includes('windows');
-                                    return (
-                                      <span className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wide flex-shrink-0 ${isWin ? 'bg-sky-500/20 text-sky-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
-                                        {isWin ? 'Windows' : 'Android'}
-                                      </span>
-                                    );
-                                  })()}
-                                </div>
-                                <div className="text-[10px] text-zinc-500 font-mono truncate">
-                                  OS: {k.deviceOS || 'Android'}{k.securityTier ? ` • ${k.securityTier}` : ''}
-                                </div>
-                                <div className="text-[9px] text-accent-violet font-bold truncate">
-                                  {productWithDeviceClass(k.productId, k.deviceClass)}
-                                </div>
-                                {k.activatedAt && (
-                                  <div className="text-[9px] text-emerald-400 font-bold">
-                                    Activated: {k.activatedAt}
-                                  </div>
-                                )}
-                                {k.panelReplacedAt && (
-                                  <div className="text-[9px] text-amber-400 font-bold">
-                                    Replaced on this panel by a newer key: {new Date(k.panelReplacedAt).toLocaleDateString('en-IN')}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="space-y-0.5 py-1">
-                              <div className="text-zinc-500 font-medium flex items-center gap-2 text-xs">
-                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500/60 animate-pulse"></span>
-                                <span>Waiting for device activation</span>
-                              </div>
-                              <div className="text-[9px] text-accent-violet font-bold pl-3.5">
-                                Licensed for: {productWithDeviceClass(k.productId, k.deviceClass)}
-                              </div>
-                              {k.deviceClass === DEVICE_CLASS_MANAGED_PANEL && k.panelActivateBy && (
-                                <div className={`text-[9px] font-bold pl-3.5 ${new Date(k.panelActivateBy).getTime() < Date.now() ? 'text-rose-400' : 'text-amber-400'}`}>
-                                  {new Date(k.panelActivateBy).getTime() < Date.now()
-                                    ? 'Panel key expired unused — generate a new panel key'
-                                    : `Activate by: ${new Date(k.panelActivateBy).toLocaleDateString('en-IN')}`}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Status and Action Buttons */}
-                        <div className="flex items-center justify-between lg:justify-end gap-4 border-t lg:border-t-0 border-white/5 pt-3 lg:pt-0">
-                          <StatusBadge status={k.status?.toLowerCase() === 'active' ? 'Active' : k.status?.toLowerCase() === 'revoked' ? 'Revoked' : k.status?.toLowerCase() === 'paid' ? 'SUCCESS' : 'Unpaid'} />
-
-                          {isAndroidProduct(k.productId) && (
-                            <button
-                              type="button"
-                              onClick={() => toggleDeviceClass(k)}
-                              className={`p-2 rounded-lg border transition-colors cursor-pointer ${k.deviceClass === DEVICE_CLASS_MANAGED_PANEL
-                                ? 'bg-amber-500/10 text-amber-400 border-amber-500/20 hover:bg-amber-500/20'
-                                : 'bg-white/5 text-zinc-400 border-white/5 hover:bg-amber-500/10 hover:text-amber-400 hover:border-amber-500/20'}`}
-                              title={k.deviceClass === DEVICE_CLASS_MANAGED_PANEL
-                                ? 'Interactive panel key — click to change to Standard'
-                                : 'Standard key — click to mark as Interactive panel'}
-                            >
-                              <Monitor className="w-4 h-4" />
-                            </button>
-                          )}
-
-                          {hasDevice && (
-                            <button
-                              type="button"
-                              onClick={() => confirmReset(k.id, k.key)}
-                              className="p-2 bg-white/5 hover:bg-amber-500/10 rounded-lg text-zinc-400 hover:text-amber-400 border border-white/5 hover:border-amber-500/20 transition-colors cursor-pointer"
-                              title="Reset device binding (for a repaired / factory-reset tablet)"
-                            >
-                              <RotateCcw className="w-4 h-4" />
-                            </button>
-                          )}
-
-                          <button
-                            type="button"
-                            onClick={() => confirmDelete(k.id, k.key)}
-                            className="p-2 bg-white/5 hover:bg-red-500/10 rounded-lg text-zinc-400 hover:text-red-400 border border-white/5 hover:border-red-500/20 transition-colors cursor-pointer"
-                            title="Delete Key"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {batch.keys.length > visibleKeyCount && (
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-                      <span className="text-[11px] font-bold text-zinc-400">
-                        Showing {visibleKeyCount} of {batch.keys.length} keys in this batch
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setBatchVisibleCounts(prev => ({
-                          ...prev,
-                          [batch.id]: visibleKeyCount + RESULTS_PAGE_SIZE,
-                        }))}
-                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-bold text-zinc-200 rounded-xl transition-colors cursor-pointer w-fit"
-                      >
-                        Show {Math.min(RESULTS_PAGE_SIZE, batch.keys.length - visibleKeyCount)} more
-                      </button>
-                    </div>
-                  )}
-                </div>
-                )}
-              </GlassCard>
-            );
-          })
-        ) : (
-          <GlassCard className="/40 border border-white/5 p-12 text-center text-zinc-500">
-            <AlertCircle className="w-5 h-5 mx-auto mb-2 text-zinc-600" />
-            No activation keys provisioned yet.
-          </GlassCard>
-        )}
-      </div>
-
-      {/* Deletion Confirmation Modal */}
-      {showConfirmModal && keyToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
-            <button 
-              onClick={() => {
-                setShowConfirmModal(false);
-                setKeyToDelete(null);
-              }}
-              className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
-            <div className="flex items-start gap-4">
-              <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-2xl">
-                <AlertTriangle className="w-6 h-6" />
+              <div className="flex justify-end pt-4 border-t border-white/10">
+                <button type="button" onClick={() => setShowGeneratedPopup(false)} className="btn btn-primary">Done</button>
               </div>
-              <div className="space-y-2">
-                <h3 className="text-lg font-bold text-white">Confirm Key Deletion</h3>
-                <p className="text-xs text-zinc-400 leading-relaxed">
-                  Are you absolutely sure you want to delete the activation key <strong className="text-zinc-200">{keyToDelete.keyToken}</strong>?
-                </p>
-                <div className="p-3 bg-rose-500/5 border border-rose-500/10 rounded-xl mt-2">
-                  <p className="text-[10px] text-rose-400 font-semibold leading-relaxed">
-                    ⚠️ CRITICAL NOTE: This activation key will be permanently deleted and any tablet device currently bound to this token will be instantly disconnected.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                onClick={() => {
-                  setShowConfirmModal(false);
-                  setKeyToDelete(null);
-                }}
-                disabled={isPending}
-                className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-zinc-300 rounded-xl transition-all cursor-pointer disabled:opacity-55"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                disabled={isPending}
-                className="px-4 py-2 bg-gradient-to-r from-rose-600 to-red-500 hover:from-rose-500 hover:to-red-400 text-xs font-semibold text-white rounded-xl shadow-[0_0_15px_rgba(239,68,68,0.25)] transition-all cursor-pointer disabled:opacity-55"
-              >
-                {isPending ? 'Deleting...' : 'Confirm Delete'}
-              </button>
             </div>
           </GlassCard>
         </div>
       )}
 
-      {showResetModal && keyToReset && (
+      {/* Delete Confirmation Modal */}
+      {showConfirmModal && keyToDelete && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
           <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
-            <button
-              onClick={() => {
-                setShowResetModal(false);
-                setKeyToReset(null);
-              }}
-              className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-
+            <button onClick={() => { setShowConfirmModal(false); setKeyToDelete(null); }} className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer"><X className="w-4 h-4" /></button>
             <div className="flex items-start gap-4">
-              <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-2xl">
-                <RotateCcw className="w-6 h-6" />
-              </div>
+              <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-2xl"><AlertTriangle className="w-6 h-6" /></div>
               <div className="space-y-2">
-                <h3 className="text-lg font-bold text-white">Reset Device Binding</h3>
-                <p className="text-xs text-zinc-400 leading-relaxed">
-                  Unbind the current tablet from key <strong className="text-zinc-200">{keyToReset.keyToken}</strong> so it can be re-activated on a repaired or factory-reset device?
-                </p>
-                <div className="p-3 bg-amber-500/5 border border-amber-500/10 rounded-xl mt-2">
-                  <p className="text-[10px] text-amber-400 font-semibold leading-relaxed">
-                    The license expiry is unchanged (this is not a renewal). The currently bound tablet will stop working until a device re-activates this key. This action is logged.
-                  </p>
+                <h3 className="text-lg font-bold text-white">Confirm Key Deletion</h3>
+                <p className="text-xs text-zinc-400 leading-relaxed">Delete activation key <strong className="text-zinc-200">{keyToDelete.keyToken}</strong>?</p>
+                <div className="p-3 bg-rose-500/5 border border-rose-500/10 rounded-xl mt-2">
+                  <p className="text-[10px] text-rose-400 font-semibold leading-relaxed">⚠️ This key will be permanently deleted and any bound tablet will be disconnected.</p>
                 </div>
               </div>
             </div>
-
             <div className="flex justify-end gap-3 pt-2">
-              <button
-                onClick={() => {
-                  setShowResetModal(false);
-                  setKeyToReset(null);
-                }}
-                disabled={isPending}
-                className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-zinc-300 rounded-xl transition-all cursor-pointer disabled:opacity-55"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleResetBinding}
-                disabled={isPending}
-                className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-xs font-semibold text-white rounded-xl shadow-[0_0_15px_rgba(245,158,11,0.25)] transition-all cursor-pointer disabled:opacity-55"
-              >
-                {isPending ? 'Resetting...' : 'Confirm Reset'}
-              </button>
+              <button onClick={() => { setShowConfirmModal(false); setKeyToDelete(null); }} disabled={isPending} className="btn btn-secondary">Cancel</button>
+              <button onClick={handleDelete} disabled={isPending} className="px-4 py-2 bg-gradient-to-r from-rose-600 to-red-500 text-xs font-semibold text-white rounded-xl transition-all cursor-pointer disabled:opacity-55">{isPending ? 'Deleting...' : 'Confirm Delete'}</button>
+            </div>
+          </GlassCard>
+        </div>
+      )}
+
+      {/* Reset Device Modal */}
+      {showResetModal && keyToReset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
+            <button onClick={() => { setShowResetModal(false); setKeyToReset(null); }} className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer"><X className="w-4 h-4" /></button>
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-2xl"><RotateCcw className="w-6 h-6" /></div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-bold text-white">Reset Device Binding</h3>
+                <p className="text-xs text-zinc-400 leading-relaxed">Unbind key <strong className="text-zinc-200">{keyToReset.keyToken}</strong> so it can be re-activated?</p>
+                <div className="p-3 bg-amber-500/5 border border-amber-500/10 rounded-xl mt-2">
+                  <p className="text-[10px] text-amber-400 font-semibold leading-relaxed">The license expiry is unchanged. The currently bound tablet will stop working until re-activation.</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <button onClick={() => { setShowResetModal(false); setKeyToReset(null); }} disabled={isPending} className="btn btn-secondary">Cancel</button>
+              <button onClick={handleResetBinding} disabled={isPending} className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-500 text-xs font-semibold text-white rounded-xl transition-all cursor-pointer disabled:opacity-55">{isPending ? 'Resetting...' : 'Confirm Reset'}</button>
             </div>
           </GlassCard>
         </div>

@@ -2,9 +2,10 @@
 
 import React, { useMemo, useState } from 'react';
 import {
-  DownloadCloud, Circle, Clock, Server, Search, Wifi, WifiOff, ShieldAlert, KeyRound,
+  Circle, Clock, Server, Search, Wifi, WifiOff, ShieldAlert, KeyRound,
   CheckCircle2, AlertTriangle, X, CalendarX, Ban, Replace, Loader2, Info,
 } from 'lucide-react';
+import GlassCard from '@/components/GlassCard';
 import CustomSelect from '@/components/CustomSelect';
 import { productFilterOptionsFor, UNRESOLVED_PRODUCT_FILTER_VALUE, productDisplayName } from '@/lib/productIdentity';
 import { tierStyle } from '@/lib/tierStyle';
@@ -224,10 +225,11 @@ export default function UpdateClient({
   );
 
   return (
-    <div className="p-8 max-w-[1300px] mx-auto text-foreground">
-      <div className="flex items-center gap-3 mb-1">
-        <DownloadCloud className="w-6 h-6 text-sky-400" />
-        <h1 className="text-2xl font-bold">Update &amp; Online Sync</h1>
+    <div className="space-y-4 max-w-7xl mx-auto text-foreground">
+      {/* Spacer to maintain layout height */}
+      <div className="h-10"></div>
+      <div className="flex items-center gap-3">
+        <h2 className="text-2xl font-bold text-foreground">Update &amp; Online Sync</h2>
       </div>
       <p className="text-sm text-zinc-400 mb-6">
         Every licence key — one row per key, whatever its state (active, expired, superseded, revoked or not
@@ -296,20 +298,20 @@ export default function UpdateClient({
         </div>
       )}
 
-      <div className="rounded-2xl border border-white/10 overflow-hidden">
-        <div className="overflow-x-auto">
+      <GlassCard className="!p-0 overflow-hidden">
+        <div className="overflow-x-auto px-[15px]">
           <table className="w-full text-sm min-w-[1100px]">
-            <thead className="bg-white/5 text-zinc-400 text-[11px] uppercase tracking-wide">
-              <tr>
-                <th className="text-left px-4 py-3 font-semibold">School</th>
-                <th className="text-left px-4 py-3 font-semibold">Licence key</th>
-                <th className="text-left px-4 py-3 font-semibold">Key status</th>
-                <th className="text-left px-4 py-3 font-semibold">Connection</th>
-                <th className="text-left px-4 py-3 font-semibold">Expires</th>
-                <th className="text-left px-4 py-3 font-semibold">Tier</th>
-                <th className="text-left px-4 py-3 font-semibold">Product</th>
-                <th className="text-right px-4 py-3 font-semibold">Online time</th>
-                <th className="text-left px-4 py-3 font-semibold">App</th>
+            <thead>
+              <tr className="border-b border-sidebar-border h-[44px]">
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">School</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Licence key</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Key status</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Connection</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Expires</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Tier</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Product</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle text-right">Online time</th>
+                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">App</th>
               </tr>
             </thead>
             <tbody>
@@ -328,7 +330,7 @@ export default function UpdateClient({
                     onClick={() => openKey(d)}
                     className={`border-t border-white/5 hover:bg-white/10 cursor-pointer transition-colors ${isSelected ? 'bg-sky-500/10' : ''}`}
                   >
-                    <td className="px-4 py-3">
+                    <td className="px-[9px] py-2 align-middle">
                       <div className="flex items-center gap-2">
                         {flagged && (
                           <span title="Security event on this device">
@@ -341,15 +343,15 @@ export default function UpdateClient({
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-zinc-300 font-mono text-xs truncate max-w-[150px]" title={d.activationKey}>
+                    <td className="px-[9px] py-2 align-middle text-zinc-300 font-mono text-xs truncate max-w-[150px]" title={d.activationKey}>
                       {d.activationKey}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-[9px] py-2 align-middle">
                       <span title={ks.help} className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${ks.cls}`}>
                         {ks.label}
                       </span>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap" title={d.lastSeenExact}>
+                    <td className="px-[9px] py-2 align-middle whitespace-nowrap" title={d.lastSeenExact}>
                       {d.connection === 'online' && (
                         <span className="inline-flex items-center gap-1.5 text-emerald-400 text-xs font-semibold">
                           <Circle className="w-2.5 h-2.5 fill-emerald-400" /> Online
@@ -370,7 +372,7 @@ export default function UpdateClient({
                       )}
                       {d.connection === 'na' && <span className="text-zinc-600 text-xs">—</span>}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-[9px] py-2 align-middle whitespace-nowrap">
                       {d.expiresAtIso ? (
                         <div>
                           <div className={`text-xs ${expiredNow ? 'text-rose-400 font-semibold' : 'text-zinc-300'}`}>{d.expiresExact}</div>
@@ -382,12 +384,12 @@ export default function UpdateClient({
                         <span className="text-zinc-600 text-xs">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-[9px] py-2 align-middle">
                       <span title={d.securityTier} className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${t.cls}`}>
                         {t.label}
                       </span>
                     </td>
-                    <td className="px-4 py-3">
+                    <td className="px-[9px] py-2 align-middle">
                       <span
                         title={d.productId ?? 'Unknown'}
                         className="inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap bg-white/5 border-white/10 text-zinc-300"
@@ -395,15 +397,15 @@ export default function UpdateClient({
                         {productDisplayName(d.productId)}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-right tabular-nums">{d.totalOnline}</td>
-                    <td className="px-4 py-3 text-zinc-400">{d.appVersion}</td>
+                    <td className="px-[9px] py-2 align-middle text-right tabular-nums">{d.totalOnline}</td>
+                    <td className="px-[9px] py-2 align-middle text-zinc-400">{d.appVersion}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-      </div>
+      </GlassCard>
 
       {/* Timeline popup — a centered rectangle with the panel's usual backdrop blur. Closes on
           backdrop / Close / re-clicking the same row. */}
