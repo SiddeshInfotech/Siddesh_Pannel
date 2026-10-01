@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation';
 import FormModal from '@/components/FormModal';
 import NewParentForm from '@/components/forms/NewParentForm';
 import {
-    Users,
     Pencil,
     Trash2,
     Search,
@@ -16,6 +15,7 @@ import {
 } from 'lucide-react';
 
 import GlassCard from '@/components/GlassCard';
+import EntityAvatar from '@/components/EntityAvatar';
 import StatusBadge, { StatusType } from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
 import { deleteParentAction } from './actions';
@@ -99,37 +99,36 @@ export default function ParentsClient({
     };
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-4">
             <FormModal open={showAdd} onClose={closeAdd}>
                 <NewParentForm onClose={closeAdd} onSaved={() => { closeAdd(); router.refresh(); }} />
             </FormModal>
-            <GlassCard className="overflow-hidden !p-0">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-6 pt-5 pb-2">
-                    {tabsNode}
-                    <div className="flex items-center gap-3 w-full md:w-auto">
-                        <div className="relative flex-1 md:flex-none md:w-72">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
-                            <input
-                                type="text"
-                                placeholder="Search parents..."
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                className="field-input pl-9"
-                            />
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowAdd(true)}
-                            className="btn btn-secondary shrink-0 whitespace-nowrap"
-                        >
-                            <Plus className="w-4 h-4" />
-                            Add Parent
-                        </button>
+            <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border">
+                {tabsNode}
+                <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
+                    <div className="relative flex-1 xl:w-[260px]">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+                        <input
+                            type="text"
+                            placeholder="Search parents…"
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            className="bare-input w-full pl-8 pr-2 py-1.5 bg-transparent text-xs text-foreground placeholder-zinc-500 focus:outline-none"
+                        />
                     </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowAdd(true)}
+                        className="btn btn-secondary !h-8 !px-3 !text-xs shrink-0 whitespace-nowrap"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add Parent
+                    </button>
                 </div>
-
-                <div className="overflow-x-auto px-6 pb-6">
-                    <table className="ui-table">
+            </div>
+            <GlassCard className="overflow-hidden !p-0">
+                <div className="overflow-x-auto px-[15px] py-2.5">
+                    <table className="data-table data-table-rich">
                         <thead>
                             <tr>
                                 <th>Parent ID</th>
@@ -143,21 +142,21 @@ export default function ParentsClient({
                         </thead>
                         <tbody>
                             {filteredParents.map((parent) => (
-                                <tr key={parent.dbId} className="bg-surface-hover">
+                                <tr key={parent.dbId}>
                                     <td>
-                                        <div className="flex items-center gap-3">
-                                            <span className="metric-icon">
-                                                <Users className="w-4 h-4 text-foreground" />
-                                            </span>
-                                            <span className="font-mono">{parent.parentId}</span>
+                                        <span className="cell-mono cell-muted">{parent.parentId}</span>
+                                    </td>
+                                    <td>
+                                        <div className="flex items-center gap-2.5">
+                                            <EntityAvatar name={parent.parentName || '?'} />
+                                            <span className="cell-strong">{parent.parentName}</span>
                                         </div>
                                     </td>
-                                    <td className="font-semibold text-foreground">{parent.parentName}</td>
                                     <td>{parent.kidName}</td>
                                     <td>{parent.grade}</td>
                                     <td>
                                         <span className="block">{parent.mobile}</span>
-                                        <span className="block text-[11px] text-zinc-500 mt-0.5">{parent.email}</span>
+                                        <span className="block cell-sub">{parent.email}</span>
                                     </td>
                                     <td>
                                         <StatusBadge status={parent.status as StatusType} />
@@ -165,12 +164,12 @@ export default function ParentsClient({
                                     <td className="num">
                                         <div className="flex items-center justify-end gap-2">
                                             {/* We can add an edit page later: href={`/parents/edit/${parent.dbId}`} */}
-                                            <Link href={'#'} className="btn btn-secondary !h-8 !px-2.5" title="Edit Parent">
+                                            <Link href={'#'} className="icon-btn" title="Edit Parent">
                                                 <Pencil className="w-3.5 h-3.5" />
                                             </Link>
                                             <button
                                                 onClick={() => confirmDelete(parent)}
-                                                className="btn btn-secondary !h-8 !px-2.5 text-rose-500"
+                                                className="icon-btn icon-btn-danger"
                                                 title="Delete Parent"
                                             >
                                                 <Trash2 className="w-3.5 h-3.5" />
@@ -181,7 +180,7 @@ export default function ParentsClient({
                             ))}
                             {filteredParents.length === 0 && (
                                 <tr>
-                                    <td colSpan={7} className="text-center !py-10">
+                                    <td colSpan={7} className="!h-auto !whitespace-normal text-center !py-10 text-zinc-500">
                                         No parents found matching your search.
                                     </td>
                                 </tr>
@@ -193,8 +192,8 @@ export default function ParentsClient({
 
             {/* Custom Confirm Dialog (same logic as VendorsClient) */}
             {showConfirmModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-                    <div className="bg-[#121216] border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl overflow-hidden">
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+                    <div className="popup-panel animate-slide-up w-full max-w-sm overflow-hidden">
                         <div className="p-5 border-b border-white/5 flex justify-between items-center">
                             <div className="flex items-center gap-2 text-rose-400">
                                 <AlertTriangle className="w-5 h-5" />

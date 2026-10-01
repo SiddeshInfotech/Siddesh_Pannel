@@ -29,6 +29,8 @@ const nextConfig: NextConfig = {
   env: { NEXT_PUBLIC_ADMIN_PANEL: ADMIN_PANEL },
   // Remove X-Powered-By: Next.js header — prevents tech stack fingerprinting
   poweredByHeader: false,
+  // Keep the dev-only Next.js badge off the sidebar's bottom-left buttons.
+  devIndicators: { position: 'bottom-right' },
   // Multi-zone proxy. These MUST be `beforeFiles` so they run before this app's
   // own `_next/static` filesystem handler — otherwise `/rotarydhuleconnect/_next/*`
   // asset requests get swallowed here (404) instead of proxying to the zone, which

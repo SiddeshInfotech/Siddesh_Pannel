@@ -52,63 +52,67 @@ export default function DashboardTabs() {
   const showingTo = Math.min(page * limit, totalLogsCount);
 
   return (
-    <GlassCard className="panel-group !p-0 flex flex-col">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-6 pt-5 pb-2">
-        <div className="flex h-10 p-1 px-4 items-center gap-2 bg-surface-hover rounded-full w-fit">
-          <Terminal className="w-4 h-4 text-foreground" />
-          <span className="text-[13px] font-semibold text-foreground">Cryptographic Handshake Audit Logs</span>
+    <div className="space-y-4">
+      {/* Filter bar — same underlined-tab bar as the other pages; search on the right. */}
+      <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border">
+        <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+          <span className="filter-tab filter-tab-active !cursor-default">
+            <Terminal className="w-3.5 h-3.5" />
+            Handshake audit logs
+            <span className="filter-tab-count">{totalLogsCount}</span>
+          </span>
         </div>
-
-        <div className="flex items-center gap-3">
-          {isPending && (
-            <div className="flex items-center gap-1.5 text-xs text-zinc-400 font-medium">
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-violet" />
-            </div>
-          )}
-          <div className="relative w-full md:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
-              <input
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search keys..."
-                  className="field-input pl-9"
-              />
+        <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
+          {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-violet shrink-0" />}
+          <div className="relative flex-1 xl:w-[260px]">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search keys…"
+              className="bare-input w-full pl-8 pr-2 py-1.5 bg-transparent text-xs text-foreground placeholder-zinc-500 focus:outline-none"
+            />
           </div>
         </div>
       </div>
-      <div className="px-6 pb-6 space-y-4">
+
+      <GlassCard className="!p-0 overflow-hidden">
         <HandshakeLogsList logs={logs} />
 
         {/* Pagination Controls */}
         {totalPages > 1 && (
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-white/5 text-zinc-400 text-xs font-semibold">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-3 border-t border-sidebar-border text-xs font-medium text-zinc-500">
             <div>
-              Showing <span className="text-white">{showingFrom}</span> to{' '}
-              <span className="text-white">{showingTo}</span> of{' '}
-              <span className="text-white">{totalLogsCount}</span> logs
+              Showing <span className="font-semibold text-foreground">{showingFrom}–{showingTo}</span> of{' '}
+              <span className="font-semibold text-foreground">{totalLogsCount}</span> logs
             </div>
             <div className="flex items-center gap-2">
               <button
+                type="button"
                 onClick={() => handlePageChange(page - 1)}
                 disabled={page === 1 || isPending}
-                className="p-2 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-zinc-300 disabled:opacity-40 disabled:cursor-not-allowed hover:text-white transition-all cursor-pointer flex items-center justify-center"
+                className="icon-btn"
+                aria-label="Previous page"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
-              <span className="px-4 py-2 bg-[#121216]/60 border border-white/10 rounded-xl font-mono text-zinc-200">
-                Page {page} of {totalPages}
+              <span className="stat-chip">
+                Page <span className="stat-chip-value">{page}</span> of <span className="stat-chip-value">{totalPages}</span>
               </span>
               <button
+                type="button"
                 onClick={() => handlePageChange(page + 1)}
                 disabled={page === totalPages || isPending}
-                className="p-2 bg-white/5 border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-xl text-zinc-300 disabled:opacity-40 disabled:cursor-not-allowed hover:text-white transition-all cursor-pointer flex items-center justify-center"
+                className="icon-btn"
+                aria-label="Next page"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           </div>
         )}
-      </div>
-    </GlassCard>
+      </GlassCard>
+    </div>
   );
 }

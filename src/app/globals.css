@@ -16,7 +16,6 @@
   --log-row-open-bg: rgba(255, 255, 255, 0.03);
   --chip-bg: var(--icon-surface);
   --chip-fg: #a1a1aa;
-  --group-gap: 4px;
   --radius-group: var(--radius-log);
   --radius-metric: var(--radius-log);
   --radius-log: 1.0rem;
@@ -36,6 +35,15 @@
   --sidebar-border: rgba(255, 255, 255, 0.15);
   --accent-violet: #8b5cf6;
   --accent-blue: #3b82f6;
+  /* Structure matches the light theme — only colours differ. */
+  --group-gap: 12px;
+  --icon-ring: rgba(255, 255, 255, 0.15);
+  --metric-group-bg: transparent;
+  --metric-group-border: transparent;
+  --panel-group-bg: var(--card);
+  --panel-group-frame: var(--card-border);
+  --surface-popover: #16161b;
+  --skeleton: rgba(255, 255, 255, 0.08);
 }
 
 :root.light {
@@ -75,6 +83,8 @@
   --sidebar-border: #d4d4d8;      /* zinc-300 */
   --accent-violet: #7c3aed;
   --accent-blue: #2563eb;
+  --surface-popover: #ffffff;
+  --skeleton: #e4e4e7;
 }
 
 @theme {
@@ -467,55 +477,49 @@ body {
   background-color: rgba(0, 0, 0, 0.04) !important;
 }
 
-/* Sidebar Nav Item Styling */
-.sidebar-nav-item {
-  color: rgba(255, 255, 255, 0.4) !important;
-  /* transition: all 0.2s ease; */
-}
-.sidebar-nav-item:hover {
-  color: rgba(255, 255, 255, 0.8) !important;
-  background-color: rgba(255, 255, 255, 0.02) !important;
-}
-.sidebar-nav-item-active {
-  color: #ffffff !important;
-  background-color: rgba(255, 255, 255, 0.05) !important;
-  /* border: 1px solid rgba(255, 255, 255, 0.05) !important; */
-}
+/* Sidebar width — single source for the rail and the content offset beside it */
+:root { --sidebar-width: 60px; }
+.app-sidebar { width: var(--sidebar-width); }
+.app-content { margin-left: var(--sidebar-width); }
 
-/* Sidebar Nav Item Icon */
-.sidebar-nav-icon {
-  color: rgba(255, 255, 255, 0.4) !important;
+/* Sidebar Rail — icon on top, name below; active item = white icon chip only */
+.sidebar-rail-item {
+  color: rgba(255, 255, 255, 0.45);
   transition: color 0.2s ease;
 }
-.sidebar-nav-item-active .sidebar-nav-icon {
-  color: var(--accent-violet) !important;
+.sidebar-rail-item:hover {
+  color: rgba(255, 255, 255, 0.85);
 }
-.sidebar-nav-item:hover .sidebar-nav-icon {
-  color: rgba(255, 255, 255, 0.8) !important;
+.sidebar-rail-icon {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+.sidebar-rail-item:hover .sidebar-rail-icon {
+  background-color: rgba(255, 255, 255, 0.06);
+}
+.sidebar-rail-item-active {
+  color: #ffffff;
+}
+.sidebar-rail-item-active .sidebar-rail-icon,
+.sidebar-rail-item-active:hover .sidebar-rail-icon {
+  background-color: #ffffff;
+  color: var(--accent-violet);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
-/* Light theme overrides matching the user's specific request */
-.light .sidebar-nav-item {
-  color: #64748b !important; /* slate-500 */
+.light .sidebar-rail-item {
+  color: #64748b; /* slate-500 */
 }
-.light .sidebar-nav-item:hover {
-  color: #334155 !important; /* slate-700 */
-  background-color: rgba(0, 0, 0, 0.03) !important;
+.light .sidebar-rail-item:hover {
+  color: #334155; /* slate-700 */
 }
-.light .sidebar-nav-item-active {
-  color: #0f172a !important; /* slate-900 */
-  background-color: rgba(0, 0, 0, 0.04) !important;
+.light .sidebar-rail-item:hover .sidebar-rail-icon {
+  background-color: rgba(0, 0, 0, 0.04);
 }
-
-/* Light Theme Sidebar Icon Overrides */
-.light .sidebar-nav-icon {
-  color: #94a3b8 !important; /* slate-400 */
+.light .sidebar-rail-item-active {
+  color: #0f172a; /* slate-900 */
 }
-.light .sidebar-nav-item:hover .sidebar-nav-icon {
-  color: #64748b !important; /* slate-500 */
-}
-.light .sidebar-nav-item-active .sidebar-nav-icon {
-  color: var(--accent-violet) !important; /* restored vibrant branding */
+.light .sidebar-rail-item-active:hover .sidebar-rail-icon {
+  background-color: #ffffff;
 }
 
 /* Light Theme Form Control Styling Overrides */
@@ -862,6 +866,254 @@ select option {
     color: var(--text-body);
     background: transparent;
   }
+  .btn-danger {
+    color: #ffffff;
+    background: #f43f5e;
+  }
+  .btn-danger:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+
+  /* Shared data table — one header/row/typography system for Payments, Keys, Monitoring and
+     Update. In this layer, so a utility class on a cell still wins where a cell needs it. */
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    text-align: left;
+    font-size: 13px;
+    color: var(--text-body);
+  }
+  .data-table th {
+    height: 44px;
+    padding: 0 12px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    white-space: nowrap;
+    vertical-align: middle;
+    border-bottom: 1px solid var(--sidebar-border);
+  }
+  .data-table td {
+    height: 52px;
+    padding: 6px 12px;
+    vertical-align: middle;
+    white-space: nowrap;
+    border-top: 1px solid var(--divider);
+  }
+  .data-table tbody tr:first-child td {
+    border-top: 0;
+  }
+  .data-table tbody tr td {
+    transition: background-color 0.15s ease;
+  }
+  .data-table tbody tr:hover td {
+    background: var(--surface-hover);
+  }
+  .data-table .cell-strong {
+    color: var(--text-strong);
+    font-weight: 600;
+  }
+  .data-table .cell-muted {
+    color: var(--text-muted);
+  }
+  .data-table .cell-sub {
+    margin-top: 2px;
+    font-size: 11px;
+    color: var(--text-muted);
+  }
+  .data-table .cell-mono {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    letter-spacing: 0.02em;
+  }
+  .data-table .cell-num {
+    font-variant-numeric: tabular-nums;
+  }
+  .data-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Rich variant (Monitoring / Update): tinted pill header.
+     `separate` is required — cells ignore border-radius under border-collapse: collapse. */
+  .data-table-rich {
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+  .data-table-rich th {
+    background: var(--surface-inset);
+    border-bottom: 0;
+  }
+  .data-table-rich th:first-child {
+    border-radius: 10px 0 0 10px;
+  }
+  .data-table-rich th:last-child {
+    border-radius: 0 10px 10px 0;
+  }
+  .data-table-rich tbody tr:first-child td {
+    border-top: 0;
+  }
+
+  /* Pulsing "live" dot for online devices. */
+  .live-dot {
+    position: relative;
+    display: inline-flex;
+    width: 8px;
+    height: 8px;
+  }
+  .live-dot::before,
+  .live-dot::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: #10b981;
+  }
+  .live-dot::before {
+    animation: live-ping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+    opacity: 0.6;
+  }
+  @keyframes live-ping {
+    75%, 100% { transform: scale(2.2); opacity: 0; }
+  }
+
+  /* Dropdown menu (Product Types filter): themed card, compact rows, violet selected row. */
+  .menu-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px;
+    background: var(--surface-popover);
+    border: 1px solid var(--card-border);
+    border-radius: 12px;
+    box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.25);
+  }
+  .menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    text-align: left;
+    color: var(--text-body);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+  }
+  .menu-item:hover {
+    background: var(--surface-hover);
+    color: var(--text-strong);
+  }
+  .menu-item-active,
+  .menu-item-active:hover {
+    color: var(--accent-violet);
+    background: color-mix(in srgb, var(--accent-violet) 10%, transparent);
+  }
+  .menu-item-active::after {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: var(--accent-violet);
+    flex-shrink: 0;
+  }
+
+  /* Loading placeholder block. */
+  .skeleton {
+    background: var(--skeleton);
+    border-radius: 6px;
+    animation: skeleton-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes skeleton-pulse {
+    50% { opacity: 0.45; }
+  }
+
+  /* Square icon button for table row actions. */
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 10px;
+    color: var(--text-muted);
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+  .icon-btn:hover:not(:disabled) {
+    color: var(--text-strong);
+    background: var(--surface-hover);
+  }
+  .icon-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .icon-btn-danger:hover:not(:disabled) {
+    color: #f43f5e;
+    background: rgba(244, 63, 94, 0.08);
+    border-color: rgba(244, 63, 94, 0.35);
+  }
+
+  /* Compact count chip: "All keys  252". */
+  .stat-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    padding: 0 12px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    border-radius: 10px;
+    white-space: nowrap;
+  }
+  .stat-chip-value {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text-strong);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Underlined filter tab (Keys / Monitoring / Update filter bars). */
+  .filter-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 700;
+    white-space: nowrap;
+    color: var(--text-muted);
+    border-bottom: 1px solid transparent;
+    cursor: pointer;
+    transition: color 0.15s ease;
+  }
+  .filter-tab:hover {
+    color: var(--text-body);
+  }
+  .filter-tab-active {
+    color: var(--text-strong);
+    border-bottom: 2px solid var(--accent-violet);
+    margin-bottom: -1px;
+  }
+  .filter-tab-active .filter-tab-count {
+    color: var(--accent-violet);
+  }
+  .filter-tab-count {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+  }
 
   /* Range slider (Add School → Classrooms Limit): purple fill up to the value (--range-fill set
      inline), visible grey remainder, white thumb with a violet ring. */
@@ -919,4 +1171,48 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 input[type="date"]::-webkit-inner-spin-button {
   display: none;
+}
+
+/* Login brand panel + its button keep white text in both themes (beats the .light text remaps). */
+.on-brand,
+.on-brand *,
+.light .on-brand,
+.light .on-brand * {
+  color: #ffffff !important;
+}
+/* The sign-in side is always white, so its zinc text stays fixed in both themes. */
+.light .login-side [class*="text-zinc-500"] {
+  color: #71717a !important;
+}
+
+/* Themed pop-up / toast / calendar surfaces — last in the file so they win over .glass / .light .glass. */
+:root .popup-panel,
+:root .light .popup-panel {
+  background: var(--surface-popover);
+  border: 1px solid var(--card-border);
+  border-radius: 16px;
+  box-shadow: 0 24px 48px -12px rgba(0, 0, 0, 0.35);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.toast-card {
+  background: var(--surface-popover);
+  border: 1px solid var(--card-border);
+  color: var(--text-strong);
+  box-shadow: 0 16px 32px -12px rgba(0, 0, 0, 0.3);
+}
+.cal-nav {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--text-muted);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.cal-nav:hover,
+.cal-day:hover {
+  background: var(--surface-hover);
+  color: var(--text-strong);
 }

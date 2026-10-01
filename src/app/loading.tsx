@@ -1,66 +1,51 @@
 'use client';
 
 import React from 'react';
-import { Shield } from 'lucide-react';
 
+// Mirrors the real page frame: title + count chips, underlined filter bar, table card.
 export default function Loading() {
   return (
-    <div className="space-y-8 max-w-6xl mx-auto w-full animate-in fade-in duration-500">
+    <div className="space-y-4 max-w-7xl mx-auto w-full" aria-busy="true" aria-label="Loading">
       <div className="h-10" />
 
-      {/* Header Skeleton */}
-      <div className="flex items-center gap-4 px-1">
-        <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 animate-pulse flex items-center justify-center shadow-lg">
-          <Shield className="w-5 h-5 text-accent-violet/40" />
-        </div>
-        <div className="space-y-2.5">
-          <div className="h-6 w-48 bg-white/5 rounded-lg animate-pulse" />
-          <div className="h-3 w-72 bg-white/5 rounded-md animate-pulse" />
-        </div>
-      </div>
-
-      {/* Metrics Row Skeleton */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="h-36 rounded-3xl bg-[#121216]/40 border border-white/5 p-6 flex flex-col justify-between animate-pulse relative overflow-hidden">
-            {/* Shimmer effect */}
-            <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/[0.02] to-transparent animate-[shimmer_2s_infinite]" />
-            
-            <div className="flex justify-between items-start relative z-10">
-              <div className="h-3 w-28 bg-white/10 rounded-md" />
-              <div className="h-8 w-8 rounded-xl bg-white/5" />
-            </div>
-            <div className="h-10 w-20 bg-white/10 rounded-lg relative z-10" />
-          </div>
-        ))}
-      </div>
-
-      {/* Main Content Area Skeleton */}
-      <div className="rounded-3xl bg-[#121216]/40 border border-white/5 p-6 space-y-6 animate-pulse relative overflow-hidden">
-        {/* Shimmer effect */}
-        <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/[0.02] to-transparent animate-[shimmer_2s_infinite]" />
-        
-        {/* Tabs placeholder */}
-        <div className="flex gap-4 border-b border-white/5 pb-4 relative z-10">
-          <div className="h-9 w-32 bg-white/10 rounded-xl" />
-          <div className="h-9 w-32 bg-white/5 rounded-xl" />
-        </div>
-        
-        {/* List items placeholder */}
-        <div className="space-y-4 relative z-10">
-          {[1, 2, 3, 4, 5].map((i) => (
-            <div key={i} className="flex items-center justify-between py-3 px-4 bg-white/[0.02] border border-white/5 rounded-2xl">
-              <div className="flex items-center gap-4">
-                <div className="h-11 w-11 rounded-xl bg-white/10" />
-                <div className="space-y-2.5">
-                  <div className="h-4 w-56 bg-white/10 rounded-md" />
-                  <div className="h-3 w-32 bg-white/5 rounded-md" />
-                </div>
-              </div>
-              <div className="h-7 w-24 bg-white/5 rounded-full" />
-            </div>
+      {/* Title + count chips */}
+      <div className="flex justify-between items-center flex-wrap gap-4 pb-2">
+        <div className="skeleton h-8 w-56" />
+        <div className="flex items-center gap-2">
+          {[112, 96, 104, 120].map((w) => (
+            <div key={w} style={{ width: w }} className="skeleton h-8 !rounded-[10px]" />
           ))}
         </div>
+      </div>
+
+      {/* Filter bar */}
+      <div className="flex items-end justify-between gap-3 border-b border-sidebar-border pb-2">
+        <div className="flex items-center gap-5">
+          {[44, 56, 52, 60, 48].map((w, i) => (
+            <div key={i} style={{ width: w }} className="skeleton h-3.5" />
+          ))}
+        </div>
+        <div className="skeleton h-3.5 w-56" />
+      </div>
+
+      {/* Table card */}
+      <div className="glass rounded-2xl px-4 py-2.5">
+        <div className="skeleton h-11 !rounded-[10px] opacity-60" />
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-6 h-[52px] px-3 border-t border-sidebar-border first:border-t-0">
+            <div className="flex items-center gap-2.5 w-[22%]">
+              <div className="skeleton w-7 h-7 !rounded-full shrink-0" />
+              <div className="skeleton h-3.5 flex-1" />
+            </div>
+            <div className="skeleton h-3 w-[18%]" />
+            <div className="skeleton h-3 w-[14%]" />
+            <div className="skeleton h-5 w-16 !rounded-md" />
+            <div className="ml-auto flex gap-2">
+              <div className="skeleton w-8 h-8 !rounded-[10px]" />
+              <div className="skeleton w-8 h-8 !rounded-[10px]" />
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );

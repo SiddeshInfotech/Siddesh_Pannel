@@ -1,12 +1,11 @@
 'use client';
 
 import { useMemo, useState, useTransition, useCallback } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import FormModal from '@/components/FormModal';
 import NewVendorForm from '@/components/forms/NewVendorForm';
+import { getVendorForEdit, type VendorEditData } from './actions';
 import {
-    Building2,
     Pencil,
     Trash2,
     Search,
@@ -14,6 +13,7 @@ import {
 } from 'lucide-react';
 
 import GlassCard from '@/components/GlassCard';
+import EntityAvatar from '@/components/EntityAvatar';
 import StatusBadge from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
 import {
@@ -115,37 +115,59 @@ const [vendorToDelete, setVendorToDelete] =
     
         });
     };
+    const [editVendor, setEditVendor] = useState<VendorEditData | null>(null);
+    const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
+    const openEdit = async (id: string) => {
+        setLoadingEditId(id);
+        try {
+            const v = await getVendorForEdit(id);
+            if (v) setEditVendor(v);
+            else toast('Could not load this vendor. Please try again.', 'error');
+        } finally {
+            setLoadingEditId(null);
+        }
+    };
+
     return (
-        <div className="space-y-6 relative">
+        <div className="space-y-4 relative">
             <FormModal open={showAdd} onClose={closeAdd}>
                 <NewVendorForm onClose={closeAdd} onSaved={() => { closeAdd(); router.refresh(); }} />
             </FormModal>
-            <GlassCard className="overflow-hidden !p-0">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-6 pt-5 pb-2">
-                    {tabsNode}
-                    <div className="flex items-center gap-3 w-full md:w-auto">
-                        <div className="relative flex-1 md:flex-none md:w-72">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
-                            <input
-                                value={search}
-                                onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Search vendors..."
-                                className="field-input pl-9"
-                            />
-                        </div>
-                        <button
-                            type="button"
-                            onClick={() => setShowAdd(true)}
-                            className="btn btn-secondary shrink-0 whitespace-nowrap"
-                        >
-                            <Plus className="w-4 h-4" />
-                            Add Vendor
-                        </button>
+            <FormModal open={!!editVendor} onClose={() => setEditVendor(null)}>
+                {editVendor && (
+                    <NewVendorForm
+                        key={editVendor.dbId}
+                        vendor={editVendor}
+                        onClose={() => setEditVendor(null)}
+                        onSaved={() => { setEditVendor(null); router.refresh(); }}
+                    />
+                )}
+            </FormModal>
+            <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border">
+                {tabsNode}
+                <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
+                    <div className="relative flex-1 xl:w-[260px]">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+                        <input
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search vendors…"
+                            className="bare-input w-full pl-8 pr-2 py-1.5 bg-transparent text-xs text-foreground placeholder-zinc-500 focus:outline-none"
+                        />
                     </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowAdd(true)}
+                        className="btn btn-secondary !h-8 !px-3 !text-xs shrink-0 whitespace-nowrap"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add Vendor
+                    </button>
                 </div>
-
-                <div className="overflow-x-auto px-6 pb-6">
-                    <table className="ui-table">
+            </div>
+            <GlassCard className="overflow-hidden !p-0">
+                <div className="overflow-x-auto px-[15px] py-2.5">
+                    <table className="data-table data-table-rich">
                         <thead>
                             <tr>
                                 <th>Vendor Name</th>
@@ -163,47 +185,47 @@ const [vendorToDelete, setVendorToDelete] =
                         <tbody>
                             {filteredVendors.length === 0 ? (
                                 <tr>
-                                    <td colSpan={10} className="text-center !py-10">
+                                    <td colSpan={10} className="!h-auto !whitespace-normal text-center !py-10 text-zinc-500">
                                         No vendors found.
                                     </td>
                                 </tr>
                             ) : (
                                 filteredVendors.map((vendor) => (
-                                    <tr key={vendor.dbId} className="bg-surface-hover">
+                                    <tr key={vendor.dbId}>
                                         <td>
-                                            <div className="flex items-center gap-3">
-                                                <span className="metric-icon">
-                                                    <Building2 className="w-4 h-4 text-foreground" />
-                                                </span>
+                                            <div className="flex items-center gap-2.5">
+                                                <EntityAvatar name={vendor.vendorName || '?'} size={32} />
                                                 <div>
-                                                    <span className="block font-semibold text-foreground">{vendor.vendorName}</span>
-                                                    <span className="block text-[11px] text-zinc-500 mt-0.5">ID: {vendor.vendorId}</span>
+                                                    <span className="block cell-strong">{vendor.vendorName}</span>
+                                                    <span className="block cell-sub">ID: {vendor.vendorId}</span>
                                                 </div>
                                             </div>
                                         </td>
                                         <td>{vendor.vendorType}</td>
                                         <td>{vendor.businessCategory}</td>
                                         <td>{vendor.contactPerson}</td>
-                                        <td className="font-mono">{vendor.mobile}</td>
-                                        <td>{vendor.email}</td>
+                                        <td className="cell-num">{vendor.mobile}</td>
+                                        <td className="cell-muted">{vendor.email}</td>
                                         <td>{vendor.city}</td>
                                         <td>
     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                                             <StatusBadge status={vendor.status as any} />
                                         </td>
-                                        <td>{vendor.dateAdded}</td>
+                                        <td className="cell-muted cell-num">{vendor.dateAdded}</td>
                                         <td className="num">
                                             <div className="flex justify-end gap-2">
-                                                <Link
-                                                    href={`/accounts/vendors/edit/${vendor.dbId}`}
-                                                    className="btn btn-secondary !h-8 !px-2.5"
+                                                <button
+                                                    type="button"
+                                                    onClick={() => openEdit(vendor.dbId)}
+                                                    disabled={loadingEditId === vendor.dbId}
+                                                    className="icon-btn"
                                                     title="Edit Vendor"
                                                 >
                                                     <Pencil className="w-3.5 h-3.5" />
-                                                </Link>
+                                                </button>
                                                 <button
                                                     onClick={() => confirmDelete(vendor)}
-                                                    className="btn btn-secondary !h-8 !px-2.5 text-rose-500"
+                                                    className="icon-btn icon-btn-danger"
                                                     title="Delete Vendor"
                                                 >
                                                     <Trash2 className="w-3.5 h-3.5" />
@@ -220,8 +242,8 @@ const [vendorToDelete, setVendorToDelete] =
 
 {/* Confirmation Modal */}
 {showConfirmModal && vendorToDelete && (
-  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-    <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+    <GlassCard className="popup-panel animate-slide-up w-full max-w-md p-6 space-y-6 relative">
 
       <button
         onClick={() => {

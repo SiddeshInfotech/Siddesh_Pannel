@@ -41,37 +41,36 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {/* Toast Container - Top Right Positioned */}
       <div className="fixed top-6 right-6 z-50 flex flex-col gap-3 w-full max-w-sm pointer-events-none">
         {toasts.map((t) => {
-          let bgClass = 'bg-[#121216]/95 border-white/5 text-white';
+          // Themed card; the type shows as a tinted icon tile + a coloured left edge.
           let Icon = AlertCircle;
-          let iconColor = 'text-accent-blue';
-
+          let tone = 'bg-accent-violet/10 border-accent-violet/25 text-accent-violet';
+          let edge = 'var(--accent-violet)';
           if (t.type === 'success') {
-            bgClass = 'bg-emerald-950/40 border-emerald-500/20 backdrop-blur-xl text-emerald-100';
             Icon = CheckCircle2;
-            iconColor = 'text-emerald-400';
+            tone = 'bg-emerald-500/10 border-emerald-500/25 text-emerald-500';
+            edge = '#10b981';
           } else if (t.type === 'error') {
-            bgClass = 'bg-rose-950/40 border-rose-500/20 backdrop-blur-xl text-rose-100';
             Icon = XCircle;
-            iconColor = 'text-rose-400';
-          } else if (t.type === 'info') {
-            bgClass = 'bg-zinc-950/40 border-white/10 backdrop-blur-xl text-zinc-100';
-            Icon = AlertCircle;
-            iconColor = 'text-accent-violet';
+            tone = 'bg-rose-500/10 border-rose-500/25 text-rose-500';
+            edge = '#f43f5e';
           }
 
           return (
             <div
               key={t.id}
-              className={`flex items-start gap-3 p-4 rounded-2xl border shadow-2xl transition-all duration-300 pointer-events-auto animate-slide-in ${bgClass}`}
+              role={t.type === 'error' ? 'alert' : 'status'}
+              style={{ boxShadow: `inset 3px 0 0 ${edge}` }}
+              className="toast-card flex items-start gap-3 p-3 rounded-xl transition-all duration-300 pointer-events-auto animate-slide-in"
             >
-              <span className={`p-0.5 rounded-lg shrink-0 ${iconColor}`}>
-                <Icon className="w-5 h-5" />
+              <span className={`w-8 h-8 rounded-[10px] border flex items-center justify-center shrink-0 ${tone}`}>
+                <Icon className="w-4 h-4" />
               </span>
-              <p className="text-xs font-semibold leading-relaxed flex-1">{t.message}</p>
+              <p className="text-[13px] font-medium leading-relaxed flex-1 pt-1.5">{t.message}</p>
               <button
                 type="button"
                 onClick={() => removeToast(t.id)}
-                className="text-zinc-500 hover:text-zinc-300 transition-colors p-0.5 rounded hover:bg-white/5 cursor-pointer shrink-0"
+                aria-label="Dismiss"
+                className="cal-nav shrink-0"
               >
                 <X className="w-4 h-4" />
               </button>

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { createVendor } from '@/app/vendors/new/actions';
+import { updateVendorAction, type VendorEditData } from '@/app/accounts/actions';
 import CustomSelect from '@/components/CustomSelect';
 import FormHeader, { type FormStepDef } from './FormHeader';
 import { MAHARASHTRA_DISTRICTS, MAHARASHTRA_STATE } from '@/lib/constants';
@@ -33,6 +34,8 @@ export interface NewVendorFormProps {
   onClose?: () => void;
   /** Called after a successful save in the pop-up (e.g. close it and refresh the list). */
   onSaved?: () => void;
+  /** Edit mode: pre-fills the form and saves with updateVendorAction. */
+  vendor?: VendorEditData;
 }
 
 const STEPS: FormStepDef<FormStep>[] = [
@@ -41,7 +44,7 @@ const STEPS: FormStepDef<FormStep>[] = [
   { id: 'tax', label: 'Legal Info' },
 ];
 
-export default function NewVendorForm({ onClose, onSaved }: NewVendorFormProps = {}) {
+export default function NewVendorForm({ onClose, onSaved, vendor }: NewVendorFormProps = {}) {
   const inModal = !!onClose;
   const { toast } = useToast();
   const router = useRouter();
@@ -50,38 +53,42 @@ export default function NewVendorForm({ onClose, onSaved }: NewVendorFormProps =
 
   // Form states
   // 1. Basic Vendor Information
-  const [vendorName, setVendorName] = useState('');
-  const [vendorType, setVendorType] = useState('');
-  const [businessCategory, setBusinessCategory] = useState('');
-  const [status, setStatus] = useState<'Active' | 'Inactive'>('Active');
-  const [description, setDescription] = useState('');
+  const [vendorName, setVendorName] = useState(vendor?.vendorName ?? '');
+  const [vendorType, setVendorType] = useState(vendor?.vendorType ?? '');
+  const [businessCategory, setBusinessCategory] = useState(vendor?.businessCategory ?? '');
+  const [status, setStatus] = useState<'Active' | 'Inactive'>(vendor?.status ?? 'Active');
+  const [description, setDescription] = useState(vendor?.description ?? '');
 
   // 2. Contact Information
-  const [contactPersonName, setContactPersonName] = useState('');
-  const [designation, setDesignation] = useState('');
-  const [mobileNumber, setMobileNumber] = useState('');
-  const [alternateMobile, setAlternateMobile] = useState('');
-  const [emailAddress, setEmailAddress] = useState('');
-  const [website, setWebsite] = useState('');
+  const [contactPersonName, setContactPersonName] = useState(vendor?.contactPersonName ?? '');
+  const [designation, setDesignation] = useState(vendor?.designation ?? '');
+  const [mobileNumber, setMobileNumber] = useState(vendor?.mobileNumber ?? '');
+  const [alternateMobile, setAlternateMobile] = useState(vendor?.alternateMobile ?? '');
+  const [emailAddress, setEmailAddress] = useState(vendor?.emailAddress ?? '');
+  const [website, setWebsite] = useState(vendor?.website ?? '');
 
   // 3. Business Address
-  const [addressLine1, setAddressLine1] = useState('');
-  const [addressLine2, setAddressLine2] = useState('');
-  const [city, setCity] = useState('');
-  const [district, setDistrict] = useState('');
-  const [state, setState] = useState('Maharashtra');
-  const [country, setCountry] = useState('India');
-  const [pincode, setPincode] = useState('');
+  const [addressLine1, setAddressLine1] = useState(vendor?.addressLine1 ?? '');
+  const [addressLine2, setAddressLine2] = useState(vendor?.addressLine2 ?? '');
+  const [city, setCity] = useState(vendor?.city ?? '');
+  const [district, setDistrict] = useState(vendor?.district ?? '');
+  const [state, setState] = useState(vendor?.state || 'Maharashtra');
+  const [country, setCountry] = useState(vendor?.country || 'India');
+  const [pincode, setPincode] = useState(vendor?.pincode ?? '');
 
   // 4. Tax & Legal Info
-  const [gstNumber, setGstNumber] = useState('');
-  const [panNumber, setPanNumber] = useState('');
-  const [businessRegistrationNumber, setBusinessRegistrationNumber] = useState('');
-  const [msmeRegistration, setMsmeRegistration] = useState('');
+  const [gstNumber, setGstNumber] = useState(vendor?.gstNumber ?? '');
+  const [panNumber, setPanNumber] = useState(vendor?.panNumber ?? '');
+  const [businessRegistrationNumber, setBusinessRegistrationNumber] = useState(vendor?.businessRegistrationNumber ?? '');
+  const [msmeRegistration, setMsmeRegistration] = useState(vendor?.msmeRegistration ?? '');
 
   // File Upload states (Base64)
-  const [gstCertificate, setGstCertificate] = useState<{ name: string; data: string } | null>(null);
-  const [panCard, setPanCard] = useState<{ name: string; data: string } | null>(null);
+  const [gstCertificate, setGstCertificate] = useState<{ name: string; data: string } | null>(
+    vendor?.gstCertificateName ? { name: vendor.gstCertificateName, data: '' } : null
+  );
+  const [panCard, setPanCard] = useState<{ name: string; data: string } | null>(
+    vendor?.panCardName ? { name: vendor.panCardName, data: '' } : null
+  );
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, type: 'gst' | 'pan') => {
     const file = e.target.files?.[0];
@@ -135,6 +142,26 @@ export default function NewVendorForm({ onClose, onSaved }: NewVendorFormProps =
       return;
     }
 
+    if (vendor) {
+      startTransition(async () => {
+        const res = await updateVendorAction(vendor.dbId, {
+          vendorName, vendorType, businessCategory, status, description,
+          contactPersonName, designation, mobileNumber, alternateMobile, emailAddress, website,
+          addressLine1, addressLine2, city, district, state, country, pincode,
+          gstNumber, panNumber, businessRegistrationNumber, msmeRegistration,
+          gstCertificateName: gstCertificate?.name || '',
+          panCardName: panCard?.name || '',
+        });
+        if (!res.ok) {
+          toast(res.error || 'An error occurred', 'error');
+          return;
+        }
+        toast(`Vendor "${vendorName}" updated.`, 'success');
+        onSaved?.();
+      });
+      return;
+    }
+
     startTransition(async () => {
       const res = await createVendor({
         vendorName,
@@ -183,7 +210,7 @@ export default function NewVendorForm({ onClose, onSaved }: NewVendorFormProps =
       {!inModal && <div className="h-10"></div>}
 
       <FormHeader
-        title="Add New Vendor"
+        title={vendor ? 'Edit Vendor' : 'Add New Vendor'}
         steps={STEPS}
         activeStep={activeStep}
         onStepChange={setActiveStep}
@@ -574,7 +601,7 @@ export default function NewVendorForm({ onClose, onSaved }: NewVendorFormProps =
                     disabled={isPending}
                     className="flex items-center gap-1.5 px-6 py-2.5 bg-[var(--surface-hover)] hover:brightness-95 border border-[var(--card-border)] text-xs font-semibold text-[var(--foreground)] rounded-xl transition-all active:scale-95 cursor-pointer disabled:opacity-55"
                   >
-                    {isPending ? 'Saving...' : 'Register Vendor'}
+                    {isPending ? 'Saving...' : vendor ? 'Save Changes' : 'Register Vendor'}
                     <Check className="w-4 h-4" />
                   </button>
                 </div>

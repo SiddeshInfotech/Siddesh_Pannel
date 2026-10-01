@@ -1,10 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
+import FormModal from './FormModal';
 import {
   Lock,
   ShieldAlert,
-  ShieldCheck,
+  ShieldCheck,
+
   Cpu,
   Laptop,
   Monitor,
@@ -106,18 +108,21 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
 
   return (
     <>
-      <div className="overflow-x-auto">
-      <table className="ui-table w-full">
+      <div className="overflow-x-auto px-[15px] py-2.5">
+      <table className="data-table data-table-rich min-w-[860px]">
         <thead>
           <tr>
             <th>Activation Key</th>
-            <th className="text-right pr-6">Status</th>
+            <th>Device</th>
+            <th>IP Address</th>
+            <th>Time</th>
+            <th className="text-right">Status</th>
           </tr>
         </thead>
         <tbody>
           {logs.length === 0 ? (
             <tr>
-              <td colSpan={2} className="text-center !py-10 text-zinc-500 text-sm">
+              <td colSpan={5} className="!h-auto !whitespace-normal text-center !py-10 text-zinc-500 text-sm">
                 No cryptographic handshakes recorded yet. Try activating a tablet!
               </td>
             </tr>
@@ -128,8 +133,8 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
 
               const statusBadge = (
                 <span
-                  className={`flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-md font-semibold ${
-                    isSuccess ? 'text-emerald-500 bg-emerald-500/10' : 'text-rose-500 bg-rose-500/10'
+                  className={`inline-flex items-center gap-1.5 text-[11px] px-2 py-0.5 rounded-md border font-semibold ${
+                    isSuccess ? 'text-emerald-500 bg-emerald-500/10 border-emerald-500/25' : 'text-rose-500 bg-rose-500/10 border-rose-500/25'
                   }`}
                 >
                   <span className={`w-1.5 h-1.5 rounded-full ${isSuccess ? 'bg-emerald-500' : 'bg-rose-500'}`} />
@@ -138,20 +143,24 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
               );
 
               return (
-                <tr key={item.id} onClick={() => setSelectedLog(item)} className="cursor-pointer bg-surface-hover hover:bg-white/5 transition-colors">
+                <tr key={item.id} onClick={() => setSelectedLog(item)} className="cursor-pointer">
                   <td>
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="metric-icon">
-                        <StatusIcon className="w-4 h-4 text-foreground" />
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className={`w-8 h-8 shrink-0 rounded-[10px] border flex items-center justify-center ${
+                        isSuccess ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-500' : 'bg-rose-500/10 border-rose-500/25 text-rose-500'
+                      }`}>
+                        <StatusIcon className="w-3.5 h-3.5" />
                       </span>
-                      <span className="text-[13px] font-semibold text-white font-mono truncate">{item.activationKey}</span>
+                      <span className="cell-strong cell-mono truncate">{item.activationKey}</span>
                     </div>
                   </td>
                   <td>
-                    <div className="flex items-center justify-end gap-4 pr-2">
-                      {statusBadge}
-                    </div>
+                    <div className="cell-strong">{item.deviceModel || '—'}</div>
+                    {item.deviceOS && <div className="cell-sub">{item.deviceOS}</div>}
                   </td>
+                  <td className="cell-mono cell-muted">{item.ipAddress || '—'}</td>
+                  <td className="cell-muted cell-num">{formatDateTime(item.time)}</td>
+                  <td className="text-right">{statusBadge}</td>
                 </tr>
               );
             })
@@ -162,30 +171,31 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
 
     {/* Modal Overlay */}
     {selectedLog && (
-      <div 
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/50 backdrop-blur-sm animate-fade-in" 
-        onClick={() => setSelectedLog(null)}
+      <FormModal
+        open
+        onClose={() => setSelectedLog(null)}
+        panelClassName="glass relative w-full max-w-4xl max-h-[90vh] rounded-2xl flex flex-col overflow-hidden animate-slide-up"
       >
-        <div 
-          className="glass-interactive w-full max-w-6xl max-h-[90vh] overflow-y-auto relative animate-slide-up rounded-2xl flex flex-col"
-          onClick={(e) => e.stopPropagation()}
-        >
           {/* Modal Header */}
-          <div className="flex items-center justify-between p-5 border-b border-white/5 sticky top-0 z-10 glass">
-            <h3 className="text-base font-semibold text-white flex items-center gap-2.5">
-              <ShieldCheck className="w-5 h-5 text-emerald-500" />
-              Handshake Details
-            </h3>
-            <button 
-              onClick={() => setSelectedLog(null)} 
-              className="p-1.5 hover:bg-white/10 rounded-lg transition-colors text-zinc-400 hover:text-white"
-            >
-              <X className="w-5 h-5" />
+          <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-sidebar-border">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className={`w-10 h-10 shrink-0 rounded-[10px] flex items-center justify-center border ${
+                selectedLog.status === 'SUCCESS' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-rose-500/10 border-rose-500/20 text-rose-500'
+              }`}>
+                {selectedLog.status === 'SUCCESS' ? <ShieldCheck className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
+              </span>
+              <div className="min-w-0">
+                <h3 className="text-lg font-bold text-foreground tracking-tight">Handshake details</h3>
+                <p className="text-xs text-zinc-500 font-medium truncate font-mono">{selectedLog.activationKey}</p>
+              </div>
+            </div>
+            <button type="button" onClick={() => setSelectedLog(null)} className="icon-btn shrink-0" aria-label="Close" title="Close">
+              <X className="w-4 h-4" />
             </button>
           </div>
-          
+
           {/* Modal Body */}
-          <div className="p-6">
+          <div className="px-6 py-5 overflow-y-auto">
             {selectedLog.errorMessage && (
               <div className="mb-6 text-sm bg-rose-500/10 text-rose-500 px-4 py-3 rounded-xl flex items-center gap-3 font-medium">
                 <ShieldAlert className="w-5 h-5 flex-shrink-0" />
@@ -201,22 +211,22 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
                     <Cpu className="w-5 h-5" />
                   </div>
                   <div className="min-w-0">
-                    <span className="block text-sm font-semibold text-white">Device & Network</span>
+                    <span className="block text-sm font-semibold text-foreground">Device & Network</span>
                     <span className="block text-xs text-zinc-500">Hardware reported at handshake</span>
                   </div>
                 </div>
                 <div className="divide-y divide-white/5">
                   <DetailRow icon={Laptop} label="Device Model">
-                    <span className="text-[13px] font-semibold text-white">{selectedLog.deviceModel}</span>
+                    <span className="text-[13px] font-semibold text-foreground">{selectedLog.deviceModel}</span>
                   </DetailRow>
                   <DetailRow icon={Monitor} label="OS Version">
-                    <span className="text-[13px] font-semibold text-white">{selectedLog.deviceOS}</span>
+                    <span className="text-[13px] font-semibold text-foreground">{selectedLog.deviceOS}</span>
                   </DetailRow>
                   <DetailRow icon={Globe} label="IP Address">
-                    <span className="text-[13px] font-semibold text-white">{selectedLog.ipAddress}</span>
+                    <span className="text-[13px] font-semibold text-foreground">{selectedLog.ipAddress}</span>
                   </DetailRow>
                   <DetailRow icon={Clock} label="Monitored Time">
-                    <span className="text-[13px] font-semibold text-white">{formatDateTime(selectedLog.time)}</span>
+                    <span className="text-[13px] font-semibold text-foreground">{formatDateTime(selectedLog.time)}</span>
                   </DetailRow>
                 </div>
               </div>
@@ -228,30 +238,30 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
                     <ShieldCheck className="w-5 h-5" />
                   </div>
                   <div className="min-w-0">
-                    <span className="block text-sm font-semibold text-white">Security Payload</span>
+                    <span className="block text-sm font-semibold text-foreground">Security Payload</span>
                     <span className="block text-xs text-zinc-500">Signed license handshake</span>
                   </div>
                 </div>
                 <div className="divide-y divide-white/5">
                   <DetailRow icon={KeyRound} label="License Alg">
-                    <span className="text-[13px] font-semibold text-white">ES256 · ECDSA</span>
+                    <span className="text-[13px] font-semibold text-foreground">ES256 · ECDSA</span>
                   </DetailRow>
                   <DetailRow icon={Fingerprint} label="Fingerprint">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-semibold text-white font-mono whitespace-nowrap">
+                      <span className="text-[11px] font-semibold text-foreground font-mono whitespace-nowrap">
                         {selectedLog.deviceFingerprint || 'N/A'}
                       </span>
                       {selectedLog.deviceFingerprint && <CopyButton value={selectedLog.deviceFingerprint} />}
                     </div>
                   </DetailRow>
                   <DetailRow icon={BadgeCheck} label="Activation">
-                    <span className="text-[13px] font-semibold text-emerald-500">
+                    <span className={`text-[13px] font-semibold ${selectedLog.status === 'SUCCESS' ? 'text-emerald-500' : 'text-rose-500'}`}>
                       {selectedLog.status}
                     </span>
                   </DetailRow>
                   <DetailRow icon={Hash} label="Handshake ID">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-semibold text-white font-mono whitespace-nowrap">{selectedLog.id}</span>
+                      <span className="text-[11px] font-semibold text-foreground font-mono whitespace-nowrap">{selectedLog.id}</span>
                       <CopyButton value={selectedLog.id} />
                     </div>
                   </DetailRow>
@@ -259,8 +269,7 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
               </div>
             </div>
           </div>
-        </div>
-      </div>
+      </FormModal>
     )}
   </>
   );

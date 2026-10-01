@@ -14,8 +14,7 @@
 
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
-import Image from 'next/image';
-import { APP_PANEL, BASE_PATH } from '@/lib/appPanel';
+import { BASE_PATH } from '@/lib/appPanel';
 import { AuthProvider } from '@/context/AuthContext';
 import {
   Mail,
@@ -292,64 +291,60 @@ export default function AuthWrapper({
         </AuthProvider>
       </div>
 
-      {/* Login Overlay */}
+      {/* Login — brand panel (logo colours) on the left, white sign-in panel on the right. */}
       {!isAuthenticated && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-[3px] overflow-y-auto p-4 animate-fade-in">
-          {/* Ambient light orbs */}
-          <div className="absolute top-1/4 left-1/4 w-[350px] h-[350px] bg-accent-violet/10 rounded-full blur-[100px] pointer-events-none animate-pulse" />
-          <div className="absolute bottom-1/4 right-1/4 w-[350px] h-[350px] bg-accent-blue/10 rounded-full blur-[100px] pointer-events-none animate-pulse" />
+        <div className="fixed inset-0 z-50 grid lg:grid-cols-2 bg-white overflow-y-auto animate-fade-in">
+          {/* Brand side (60%) */}
+          <div
+            className="on-brand relative hidden lg:flex flex-col justify-center overflow-hidden pl-10 pr-16 py-14"
+            style={{ background: '#ef4444' }}
+          >
 
-          <div className="w-full max-w-md relative z-10 animate-slide-up">
-            {/* Logo header */}
-            <div className="flex items-center gap-4 mb-6 px-1">
-              <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center shadow-lg backdrop-blur-xl relative overflow-hidden flex-shrink-0">
-                <Image src={`${BASE_PATH}/siddesh_logo.png`} alt="Siddesh Logo" width={32} height={32} className="w-8 h-8 object-contain rounded-lg" />
+
+            <div className="relative max-w-xl">
+              <div className="text-[3rem] font-black tracking-tight leading-[1.1]">
+                Smart Education
+                <br />
+                Control Hub
               </div>
-              <div className="text-left">
-                <h1 className="text-2xl font-black tracking-tight text-white leading-none">
-                  Siddesh Tech
-                </h1>
-                <p className="text-[9px] text-zinc-500 mt-1.5 uppercase tracking-widest font-extrabold flex items-center gap-1.5 leading-none">
-                  <span className="w-1.5 h-1.5 rounded-full bg-accent-violet animate-pulse" />
-                  {APP_PANEL === 'lab' ? 'Lab Admin Console' : 'LMS Admin Console'}
-                </p>
+              <div className="mt-5 text-[16px] leading-relaxed" style={{ opacity: 0.85 }}>
+                A powerful yet simple command centre to manage licences, payments, schools, vendors, parents,
+                connected devices, and security verification—all in one secure dashboard designed for a smooth
+                light and dark mode experience.
               </div>
             </div>
 
-            {/* Login Glass Card */}
-            <GlassCard
-              className={`bg-[#121216]/55 border border-white/5 p-8 rounded-3xl shadow-[0_25px_50px_-12px_rgba(0,0,0,0.6)] relative overflow-hidden ${
-                shakeError ? 'animate-shake' : ''
-              }`}
-            >
-              <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-accent-violet via-fuchsia-500 to-accent-blue" />
+          </div>
 
-              <div className="mb-6">
-                <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-accent-violet" />
+          {/* Sign-in side (40%) */}
+          <div className="login-side flex flex-col bg-white min-h-screen px-8 sm:px-14 py-12">
+            <div className="flex-1 flex items-center justify-center">
+            <div className={`w-full max-w-sm animate-slide-up ${shakeError ? 'animate-shake' : ''}`}>
+              <div className="mb-8">
+                <h2 className="text-[26.4px] font-bold text-zinc-900 tracking-tight">
                   {mfaRequired
                     ? mfaSetupRequired
-                      ? 'Setup Authenticator MFA'
-                      : 'Multi-Factor Auth'
-                    : 'Sign In'}
+                      ? 'Set up authenticator'
+                      : 'Two-step verification'
+                    : 'Welcome Back!'}
                 </h2>
-                <p className="text-xs text-zinc-500 mt-1">
+                <div className="text-[12.1px] text-zinc-500 mt-1.5">
                   {mfaRequired
                     ? mfaSetupRequired
                       ? 'Enroll this device to secure your administration console.'
                       : isRecoveryMode
                       ? 'Enter a backup recovery code.'
                       : 'Enter the 6-digit code from your authenticator app.'
-                    : 'Verify credentials to access core systems.'}
-                </p>
+                    : 'Sign in with your official email and security key.'}
+                </div>
               </div>
 
-              <form onSubmit={handleLogin} className="space-y-5">
+              <form onSubmit={handleLogin} className="space-y-4">
                 {!mfaRequired ? (
                   <>
                     {/* Email */}
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
+                      <label className="text-[11px] font-semibold text-zinc-700 flex items-center gap-1.5">
                         <Mail className="w-3.5 h-3.5 text-zinc-500" />
                         Official Email
                       </label>
@@ -361,14 +356,14 @@ export default function AuthWrapper({
                         value={email}
                         onChange={e => setEmail(e.target.value)}
                         maxLength={254}
-                        className="w-full px-4 py-3 bg-white/[0.03] border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-2xl text-sm text-white placeholder-zinc-600 focus:outline-none transition-all"
+                        className="w-full px-4 py-3 bg-zinc-50 border-0 border-b-2 border-zinc-200 hover:border-zinc-300 focus:border-[#1d4ed8] rounded-t-lg rounded-b-none text-[12.1px] text-zinc-900 placeholder-zinc-400 focus:outline-none transition-all"
                       />
                     </div>
 
                     {/* Password */}
                     <div className="space-y-2">
                       <div className="flex justify-between items-center">
-                        <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
+                        <label className="text-[11px] font-semibold text-zinc-700 flex items-center gap-1.5">
                           <Lock className="w-3.5 h-3.5 text-zinc-500" />
                           Security Key
                         </label>
@@ -388,12 +383,12 @@ export default function AuthWrapper({
                           onChange={e => setPassword(e.target.value)}
                           onKeyDown={handleKeyDown}
                           maxLength={200}
-                          className="w-full pl-4 pr-11 py-3 bg-white/[0.03] border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-2xl text-sm text-white placeholder-zinc-600 focus:outline-none transition-all"
+                          className="w-full pl-4 pr-11 py-3 bg-zinc-50 border-0 border-b-2 border-zinc-200 hover:border-zinc-300 focus:border-[#1d4ed8] rounded-t-lg rounded-b-none text-[12.1px] text-zinc-900 placeholder-zinc-400 focus:outline-none transition-all"
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword(p => !p)}
-                          className="absolute right-3.5 top-3.5 text-zinc-500 hover:text-white transition-colors cursor-pointer"
+                          className="absolute right-3.5 top-3.5 text-zinc-400 hover:text-zinc-700 transition-colors cursor-pointer"
                         >
                           {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                         </button>
@@ -402,7 +397,7 @@ export default function AuthWrapper({
                   </>
                 ) : mfaSetupRequired ? (
                   /* MFA SETUP FLOW */
-                  <div className="space-y-4 animate-fade-in text-zinc-300 text-xs">
+                  <div className="space-y-4 animate-fade-in text-zinc-700 text-[11px]">
                     <p className="leading-relaxed">
                       1. Install an authenticator application (e.g. Google Authenticator).
                     </p>
@@ -411,7 +406,7 @@ export default function AuthWrapper({
                     </p>
 
                     <div className="flex flex-col items-center gap-3">
-                      <div className="p-3 bg-white rounded-2xl shadow-lg border-4 border-white/10 mx-auto w-fit">
+                      <div className="p-3 bg-white rounded-2xl shadow-lg border-4 border-zinc-200 mx-auto w-fit">
                         {qrCodeUrl ? (
                           <>
                             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -432,12 +427,12 @@ export default function AuthWrapper({
                         <button
                           type="button"
                           onClick={copySecretToClipboard}
-                          className="text-[10px] text-zinc-500 hover:text-white transition-colors"
+                          className="text-[11px] text-zinc-400 hover:text-zinc-700 transition-colors"
                         >
                           Having trouble scanning? Click to copy setup key
                         </button>
                       ) : (
-                        <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                        <span className="text-[11px] text-emerald-400 font-bold flex items-center gap-1">
                           <Check className="w-3 h-3" /> Setup key copied!
                         </span>
                       )}
@@ -457,7 +452,7 @@ export default function AuthWrapper({
                       value={otpCode}
                       onChange={e => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
                       maxLength={6}
-                      className="w-full px-4 py-3 bg-white/[0.03] border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-2xl text-center text-lg font-mono tracking-[0.4em] text-white placeholder-zinc-600 focus:outline-none transition-all"
+                      className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-300 focus:border-accent-violet rounded-2xl text-center text-lg font-mono tracking-[0.4em] text-zinc-900 placeholder-zinc-400 focus:outline-none transition-all"
                     />
 
                     <div className="text-right">
@@ -470,7 +465,7 @@ export default function AuthWrapper({
                           setOtpCode('');
                           setError('');
                         }}
-                        className="text-[10px] text-accent-violet hover:underline cursor-pointer transition-colors"
+                        className="text-[11px] text-accent-violet hover:underline cursor-pointer transition-colors"
                       >
                         Cancel setup
                       </button>
@@ -482,7 +477,7 @@ export default function AuthWrapper({
                     {!isRecoveryMode ? (
                       /* Authenticator code mode */
                       <div className="space-y-2">
-                        <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
+                        <label className="text-[11px] font-semibold text-zinc-700 flex items-center gap-1.5">
                           <Lock className="w-3.5 h-3.5 text-zinc-500" />
                           MFA Authenticator Code
                         </label>
@@ -496,13 +491,13 @@ export default function AuthWrapper({
                           value={otpCode}
                           onChange={e => setOtpCode(e.target.value.replace(/[^0-9]/g, ''))}
                           maxLength={6}
-                          className="w-full px-4 py-3 bg-white/[0.03] border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-2xl text-center text-lg font-mono tracking-[0.4em] text-white placeholder-zinc-600 focus:outline-none transition-all"
+                          className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-300 focus:border-accent-violet rounded-2xl text-center text-lg font-mono tracking-[0.4em] text-zinc-900 placeholder-zinc-400 focus:outline-none transition-all"
                         />
                       </div>
                     ) : (
                       /* Recovery code mode */
                       <div className="space-y-2">
-                        <label className="text-xs font-bold text-zinc-400 flex items-center gap-1.5">
+                        <label className="text-[11px] font-semibold text-zinc-700 flex items-center gap-1.5">
                           <Lock className="w-3.5 h-3.5 text-zinc-500" />
                           Backup Recovery Code
                         </label>
@@ -513,7 +508,7 @@ export default function AuthWrapper({
                           value={recoveryCode}
                           onChange={e => setRecoveryCode(e.target.value.toUpperCase())}
                           maxLength={15}
-                          className="w-full px-4 py-3 bg-white/[0.03] border border-white/10 hover:border-white/15 focus:border-accent-violet rounded-2xl text-center text-sm font-mono text-white placeholder-zinc-600 focus:outline-none transition-all"
+                          className="w-full px-4 py-3 bg-zinc-50 border border-zinc-200 hover:border-zinc-300 focus:border-accent-violet rounded-2xl text-center text-[12.1px] font-mono text-zinc-900 placeholder-zinc-400 focus:outline-none transition-all"
                         />
                       </div>
                     )}
@@ -527,7 +522,7 @@ export default function AuthWrapper({
                           setRecoveryCode('');
                           setError('');
                         }}
-                        className="text-[10px] text-zinc-500 hover:text-zinc-300 hover:underline cursor-pointer transition-colors"
+                        className="text-[11px] text-zinc-500 hover:text-zinc-700 hover:underline cursor-pointer transition-colors"
                       >
                         {isRecoveryMode ? 'Use authentication app' : 'Use a recovery code'}
                       </button>
@@ -540,7 +535,7 @@ export default function AuthWrapper({
                           setChallengeToken('');
                           setError('');
                         }}
-                        className="text-[10px] text-accent-violet hover:underline cursor-pointer transition-colors"
+                        className="text-[11px] text-accent-violet hover:underline cursor-pointer transition-colors"
                       >
                         Back to password
                       </button>
@@ -550,7 +545,7 @@ export default function AuthWrapper({
 
                 {/* Rate limit messages */}
                 {rateLimitMsg && (
-                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl text-xs flex items-center gap-2">
+                  <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl text-[11px] flex items-center gap-2">
                     <ShieldAlert className="w-4 h-4 flex-shrink-0" />
                     <span className="font-semibold">{rateLimitMsg}</span>
                   </div>
@@ -558,7 +553,7 @@ export default function AuthWrapper({
 
                 {/* Errors */}
                 {error && !rateLimitMsg && (
-                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-xs flex items-center gap-2">
+                  <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl text-[11px] flex items-center gap-2">
                     <ShieldAlert className="w-4 h-4 flex-shrink-0" />
                     <span className="font-semibold">{error}</span>
                   </div>
@@ -568,7 +563,8 @@ export default function AuthWrapper({
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3.5 mt-2 bg-gradient-to-r from-accent-violet via-indigo-600 to-accent-blue text-xs font-extrabold uppercase tracking-wider text-white rounded-2xl shadow-[0_0_15px_rgba(139,92,246,0.25)] hover:shadow-[0_0_20px_rgba(139,92,246,0.4)] transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
+                  style={{ background: 'var(--accent-violet)', color: '#ffffff' }}
+                  className="w-full h-10 mt-2 text-[12.1px] font-semibold rounded-xl shadow-md hover:shadow-lg hover:brightness-105 transition-all active:scale-[0.98] cursor-pointer flex items-center justify-center gap-2 disabled:opacity-60"
                 >
                   {loading ? (
                     <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
@@ -586,7 +582,8 @@ export default function AuthWrapper({
                   )}
                 </button>
               </form>
-            </GlassCard>
+            </div>
+            </div>
           </div>
         </div>
       )}

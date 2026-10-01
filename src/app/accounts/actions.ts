@@ -328,3 +328,39 @@ export async function deleteParentAction(id: string): Promise<ActionResult> {
     return fail(GENERIC_ERROR);
   }
 }
+/** One vendor, shaped for the Edit Vendor pop-up (same fields as the Add form). */
+export async function getVendorForEdit(id: string) {
+  const session = await getAdminSession();
+  if (!session || !id) return null;
+  const { data: v, error } = await (await adminDb()).from('vendors').select('*').eq('vendor_id', id).single();
+  if (error || !v) return null;
+  return {
+    dbId: v.vendor_id as string,
+    vendorName: v.vendor_name || '',
+    vendorType: v.vendor_type || '',
+    businessCategory: v.business_category || '',
+    status: (v.status === 'Inactive' ? 'Inactive' : 'Active') as 'Active' | 'Inactive',
+    description: v.description || '',
+    contactPersonName: v.contact_person_name || '',
+    designation: v.designation || '',
+    mobileNumber: v.mobile_number || '',
+    alternateMobile: v.alternate_mobile || '',
+    emailAddress: v.email_address || '',
+    website: v.website || '',
+    addressLine1: v.address_line_1 || '',
+    addressLine2: v.address_line_2 || '',
+    city: v.city || '',
+    district: v.district || '',
+    state: v.state || '',
+    country: v.country || '',
+    pincode: v.pincode || '',
+    gstNumber: v.gst_number || '',
+    panNumber: v.pan_number || '',
+    businessRegistrationNumber: v.business_registration_number || '',
+    msmeRegistration: v.msme_registration || '',
+    gstCertificateName: v.gst_certificate_name || '',
+    panCardName: v.pan_card_name || '',
+  };
+}
+
+export type VendorEditData = NonNullable<Awaited<ReturnType<typeof getVendorForEdit>>>;

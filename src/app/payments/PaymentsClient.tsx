@@ -3,7 +3,8 @@
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import React, { useState, useTransition, useEffect } from 'react';
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { Edit2, Trash2, XCircle, CreditCard, School, AlertCircle, AlertTriangle, X, Plus } from 'lucide-react';
+import { Edit2, Trash2, XCircle, CreditCard, School, AlertCircle, AlertTriangle, X, Plus, Search, CheckCircle2, Clock } from 'lucide-react';
+import EntityAvatar from '@/components/EntityAvatar';
 import AppleDatePicker from '@/components/AppleDatePicker';
 import GlassCard from '@/components/GlassCard';
 import StatusBadge from '@/components/StatusBadge';
@@ -186,7 +187,23 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
   const paymentEntity = (p: PaymentRow): 'School' | 'Vendor' | 'Parent' =>
     p.vendorId ? 'Vendor' : p.parentId ? 'Parent' : 'School';
 
-  const filteredPayments = payments.filter(p => {
+  const [search, setSearch] = useState('');
+  const q = search.trim().toLowerCase();
+  const searchedPayments = q
+    ? payments.filter(p => p.transactionId.toLowerCase().includes(q) || p.entityName.toLowerCase().includes(q))
+    : payments;
+
+  const tabCount = (key: string) => {
+    if (key === 'All') return searchedPayments.length;
+    if (key === 'School' || key === 'Vendor' || key === 'Parent') return searchedPayments.filter(p => paymentEntity(p) === key).length;
+    if (key === 'Pending') return searchedPayments.filter(p => p.status === 'Pending Approval').length;
+    return searchedPayments.filter(p => p.status === key).length;
+  };
+  const paidCount = payments.filter(p => p.status === 'Paid').length;
+  const unpaidCount = payments.filter(p => p.status === 'Unpaid').length;
+  const pendingCount = payments.filter(p => p.status === 'Pending Approval').length;
+
+  const filteredPayments = searchedPayments.filter(p => {
     if (entityTab !== 'All' && paymentEntity(p) !== entityTab) return false;
     if (filter === 'Paid') return p.status === 'Paid';
     if (filter === 'Unpaid') return p.status === 'Unpaid';
@@ -195,108 +212,107 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
   });
 
   return (
-    <div className="space-y-4 max-w-6xl mx-auto relative">
+    <div className="space-y-4 max-w-7xl mx-auto relative">
       {/* Spacer to maintain layout height */}
       <div className="h-10"></div>
 
       {/* Header & Filters Panel */}
       <div className="flex flex-col gap-3 pb-2">
         <div className="flex justify-between items-center flex-wrap gap-4">
-          <div className="flex items-center gap-4 flex-1">
-            <div>
-              <h2 className="text-2xl font-bold text-foreground">
-                Payment Details Acceptance
-              </h2>
-            </div>
+          <h2 className="text-2xl font-bold text-foreground">Payments</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="stat-chip"><CreditCard className="w-3.5 h-3.5 text-accent-violet" /> All payments <span className="stat-chip-value">{payments.length}</span></span>
+            <span className="stat-chip"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Paid <span className="stat-chip-value">{paidCount}</span></span>
+            <span className="stat-chip"><XCircle className="w-3.5 h-3.5 text-rose-500" /> Unpaid <span className="stat-chip-value">{unpaidCount}</span></span>
+            <span className="stat-chip"><Clock className="w-3.5 h-3.5 text-amber-500" /> Pending <span className="stat-chip-value">{pendingCount}</span></span>
           </div>
-          <div className="flex items-center gap-3">
+        </div>
+
+        {/* Filter bar — underlined tabs with counts; search + Add Payment on the right. */}
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border">
+          <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+            <button
+              type="button"
+              onClick={() => { setEntityTab('All'); setFilter('All'); }}
+              className={`filter-tab ${entityTab === 'All' && filter === 'All' ? 'filter-tab-active' : ''}`}
+            >
+              All <span className="filter-tab-count">{tabCount('All')}</span>
+            </button>
+            {(['School', 'Vendor', 'Parent'] as const).map(t => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => { setEntityTab(t); setFilter('All'); }}
+                className={`filter-tab ${entityTab === t && filter === 'All' ? 'filter-tab-active' : ''}`}
+              >
+                {t} <span className="filter-tab-count">{tabCount(t)}</span>
+              </button>
+            ))}
+            {(['Paid', 'Unpaid', 'Pending'] as const).map(f => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => { setFilter(f); setEntityTab('All'); }}
+                className={`filter-tab ${filter === f && entityTab === 'All' ? 'filter-tab-active' : ''}`}
+              >
+                {f} <span className="filter-tab-count">{tabCount(f)}</span>
+              </button>
+            ))}
+          </div>
+          <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
+            <div className="relative flex-1 xl:w-[260px]">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+              <input
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search transaction ID or entity…"
+                className="bare-input w-full pl-8 pr-2 py-1.5 bg-transparent text-xs text-foreground placeholder-zinc-500 focus:outline-none"
+              />
+            </div>
             <button
               type="button"
               onClick={() => {
                 setEditingId(null);
                 setShowPaymentForm(true);
               }}
-              className="btn btn-secondary shrink-0 whitespace-nowrap"
+              className="btn btn-secondary !h-8 !px-3 !text-xs shrink-0 whitespace-nowrap"
             >
-              <Plus className="w-4 h-4 inline-block mr-1" />
+              <Plus className="w-3.5 h-3.5" />
               Add Payment
             </button>
-          </div>
-        </div>
-
-        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-6 w-full border-b border-sidebar-border">
-          <div className="flex items-center min-w-0">
-            <div className="flex items-center gap-0 overflow-x-auto -mb-[1px]">
-              <button
-                type="button"
-                onClick={() => { setEntityTab('All'); setFilter('All'); }}
-                className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${
-                  entityTab === 'All' && filter === 'All'
-                    ? 'border-foreground text-foreground'
-                    : 'border-transparent text-zinc-400'
-                }`}
-              >
-                All
-              </button>
-              {(['School', 'Vendor', 'Parent'] as const).map(t => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => { setEntityTab(t); setFilter('All'); }}
-                  className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${
-                    entityTab === t && filter === 'All'
-                      ? 'border-foreground text-foreground'
-                      : 'border-transparent text-zinc-400'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-
-              {(['Unpaid', 'Paid', 'Pending'] as const).map(f => (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => { setFilter(f); setEntityTab('All'); }}
-                  className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${
-                    filter === f && entityTab === 'All'
-                      ? 'border-foreground text-foreground'
-                      : 'border-transparent text-zinc-400'
-                  }`}
-                >
-                  {f}
-                </button>
-              ))}
-            </div>
           </div>
         </div>
       </div>
 
       {/* Payment Table Records */}
       <GlassCard className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto px-[15px]">
-          <table className="w-full text-left border-collapse">
+        <div className="overflow-x-auto px-[15px] py-2.5">
+          <table className="data-table data-table-rich">
             <thead>
-              <tr className="border-b border-sidebar-border h-[44px]">
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Transaction ID</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Entity Name</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Date</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Status</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest text-right align-middle">Actions</th>
+              <tr>
+                <th>Transaction ID</th>
+                <th>Entity Name</th>
+                <th>Date</th>
+                <th>Status</th>
+                <th className="text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody>
               {filteredPayments.length > 0 ? (
                 filteredPayments.map(payment => (
-                  <tr key={payment.id} className="transition-colors group h-[44px]">
-                    <td className="px-[9px] align-middle">
-                      <span className="text-sm font-medium text-white">{payment.transactionId}</span>
+                  <tr key={payment.id} className="group">
+                    <td>
+                      <span className="cell-strong cell-mono">{payment.transactionId}</span>
                     </td>
-                    <td className="px-[9px] align-middle">
-                      <span className="text-sm text-zinc-300">{payment.entityName}</span>
+                    <td>
+                      <div className="flex items-center gap-2.5">
+                        <EntityAvatar name={payment.entityName || '?'} />
+                        <span>{payment.entityName}</span>
+                      </div>
                     </td>
-                    <td className="px-[9px] align-middle">
-                      <span className="text-sm text-zinc-400">
+                    <td>
+                      <span className="cell-muted cell-num">
                         {payment.paymentDate ? (() => {
                           const date = new Date(payment.paymentDate);
                           const day = String(date.getDate()).padStart(2, '0');
@@ -306,26 +322,26 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
                         })() : 'N/A'}
                       </span>
                     </td>
-                    <td className="px-[9px] align-middle">
-                      <StatusBadge status={payment.status === 'Paid' ? 'SUCCESS' : payment.status === 'Unpaid' ? 'Unpaid' : 'Pending'} />
+                    <td>
+                      <StatusBadge status={payment.status === 'Paid' ? 'Paid' : payment.status === 'Unpaid' ? 'Unpaid' : 'Pending'} />
                     </td>
-                    <td className="px-[9px] text-right align-middle">
-                      <div className="flex items-center justify-end gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
+                    <td className="text-right">
+                      <div className="flex items-center justify-end gap-2">
                         <button
                           type="button"
                           onClick={() => handleEdit(payment)}
-                          className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-accent-violet transition-colors cursor-pointer"
+                          className="icon-btn"
                           title="Edit"
                         >
-                          <Edit2 className="w-4 h-4" />
+                          <Edit2 className="w-3.5 h-3.5" />
                         </button>
                         <button
                           type="button"
                           onClick={() => confirmDelete(payment.id, payment.entityName)}
-                          className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-red-400 transition-colors cursor-pointer"
+                          className="icon-btn icon-btn-danger"
                           title="Delete"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </td>
@@ -333,7 +349,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5} className="py-12 text-center text-zinc-500 text-sm">
+                  <td colSpan={5} className="!h-auto py-12 text-center text-zinc-500 text-sm">
                     <AlertCircle className="w-5 h-5 mx-auto mb-2 text-zinc-600" />
                     No payments found matching criteria.
                   </td>
@@ -346,8 +362,8 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
 
       {/* Confirmation Modal */}
       {showConfirmModal && paymentToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="popup-panel animate-slide-up w-full max-w-md p-6 space-y-6 relative">
             <button 
               onClick={() => {
                 setShowConfirmModal(false);
@@ -411,8 +427,8 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
 
       {/* Payment Form Modal */}
       {showPaymentForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-4xl border border-white/10 p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="popup-panel animate-slide-up w-full max-w-4xl p-6 relative max-h-[90vh] overflow-y-auto">
             <button 
               onClick={handleCancelForm}
               className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer z-10"

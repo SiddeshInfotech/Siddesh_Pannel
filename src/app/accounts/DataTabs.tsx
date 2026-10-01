@@ -29,40 +29,26 @@ export default function DataTabs({
     setActiveTab(initialTab);
   }
 
+  const tabs = [
+    { key: 'vendors' as const, label: 'Vendors', count: initialVendors.length },
+    { key: 'schools' as const, label: 'Schools', count: initialSchools.length },
+    { key: 'parents' as const, label: 'Parents', count: initialParents.length },
+  ];
+
+  // Same underlined tabs as Keys / Monitoring / Update. Sits on the filter bar's bottom line.
   const tabsNode = (
-    <div className="flex h-10 p-1 items-center gap-1 bg-[var(--surface-hover)] rounded-full w-fit">
-      <button
-        onClick={() => setActiveTab('vendors')}
-        className={`px-6 h-full flex items-center justify-center rounded-full text-[13px] font-semibold border transition-colors duration-300 outline-none ${
-          activeTab === 'vendors' 
-            ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm border-[var(--card-border)]' 
-            : 'border-transparent text-[var(--text-muted)] hover:text-[var(--foreground)]'
-        }`}
-      >
-        Vendors
-      </button>
-
-      <button
-        onClick={() => setActiveTab('schools')}
-        className={`px-6 h-full flex items-center justify-center rounded-full text-[13px] font-semibold border transition-colors duration-300 outline-none ${
-          activeTab === 'schools' 
-            ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm border-[var(--card-border)]' 
-            : 'border-transparent text-[var(--text-muted)] hover:text-[var(--foreground)]'
-        }`}
-      >
-        Schools
-      </button>
-
-      <button
-        onClick={() => setActiveTab('parents')}
-        className={`px-6 h-full flex items-center justify-center rounded-full text-[13px] font-semibold border transition-colors duration-300 outline-none ${
-          activeTab === 'parents' 
-            ? 'bg-[var(--card)] text-[var(--foreground)] shadow-sm border-[var(--card-border)]' 
-            : 'border-transparent text-[var(--text-muted)] hover:text-[var(--foreground)]'
-        }`}
-      >
-        Parents
-      </button>
+    <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+      {tabs.map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          onClick={() => setActiveTab(t.key)}
+          className={`filter-tab ${activeTab === t.key ? 'filter-tab-active' : ''}`}
+        >
+          {t.label}
+          <span className="filter-tab-count">{t.count}</span>
+        </button>
+      ))}
     </div>
   );
 

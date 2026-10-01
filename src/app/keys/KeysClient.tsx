@@ -23,8 +23,12 @@ import {
   ChevronRight,
   X,
   Monitor,
-  FileDown
+  FileDown,
+  CheckCircle2,
+  CalendarX,
+  Ban
 } from 'lucide-react';
+import EntityAvatar from '@/components/EntityAvatar';
 import GlassCard from '@/components/GlassCard';
 import StatusBadge from '@/components/StatusBadge';
 import AppleDatePicker from '@/components/AppleDatePicker';
@@ -533,7 +537,8 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
     if (q) {
       list = list.filter(k =>
         (k.watermarkCode || '').toUpperCase().includes(q) ||
-        (k.key || '').toUpperCase().includes(q)
+        (k.key || '').toUpperCase().includes(q) ||
+        (k.entityName || '').toUpperCase().includes(q)
       );
     }
     // No default-to-School fallback here: a legacy key with product_id still unresolved
@@ -572,7 +577,7 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
   // Reset page when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterEntityType, filterSchoolId, filterProductId, statusFilter, filterDate, panel]);
+  }, [filterEntityType, filterSchoolId, filterProductId, statusFilter, filterDate, panel, searchQuery]);
 
   // Close custom dropdown when clicking outside
   useEffect(() => {
@@ -589,26 +594,41 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
     setShowKeyForm(false);
   };
 
+  const keyMatchesStatus = (k: KeyRow, status: typeof statusFilter): boolean => {
+    const s = (k.status || '').toLowerCase();
+    if (status === 'Expired') {
+      if (k.expiresAt && new Date(k.expiresAt).getTime() < Date.now()) return true;
+      if (k.activatedAt && !k.expiresAt) {
+        const activeDate = new Date(k.activatedAt).getTime();
+        const durationMs = k.durationDays * 24 * 60 * 60 * 1000;
+        if (activeDate + durationMs < Date.now()) return true;
+      }
+      return false;
+    }
+    if (status === 'Active') return s === 'active';
+    if (status === 'Paid') return s === 'paid';
+    if (status === 'Unpaid') return s === 'unpaid';
+    if (status === 'Revoked') return s === 'revoked';
+    return true;
+  };
+
+  // Tab counts follow the search box (not the other tabs), so each number matches its tab.
+  const searchedKeys = React.useMemo(() => {
+    const q = searchQuery.trim().toUpperCase();
+    if (!q) return keyList;
+    return keyList.filter(k =>
+      (k.watermarkCode || '').toUpperCase().includes(q) ||
+      (k.key || '').toUpperCase().includes(q) ||
+      (k.entityName || '').toUpperCase().includes(q)
+    );
+  }, [keyList, searchQuery]);
+  const entityCount = (t: 'School' | 'Vendor' | 'Parent') => searchedKeys.filter(k => keyEntityType(k) === t).length;
+  const statusCount = (st: typeof statusFilter) => searchedKeys.filter(k => keyMatchesStatus(k, st)).length;
+
   const tableKeys = React.useMemo(() => {
     let list = filteredKeyList;
     if (statusFilter !== 'All') {
-      list = list.filter(k => {
-        const s = (k.status || '').toLowerCase();
-        if (statusFilter === 'Expired') {
-          if (k.expiresAt && new Date(k.expiresAt).getTime() < Date.now()) return true;
-          if (k.activatedAt && !k.expiresAt) {
-            const activeDate = new Date(k.activatedAt).getTime();
-            const durationMs = k.durationDays * 24 * 60 * 60 * 1000;
-            if (activeDate + durationMs < Date.now()) return true;
-          }
-          return false;
-        }
-        if (statusFilter === 'Active') return s === 'active';
-        if (statusFilter === 'Paid') return s === 'paid';
-        if (statusFilter === 'Unpaid') return s === 'unpaid';
-        if (statusFilter === 'Revoked') return s === 'revoked';
-        return true;
-      });
+      list = list.filter(k => keyMatchesStatus(k, statusFilter));
     }
 
     if (filterDate) {
@@ -663,133 +683,148 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
   }, [generatedKeys]);
 
   return (
-    <div className="space-y-4 max-w-6xl mx-auto relative">
+    <div className="space-y-4 max-w-7xl mx-auto relative">
       <div className="h-10"></div>
 
-      {/* Header & Filters — Payments style */}
+      {/* Header — title + count chips */}
       <div className="flex flex-col gap-3 pb-2">
         <div className="flex justify-between items-center flex-wrap gap-4">
-          <div className="flex items-center gap-4 flex-1">
-            <div>
-              <h2 className="text-2xl font-bold text-foreground">Activation Key Management</h2>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={() => setShowKeyForm(true)} className="btn btn-secondary shrink-0 whitespace-nowrap">
-              <Plus className="w-4 h-4 inline-block mr-1" />
-              Create Key
-            </button>
+          <h2 className="text-2xl font-bold text-foreground">Activation Keys</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="stat-chip"><Key className="w-3.5 h-3.5 text-accent-violet" /> All keys <span className="stat-chip-value">{keyList.length}</span></span>
+            <span className="stat-chip"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Active <span className="stat-chip-value">{keyList.filter(k => keyMatchesStatus(k, 'Active')).length}</span></span>
+            <span className="stat-chip"><CalendarX className="w-3.5 h-3.5 text-rose-500" /> Expired <span className="stat-chip-value">{keyList.filter(k => keyMatchesStatus(k, 'Expired')).length}</span></span>
+            <span className="stat-chip"><Ban className="w-3.5 h-3.5 text-zinc-500" /> Revoked <span className="stat-chip-value">{keyList.filter(k => keyMatchesStatus(k, 'Revoked')).length}</span></span>
           </div>
         </div>
 
-        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-6 w-full border-b border-sidebar-border mt-2">
-          <div className="flex items-center min-w-0 w-full">
-            <div className="flex items-center gap-0 flex-wrap -mb-[1px] w-full">
-              <button type="button" onClick={() => { setFilterEntityType('all'); setFilterSchoolId('all'); setStatusFilter('All'); setFilterProductId('all'); }}
-                className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${filterEntityType === 'all' && statusFilter === 'All' && filterProductId === 'all' ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400'}`}>All</button>
-              {(['School', 'Vendor', 'Parent'] as const).map(t => (
-                <button key={t} type="button" onClick={() => { setFilterEntityType(t); setFilterSchoolId('all'); setStatusFilter('All'); setFilterProductId('all'); }}
-                  className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${filterEntityType === t && statusFilter === 'All' && filterProductId === 'all' ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400'}`}>{t}</button>
-              ))}
+        {/* Filter bar — underlined tabs with counts (Product Types last); search, date, Create Key on the right. */}
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border">
+          <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+            <button type="button" onClick={() => { setFilterEntityType('all'); setFilterSchoolId('all'); setStatusFilter('All'); setFilterProductId('all'); }}
+              className={`filter-tab ${filterEntityType === 'all' && statusFilter === 'All' && filterProductId === 'all' ? 'filter-tab-active' : ''}`}>
+              All <span className="filter-tab-count">{searchedKeys.length}</span>
+            </button>
+            {(['School', 'Vendor', 'Parent'] as const).map(t => (
+              <button key={t} type="button" onClick={() => { setFilterEntityType(t); setFilterSchoolId('all'); setStatusFilter('All'); setFilterProductId('all'); }}
+                className={`filter-tab ${filterEntityType === t && statusFilter === 'All' && filterProductId === 'all' ? 'filter-tab-active' : ''}`}>
+                {t} <span className="filter-tab-count">{entityCount(t)}</span>
+              </button>
+            ))}
+            {(['Active', 'Expired', 'Paid', 'Unpaid', 'Revoked'] as const).map(st => (
+              <button key={st} type="button" onClick={() => { setStatusFilter(st); setFilterEntityType('all'); setFilterSchoolId('all'); setFilterProductId('all'); }}
+                className={`filter-tab ${statusFilter === st && filterEntityType === 'all' && filterProductId === 'all' ? 'filter-tab-active' : ''}`}>
+                {st} <span className="filter-tab-count">{statusCount(st)}</span>
+              </button>
+            ))}
 
-              <div ref={productMenuRef} className="relative">
-                <button 
-                  type="button" 
-                  onClick={() => setIsProductMenuOpen(!isProductMenuOpen)}
-                  className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold whitespace-nowrap border-b cursor-pointer transition-colors ${filterProductId !== 'all' ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400 hover:text-zinc-300'}`}
-                >
-                  <Layers className="w-3.5 h-3.5" />
-                  <span>
-                    {filterProductId === 'all' 
-                      ? 'Product Types' 
-                      : productFilterOptionsFor(panel).find(o => o.value === filterProductId)?.label || 'Product Types'}
-                  </span>
-                  <ChevronDown className={`w-3.5 h-3.5 opacity-50 transition-transform ${isProductMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
+            <div ref={productMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setIsProductMenuOpen(!isProductMenuOpen)}
+                className={`filter-tab ${filterProductId !== 'all' ? 'filter-tab-active' : ''}`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>
+                  {filterProductId === 'all'
+                    ? 'Product Types'
+                    : productFilterOptionsFor(panel).find(o => o.value === filterProductId)?.label || 'Product Types'}
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 opacity-50 transition-transform ${isProductMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
 
-                {isProductMenuOpen && (
-                  <div className="absolute top-full left-0 mt-2 w-48 z-50 animate-fade-in">
-                    <div className="bg-[#121216] border border-white/10 shadow-2xl py-1.5 rounded-xl flex flex-col">
-                      {productFilterOptionsFor(panel).map(opt => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => {
-                            setFilterProductId(opt.value);
-                            setFilterEntityType('all');
-                            setStatusFilter('All');
-                            setIsProductMenuOpen(false);
-                          }}
-                          className={`text-left px-4 py-2.5 text-xs font-semibold transition-colors ${filterProductId === opt.value ? 'bg-accent-violet/15 text-accent-violet' : 'text-zinc-300 hover:bg-white/5 hover:text-white'}`}
-                        >
-                          {opt.label === 'All Products' ? 'All Product Types' : opt.label}
-                        </button>
-                      ))}
-                    </div>
+              {isProductMenuOpen && (
+                <div className="absolute top-full left-0 mt-2 w-52 z-50 animate-fade-in">
+                  <div className="menu-panel">
+                    {productFilterOptionsFor(panel).map(opt => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => {
+                          setFilterProductId(opt.value);
+                          setFilterEntityType('all');
+                          setStatusFilter('All');
+                          setIsProductMenuOpen(false);
+                        }}
+                        className={`menu-item ${filterProductId === opt.value ? 'menu-item-active' : ''}`}
+                      >
+                        {opt.label === 'All Products' ? 'All Product Types' : opt.label}
+                      </button>
+                    ))}
                   </div>
-                )}
-              </div>
-
-              {(['Expired', 'Active', 'Paid', 'Unpaid', 'Revoked'] as const).map(s => (
-                <button key={s} type="button" onClick={() => { setStatusFilter(s); setFilterEntityType('all'); setFilterSchoolId('all'); setFilterProductId('all'); }}
-                  className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${statusFilter === s && filterEntityType === 'all' && filterProductId === 'all' ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400'}`}>{s}</button>
-              ))}
+                </div>
+              )}
             </div>
           </div>
-          <div className="flex items-center gap-1 mb-1">
+
+          <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
+            <div className="relative flex-1 xl:w-[240px]">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search key or entity…"
+                className="bare-input w-full pl-8 pr-2 py-1.5 bg-transparent text-xs text-foreground placeholder-zinc-500 focus:outline-none"
+              />
+            </div>
             {filterDate && (
-              <span className="text-[10px] font-bold text-accent-violet bg-accent-violet/10 px-2 py-1 rounded-md flex items-center gap-1">
+              <span className="text-[10px] font-bold text-accent-violet bg-accent-violet/10 px-2 py-1 rounded-md flex items-center gap-1 shrink-0">
                 {filterDate.split('-').reverse().join('/')}
-                <button type="button" onClick={() => setFilterDate('')} className="hover:text-white transition-colors cursor-pointer"><X className="w-3 h-3" /></button>
+                <button type="button" onClick={() => setFilterDate('')} className="hover:text-foreground transition-colors cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             )}
-            <AppleDatePicker 
+            <AppleDatePicker
               value={filterDate}
               onChange={setFilterDate}
               variant="icon"
             />
+            <button type="button" onClick={() => setShowKeyForm(true)} className="btn btn-secondary !h-8 !px-3 !text-xs shrink-0 whitespace-nowrap">
+              <Plus className="w-3.5 h-3.5" />
+              Create Key
+            </button>
           </div>
         </div>
       </div>
 
       {/* Keys Table — Payments style */}
       <GlassCard className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto px-[15px]">
-          <table className="w-full text-left border-collapse">
+        <div className="overflow-x-auto px-[15px] py-2.5">
+          <table className="data-table data-table-rich">
             <thead>
-              <tr className="border-b border-sidebar-border h-[44px]">
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Activation Key</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Entity Name</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Product</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Expiry</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Status</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest text-right align-middle">Actions</th>
+              <tr>
+                <th>Activation Key</th>
+                <th>Entity Name</th>
+                <th>Product</th>
+                <th>Expiry</th>
+                <th>Status</th>
+                <th className="text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody>
               {paginatedKeys.length > 0 ? (
                 paginatedKeys.map(k => (
-                  <tr key={k.id} className="transition-colors group h-[44px]">
-                    <td className="px-[9px] align-middle"><span className="text-xs font-bold text-emerald-400 font-mono tracking-wider activation-token">{k.key}</span></td>
-                    <td className="px-[9px] align-middle"><span className="text-sm text-zinc-300">{k.entityName}</span></td>
-                    <td className="px-[9px] align-middle"><span className="text-xs text-zinc-400">{productWithDeviceClass(k.productId, k.deviceClass)}</span></td>
-                    <td className="px-[9px] align-middle"><span className="text-xs text-zinc-400">{k.expiresAt ? new Date(k.expiresAt).toLocaleDateString('en-IN') : `${k.durationDays}d`}</span></td>
-                    <td className="px-[9px] align-middle">
-                      <StatusBadge status={k.status?.toLowerCase() === 'active' ? 'Active' : k.status?.toLowerCase() === 'revoked' ? 'Revoked' : k.status?.toLowerCase() === 'paid' ? 'SUCCESS' : 'Unpaid'} />
+                  <tr key={k.id} className="group">
+                    <td><span className="cell-strong cell-mono activation-token">{k.key}</span></td>
+                    <td><div className="flex items-center gap-2.5"><EntityAvatar name={k.entityName || '?'} /><span>{k.entityName}</span></div></td>
+                    <td><span className="cell-muted">{productWithDeviceClass(k.productId, k.deviceClass)}</span></td>
+                    <td><span className="cell-muted cell-num">{k.expiresAt ? new Date(k.expiresAt).toLocaleDateString('en-IN') : `${k.durationDays}d`}</span></td>
+                    <td>
+                      <StatusBadge status={k.status?.toLowerCase() === 'active' ? 'Active' : k.status?.toLowerCase() === 'revoked' ? 'Revoked' : k.status?.toLowerCase() === 'paid' ? 'Paid' : 'Unpaid'} />
                     </td>
-                    <td className="px-[9px] text-right align-middle">
-                      <div className="flex items-center justify-end gap-2 opacity-50 group-hover:opacity-100 transition-opacity">
-                        <button type="button" onClick={() => handleCopy(k.key, 0)} className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-emerald-400 transition-colors cursor-pointer" title="Copy Key"><Copy className="w-4 h-4" /></button>
+                    <td className="text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <button type="button" onClick={() => handleCopy(k.key, 0)} className="icon-btn" title="Copy Key"><Copy className="w-3.5 h-3.5" /></button>
                         {k.deviceFingerprint && (
-                          <button type="button" onClick={() => confirmReset(k.id, k.key)} className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-amber-400 transition-colors cursor-pointer" title="Reset Device"><RotateCcw className="w-4 h-4" /></button>
+                          <button type="button" onClick={() => confirmReset(k.id, k.key)} className="icon-btn" title="Reset Device"><RotateCcw className="w-3.5 h-3.5" /></button>
                         )}
-                        <button type="button" onClick={() => confirmDelete(k.id, k.key)} className="p-2 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-red-400 transition-colors cursor-pointer" title="Delete"><Trash2 className="w-4 h-4" /></button>
+                        <button type="button" onClick={() => confirmDelete(k.id, k.key)} className="icon-btn icon-btn-danger" title="Delete"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
                     </td>
                   </tr>
                 ))
               ) : (
-                <tr><td colSpan={6} className="py-12 text-center text-zinc-500 text-sm"><AlertCircle className="w-5 h-5 mx-auto mb-2 text-zinc-600" />No activation keys found.</td></tr>
+                <tr><td colSpan={6} className="!h-auto py-12 text-center text-zinc-500 text-sm"><AlertCircle className="w-5 h-5 mx-auto mb-2 text-zinc-600" />No activation keys found.</td></tr>
               )}
             </tbody>
           </table>
@@ -848,8 +883,8 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
 
       {/* Key Generation Form Modal */}
       {showKeyForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-4xl border border-white/10 p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="popup-panel animate-slide-up w-full max-w-4xl p-6 relative max-h-[90vh] overflow-y-auto">
             <button onClick={handleCancelKeyForm} className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer z-10"><X className="w-5 h-5" /></button>
             <form onSubmit={handleGenerateAndShowPopup} className="space-y-6 mt-2">
               <div>
@@ -1004,8 +1039,8 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
 
       {/* Generated Keys Result Popup */}
       {showGeneratedPopup && generatedKeys.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-3xl border border-white/10 p-6 shadow-2xl relative max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="popup-panel animate-slide-up w-full max-w-3xl p-6 relative max-h-[90vh] overflow-y-auto">
             <button onClick={() => setShowGeneratedPopup(false)} className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer z-10"><X className="w-5 h-5" /></button>
             <div className="space-y-6 mt-2">
               <div className="flex items-center justify-between flex-wrap gap-4">
@@ -1027,7 +1062,7 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
                 </div>
               </div>
 
-              <div className="overflow-x-auto px-[15px]">
+              <div className="overflow-x-auto px-[15px] py-2.5">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-sidebar-border h-[44px]">
@@ -1069,8 +1104,8 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
 
       {/* Delete Confirmation Modal */}
       {showConfirmModal && keyToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="popup-panel animate-slide-up w-full max-w-md p-6 space-y-6 relative">
             <button onClick={() => { setShowConfirmModal(false); setKeyToDelete(null); }} className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer"><X className="w-4 h-4" /></button>
             <div className="flex items-start gap-4">
               <div className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-2xl"><AlertTriangle className="w-6 h-6" /></div>
@@ -1092,8 +1127,8 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
 
       {/* Reset Device Modal */}
       {showResetModal && keyToReset && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="popup-panel animate-slide-up w-full max-w-md p-6 space-y-6 relative">
             <button onClick={() => { setShowResetModal(false); setKeyToReset(null); }} className="absolute top-4 right-4 text-zinc-400 hover:text-white transition-colors cursor-pointer"><X className="w-4 h-4" /></button>
             <div className="flex items-start gap-4">
               <div className="p-3 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-2xl"><RotateCcw className="w-6 h-6" /></div>

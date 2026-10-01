@@ -11,17 +11,19 @@ export default async function DashboardPage() {
   if (!session) return null;
 
   return (
-    <div className="space-y-8 w-full">
-      <div className="h-6" />
-      
-      <div className="space-y-4">
-        {/* Metrics Row streaming via Suspense */}
+    <div className="space-y-4 max-w-7xl mx-auto">
+      {/* Spacer to maintain layout height */}
+      <div className="h-10" />
+
+      <div className="flex justify-between items-center flex-wrap gap-4 pb-2">
+        <h2 className="text-2xl font-bold text-foreground">Overview</h2>
+        {/* Metric chips stream in via Suspense */}
         <Suspense fallback={<MetricsSkeleton />}>
           <DashboardMetrics />
         </Suspense>
-
-        <DashboardTabs />
       </div>
+
+      <DashboardTabs />
     </div>
   );
 }

@@ -14,10 +14,13 @@ export default function FormModal({
   open,
   onClose,
   children,
+  panelClassName = 'glass-interactive w-full max-w-6xl max-h-[90vh] overflow-y-auto relative animate-slide-up rounded-2xl px-6 pt-3 pb-6',
 }: {
   open: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  /** Classes of the dialog panel; defaults to the wide Accounts form panel. */
+  panelClassName?: string;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -38,7 +41,7 @@ export default function FormModal({
       <div
         role="dialog"
         aria-modal="true"
-        className="glass-interactive w-full max-w-6xl max-h-[90vh] overflow-y-auto relative animate-slide-up rounded-2xl px-6 pt-3 pb-6"
+        className={panelClassName}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

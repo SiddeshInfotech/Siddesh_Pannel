@@ -177,8 +177,8 @@ export default function SchoolsClient({ initialSchools }: SchoolsClientProps) {
 
       {/* Confirmation Modal */}
       {showConfirmModal && schoolToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-md bg-[#121216] border border-white/10 p-6 space-y-6 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="popup-panel animate-slide-up w-full max-w-md p-6 space-y-6 relative">
             <button 
               onClick={() => {
                 setShowConfirmModal(false);

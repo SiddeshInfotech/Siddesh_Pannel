@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Circle, Clock, Server, Search, Wifi, WifiOff, ShieldAlert, KeyRound,
-  CheckCircle2, AlertTriangle, X, CalendarX, Ban, Replace, Loader2, Info,
+  CheckCircle2, AlertTriangle, X, CalendarX, Ban, Replace, Loader2, Info, Layers, ChevronDown,
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
-import CustomSelect from '@/components/CustomSelect';
+import FormModal from '@/components/FormModal';
+import EntityAvatar from '@/components/EntityAvatar';
 import { productFilterOptionsFor, UNRESOLVED_PRODUCT_FILTER_VALUE, productDisplayName } from '@/lib/productIdentity';
 import { tierStyle } from '@/lib/tierStyle';
 import { getKeyTimeline } from './actions';
@@ -44,11 +45,12 @@ const KEY_STATE: Record<KeyState, { label: string; cls: string; help: string }> 
 // ── Timeline event registry — turns raw event_type codes into a clear label, an
 //    icon, and a colour tone so the timeline reads at a glance. ──────────────────
 type Tone = 'ok' | 'info' | 'warn' | 'danger';
-const TONE: Record<Tone, { ring: string; text: string; chip: string }> = {
-  ok:     { ring: 'border-emerald-400/60', text: 'text-emerald-300', chip: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-300' },
-  info:   { ring: 'border-sky-400/60',     text: 'text-sky-200',     chip: 'bg-sky-500/10 border-sky-500/25 text-sky-300' },
-  warn:   { ring: 'border-amber-400/60',   text: 'text-amber-300',   chip: 'bg-amber-500/10 border-amber-500/25 text-amber-300' },
-  danger: { ring: 'border-rose-500/70',    text: 'text-rose-300',    chip: 'bg-rose-500/10 border-rose-500/25 text-rose-300' },
+// Readable in both themes: tinted node + strong icon colour; the event label itself stays neutral.
+const TONE: Record<Tone, { node: string; text: string }> = {
+  ok:     { node: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600', text: 'text-emerald-600' },
+  info:   { node: 'bg-sky-500/10 border-sky-500/30 text-sky-600',             text: 'text-sky-600' },
+  warn:   { node: 'bg-amber-500/10 border-amber-500/30 text-amber-600',       text: 'text-amber-600' },
+  danger: { node: 'bg-rose-500/10 border-rose-500/30 text-rose-600',          text: 'text-rose-600' },
 };
 
 function eventStyle(type: string, detail: Record<string, unknown>): { label: string; Icon: React.ElementType; tone: Tone } {
@@ -96,7 +98,7 @@ const dayLabelFor = (dayKey: string) =>
 type TimelineState = { status: 'loading' | 'ready' | 'error'; events: Ev[]; error?: string };
 
 export default function UpdateClient({
-  devices, securityEvents, onlineCount, serverTime, panel,
+  devices, securityEvents, onlineCount, panel,
 }: {
   devices: Device[]; securityEvents: Ev[]; onlineCount: number; serverTime: string; panel: 'lms' | 'lab';
 }) {
@@ -104,6 +106,19 @@ export default function UpdateClient({
   const [productFilter, setProductFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [showLegend, setShowLegend] = useState(false);
+  const [isProductMenuOpen, setIsProductMenuOpen] = useState(false);
+  const productMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close the product dropdown on any click outside it.
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (productMenuRef.current && !productMenuRef.current.contains(event.target as Node)) {
+        setIsProductMenuOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   // Selects a table ROW (one licence key), not a device: the same device_fingerprint can
   // carry more than one key over time, so only the key's own row id is unique.
   const [selectedKeyId, setSelectedKeyId] = useState<string | null>(null);
@@ -144,16 +159,17 @@ export default function UpdateClient({
     return searched.filter((d) => d.keyState === statusFilter);
   }, [searched, statusFilter]);
 
-  const statusOptions: { value: StatusFilter; label: string }[] = [
-    { value: 'all', label: `All keys (${counts.all})` },
-    { value: 'online', label: `Online now (${counts.online})` },
-    { value: 'offline', label: `Offline (${counts.offline})` },
-    { value: 'active', label: `Active (${counts.active})` },
-    { value: 'expired', label: `Expired (${counts.expired})` },
-    { value: 'superseded', label: `Superseded (${counts.superseded})` },
-    { value: 'revoked', label: `Revoked (${counts.revoked})` },
-    { value: 'not_activated', label: `Not activated (${counts.not_activated})` },
+  const statusTabs: { value: StatusFilter; label: string }[] = [
+    { value: 'all', label: 'All keys' },
+    { value: 'online', label: 'Online now' },
+    { value: 'offline', label: 'Offline' },
+    { value: 'active', label: 'Active' },
+    { value: 'expired', label: 'Expired' },
+    { value: 'superseded', label: 'Superseded' },
+    { value: 'revoked', label: 'Revoked' },
+    { value: 'not_activated', label: 'Not activated' },
   ];
+  const productOptions = productFilterOptionsFor(panel);
 
   // Fingerprints that have at least one security event (for the red row marker).
   const flaggedFingerprints = useMemo(() => new Set(securityEvents.map((e) => e.fingerprint)), [securityEvents]);
@@ -209,114 +225,195 @@ export default function UpdateClient({
     return groups;
   }, [timeline, selectedDevice]);
 
-  const statCard = (
-    filter: StatusFilter, label: React.ReactNode, value: number, tone: string, active = statusFilter === filter
-  ) => (
-    <button
-      type="button"
-      onClick={() => setStatusFilter(active ? 'all' : filter)}
-      className={`text-left rounded-2xl border p-5 transition-colors cursor-pointer ${
-        active ? 'border-sky-500/50 bg-sky-500/10' : 'border-white/10 bg-white/5 hover:bg-white/10'
-      }`}
-    >
-      <div className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${tone}`}>{label}</div>
-      <div className="text-3xl font-bold mt-2">{value}</div>
-    </button>
-  );
-
   return (
     <div className="space-y-4 max-w-7xl mx-auto text-foreground">
       {/* Spacer to maintain layout height */}
       <div className="h-10"></div>
-      <div className="flex items-center gap-3">
-        <h2 className="text-2xl font-bold text-foreground">Update &amp; Online Sync</h2>
-      </div>
-      <p className="text-sm text-zinc-400 mb-6">
-        Every licence key — one row per key, whatever its state (active, expired, superseded, revoked or not
-        yet activated) — with its device&apos;s online status, online time, security posture and a per-key activity
-        timeline. <span className="text-zinc-500">Server time: {serverTime}</span>
-      </p>
 
-      {/* Stat row — each card is also a one-click filter (click again to clear). */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 mb-8">
-        {statCard('all', <><Server className="w-3 h-3" /> All keys</>, counts.all, 'text-zinc-400')}
-        {/* Devices, not key rows: one machine online is one, however many keys it has held. */}
-        {statCard('online', <><Circle className="w-3 h-3 fill-emerald-400" /> Online now</>, onlineCount, 'text-emerald-400')}
-        {statCard('offline', <><WifiOff className="w-3 h-3" /> Offline</>, counts.offline, 'text-zinc-400')}
-        {statCard('expired', <><CalendarX className="w-3 h-3" /> Expired</>, counts.expired, 'text-rose-400')}
-        <div className={`rounded-2xl border p-5 ${securityAlertCount > 0 ? 'border-rose-500/40 bg-rose-500/5' : 'border-white/10 bg-white/5'}`}>
-          <div className={`flex items-center gap-2 text-xs font-semibold uppercase tracking-wide ${securityAlertCount > 0 ? 'text-rose-400' : 'text-zinc-400'}`}>
-            <ShieldAlert className="w-3 h-3" /> Security alerts
-          </div>
-          <div className={`text-3xl font-bold mt-2 ${securityAlertCount > 0 ? 'text-rose-300' : ''}`}>{securityAlertCount}</div>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 mb-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search school, ID, or licence key…"
-            className="w-full pl-9 pr-3 py-2 rounded-xl bg-white/5 border border-white/10 text-sm outline-none focus:border-sky-500/50"
-          />
-        </div>
-        <div className="w-[200px] flex-shrink-0">
-          <CustomSelect value={statusFilter} onChange={(val) => setStatusFilter(val as StatusFilter)} options={statusOptions} />
-        </div>
-        <div className="w-[190px] flex-shrink-0">
-          <CustomSelect value={productFilter} onChange={(val) => setProductFilter(val)} options={productFilterOptionsFor(panel)} />
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowLegend((v) => !v)}
-          className={`p-2 rounded-xl border transition-colors cursor-pointer ${showLegend ? 'border-sky-500/50 bg-sky-500/10 text-sky-300' : 'border-white/10 bg-white/5 text-zinc-400 hover:text-white'}`}
-          title="What do the statuses mean?"
-          aria-label="What do the statuses mean?"
-        >
-          <Info className="w-4 h-4" />
-        </button>
-      </div>
-
-      {showLegend && (
-        <div className="mb-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4 grid gap-2 sm:grid-cols-2 text-xs">
-          {(Object.keys(KEY_STATE) as KeyState[]).map((s) => (
-            <div key={s} className="flex items-start gap-2">
-              <span className={`inline-flex shrink-0 px-2 py-0.5 rounded-md border text-[10px] font-semibold ${KEY_STATE[s].cls}`}>{KEY_STATE[s].label}</span>
-              <span className="text-zinc-400">{KEY_STATE[s].help}</span>
-            </div>
-          ))}
-          <div className="flex items-start gap-2 sm:col-span-2 pt-1 border-t border-white/5">
-            <span className="text-zinc-300 font-semibold shrink-0">Connection</span>
-            <span className="text-zinc-400">
-              Online = the device sent a heartbeat in the last 6 minutes. Offline = it has reported before but not
-              recently. Never seen = activated but no heartbeat yet. Shown only for the key a device is running — a
-              superseded key&apos;s device reports for its newer key.
+      <div className="flex flex-col gap-3 pb-2">
+        <div className="flex justify-between items-center flex-wrap gap-4">
+          <h2 className="text-2xl font-bold text-foreground">Update &amp; Online Sync</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="stat-chip"><Server className="w-3.5 h-3.5 text-accent-violet" /> All keys <span className="stat-chip-value">{counts.all}</span></span>
+            {/* Devices, not key rows: one machine online is one, however many keys it has held. */}
+            <span className="stat-chip"><span className="live-dot" /> Online now <span className="stat-chip-value">{onlineCount}</span></span>
+            <span className="stat-chip"><WifiOff className="w-3.5 h-3.5" /> Offline <span className="stat-chip-value">{counts.offline}</span></span>
+            <span className="stat-chip"><CalendarX className="w-3.5 h-3.5 text-rose-500" /> Expired <span className="stat-chip-value">{counts.expired}</span></span>
+            <span className={`stat-chip ${securityAlertCount > 0 ? '!text-rose-500 !border-rose-500/40' : ''}`}>
+              <ShieldAlert className="w-3.5 h-3.5" /> Security alerts
+              <span className={`stat-chip-value ${securityAlertCount > 0 ? '!text-rose-500' : ''}`}>{securityAlertCount}</span>
             </span>
           </div>
         </div>
+
+        {/* Filter bar — same underlined tabs as Keys / Monitoring; search + legend on the right. */}
+        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border mt-2">
+          <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+            {statusTabs.map((t) => (
+              <button
+                key={t.value}
+                type="button"
+                onClick={() => { setStatusFilter(t.value); setProductFilter('all'); }}
+                className={`filter-tab ${statusFilter === t.value && productFilter === 'all' ? 'filter-tab-active' : ''}`}
+              >
+                {t.label}
+                <span className="filter-tab-count">{counts[t.value]}</span>
+              </button>
+            ))}
+
+            <div ref={productMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setIsProductMenuOpen((v) => !v)}
+                className={`filter-tab ${productFilter !== 'all' ? 'filter-tab-active' : ''}`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>
+                  {productFilter === 'all'
+                    ? 'All Products'
+                    : productOptions.find((o) => o.value === productFilter)?.label || 'All Products'}
+                </span>
+                <ChevronDown className={`w-3.5 h-3.5 opacity-50 transition-transform ${isProductMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isProductMenuOpen && (
+                <div className="absolute top-full left-0 mt-2 w-52 z-50 animate-fade-in">
+                  <div className="menu-panel">
+                    {productOptions.map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => { setProductFilter(opt.value); setStatusFilter('all'); setIsProductMenuOpen(false); }}
+                        className={`menu-item ${productFilter === opt.value ? 'menu-item-active' : ''}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
+            <div className="relative flex-1 xl:w-[260px]">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+              <input
+                type="text"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search school, ID, or licence key…"
+                className="bare-input w-full pl-8 pr-2 py-1.5 bg-transparent text-xs text-foreground placeholder-zinc-500 focus:outline-none"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowLegend((v) => !v)}
+              className={`icon-btn !w-7 !h-7 shrink-0 ${showLegend ? '!text-accent-violet !border-accent-violet/40' : ''}`}
+              title="What do the statuses mean?"
+              aria-label="What do the statuses mean?"
+              aria-pressed={showLegend}
+            >
+              <Info className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Status guide pop-up (opened by the i button in the filter bar). */}
+      {showLegend && (
+        <FormModal
+          open
+          onClose={() => setShowLegend(false)}
+          panelClassName="glass relative w-full max-w-2xl max-h-[85vh] rounded-2xl flex flex-col overflow-hidden animate-slide-up"
+        >
+          <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-sidebar-border">
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-[10px] flex items-center justify-center bg-accent-violet/10 border border-accent-violet/20 text-accent-violet">
+                <Info className="w-4 h-4" />
+              </span>
+              <div>
+                <h3 className="text-lg font-bold text-foreground tracking-tight">Status guide</h3>
+                <p className="text-xs text-zinc-500 font-medium">What each key status and connection state means</p>
+              </div>
+            </div>
+            <button type="button" onClick={() => setShowLegend(false)} className="icon-btn shrink-0" aria-label="Close" title="Close">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="overflow-y-auto px-6 py-5 space-y-6">
+            <div>
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3">Key status</h4>
+              <div className="space-y-2">
+                {(Object.keys(KEY_STATE) as KeyState[]).map((st) => (
+                  <div key={st} className="flex items-start gap-3 p-3 rounded-xl border border-white/5 bg-white/[0.02]">
+                    <span className="w-[96px] shrink-0">
+                      <span className={`inline-flex px-2 py-0.5 rounded-md border text-[11px] font-semibold whitespace-nowrap ${KEY_STATE[st].cls}`}>
+                        {KEY_STATE[st].label}
+                      </span>
+                    </span>
+                    <span className="text-[13px] text-zinc-400 leading-relaxed">{KEY_STATE[st].help}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 mb-3">Connection</h4>
+              <div className="space-y-2">
+                <div className="flex items-start gap-3 p-3 rounded-xl border border-white/5 bg-white/[0.02]">
+                  <span className="w-[96px] shrink-0">
+                    <span className="inline-flex items-center gap-2 px-2 py-0.5 rounded-md border bg-emerald-500/10 border-emerald-500/25 text-emerald-600 text-[11px] font-semibold">
+                      <span className="live-dot" /> Online
+                    </span>
+                  </span>
+                  <span className="text-[13px] text-zinc-400 leading-relaxed">The device sent a heartbeat in the last 6 minutes.</span>
+                </div>
+                <div className="flex items-start gap-3 p-3 rounded-xl border border-white/5 bg-white/[0.02]">
+                  <span className="w-[96px] shrink-0">
+                    <span className="inline-flex items-center gap-1.5 text-zinc-400 text-[11px] font-semibold pt-0.5">
+                      <Circle className="w-2.5 h-2.5 fill-zinc-500 text-zinc-500" /> Offline
+                    </span>
+                  </span>
+                  <span className="text-[13px] text-zinc-400 leading-relaxed">It has reported before, but not recently.</span>
+                </div>
+                <div className="flex items-start gap-3 p-3 rounded-xl border border-white/5 bg-white/[0.02]">
+                  <span className="w-[96px] shrink-0">
+                    <span className="inline-flex items-center gap-1.5 text-zinc-500 text-[11px] font-semibold pt-0.5">
+                      <Circle className="w-2.5 h-2.5 text-zinc-500" /> Never seen
+                    </span>
+                  </span>
+                  <span className="text-[13px] text-zinc-400 leading-relaxed">Activated, but no heartbeat yet.</span>
+                </div>
+              </div>
+              <p className="text-xs text-zinc-500 mt-3 leading-relaxed">
+                Connection is shown only for the key a device is running now — a superseded key&apos;s device reports for its newer key.
+              </p>
+            </div>
+          </div>
+        </FormModal>
       )}
 
       <GlassCard className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto px-[15px]">
-          <table className="w-full text-sm min-w-[1100px]">
+        <div className="overflow-x-auto px-[15px] py-2.5">
+          <table className="data-table data-table-rich min-w-[1100px]">
             <thead>
-              <tr className="border-b border-sidebar-border h-[44px]">
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">School</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Licence key</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Key status</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Connection</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Expires</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Tier</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Product</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle text-right">Online time</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">App</th>
+              <tr>
+                <th>School</th>
+                <th>Licence key</th>
+                <th>Key status</th>
+                <th>Connection</th>
+                <th>Expires</th>
+                <th>Tier</th>
+                <th>Product</th>
+                <th className="text-right">Online time</th>
+                <th>App</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 && (
-                <tr><td colSpan={9} className="px-4 py-10 text-center text-zinc-500">No keys match these filters.</td></tr>
+                <tr><td colSpan={9} className="!h-auto py-12 text-center text-zinc-500 text-sm">No keys match these filters.</td></tr>
               )}
               {filtered.map((d) => {
                 const isSelected = d.id === selectedKeyId;
@@ -328,33 +425,39 @@ export default function UpdateClient({
                   <tr
                     key={d.id}
                     onClick={() => openKey(d)}
-                    className={`border-t border-white/5 hover:bg-white/10 cursor-pointer transition-colors ${isSelected ? 'bg-sky-500/10' : ''}`}
+                    className={`cursor-pointer ${isSelected ? '[&>td]:!bg-accent-violet/10' : ''}`}
                   >
-                    <td className="px-[9px] py-2 align-middle">
-                      <div className="flex items-center gap-2">
-                        {flagged && (
-                          <span title="Security event on this device">
-                            <AlertTriangle className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-                          </span>
-                        )}
+                    <td>
+                      <div className="flex items-center gap-2.5">
+                        <span className="relative">
+                          <EntityAvatar name={d.schoolName} size={32} />
+                          {flagged && (
+                            <span
+                              title="Security event on this device"
+                              className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white flex items-center justify-center ring-2 ring-[var(--card)]"
+                            >
+                              <AlertTriangle className="w-2.5 h-2.5" />
+                            </span>
+                          )}
+                        </span>
                         <div>
-                          <div className="font-semibold">{d.schoolName}</div>
-                          <div className="text-xs text-zinc-500">{d.schoolId}</div>
+                          <div className="cell-strong">{d.schoolName}</div>
+                          <div className="cell-sub">{d.schoolId}</div>
                         </div>
                       </div>
                     </td>
-                    <td className="px-[9px] py-2 align-middle text-zinc-300 font-mono text-xs truncate max-w-[150px]" title={d.activationKey}>
+                    <td className="cell-mono cell-muted truncate max-w-[170px]" title={d.activationKey}>
                       {d.activationKey}
                     </td>
-                    <td className="px-[9px] py-2 align-middle">
+                    <td>
                       <span title={ks.help} className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${ks.cls}`}>
                         {ks.label}
                       </span>
                     </td>
-                    <td className="px-[9px] py-2 align-middle whitespace-nowrap" title={d.lastSeenExact}>
+                    <td title={d.lastSeenExact}>
                       {d.connection === 'online' && (
-                        <span className="inline-flex items-center gap-1.5 text-emerald-400 text-xs font-semibold">
-                          <Circle className="w-2.5 h-2.5 fill-emerald-400" /> Online
+                        <span className="inline-flex items-center gap-2 px-2 py-0.5 rounded-md border bg-emerald-500/10 border-emerald-500/25 text-emerald-600 text-[11px] font-semibold">
+                          <span className="live-dot" /> Online
                         </span>
                       )}
                       {d.connection === 'offline' && (
@@ -362,7 +465,7 @@ export default function UpdateClient({
                           <span className="inline-flex items-center gap-1.5 text-zinc-400 text-xs font-semibold">
                             <Circle className="w-2.5 h-2.5 fill-zinc-600" /> Offline
                           </span>
-                          <div className="text-[11px] text-zinc-500">seen {d.lastSeenAgo}</div>
+                          <div className="cell-sub">seen {d.lastSeenAgo}</div>
                         </div>
                       )}
                       {d.connection === 'never' && (
@@ -372,11 +475,11 @@ export default function UpdateClient({
                       )}
                       {d.connection === 'na' && <span className="text-zinc-600 text-xs">—</span>}
                     </td>
-                    <td className="px-[9px] py-2 align-middle whitespace-nowrap">
+                    <td className="cell-num">
                       {d.expiresAtIso ? (
                         <div>
-                          <div className={`text-xs ${expiredNow ? 'text-rose-400 font-semibold' : 'text-zinc-300'}`}>{d.expiresExact}</div>
-                          <div className={`text-[11px] ${expiredNow ? 'text-rose-400/70' : 'text-zinc-500'}`}>
+                          <div className={expiredNow ? 'text-rose-500 font-semibold' : ''}>{d.expiresExact}</div>
+                          <div className={`cell-sub ${expiredNow ? '!text-rose-500/70' : ''}`}>
                             {expiredNow ? `expired ${d.expiresRelative}` : d.expiresRelative}
                           </div>
                         </div>
@@ -384,12 +487,12 @@ export default function UpdateClient({
                         <span className="text-zinc-600 text-xs">—</span>
                       )}
                     </td>
-                    <td className="px-[9px] py-2 align-middle">
+                    <td>
                       <span title={d.securityTier} className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${t.cls}`}>
                         {t.label}
                       </span>
                     </td>
-                    <td className="px-[9px] py-2 align-middle">
+                    <td>
                       <span
                         title={d.productId ?? 'Unknown'}
                         className="inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap bg-white/5 border-white/10 text-zinc-300"
@@ -397,8 +500,12 @@ export default function UpdateClient({
                         {productDisplayName(d.productId)}
                       </span>
                     </td>
-                    <td className="px-[9px] py-2 align-middle text-right tabular-nums">{d.totalOnline}</td>
-                    <td className="px-[9px] py-2 align-middle text-zinc-400">{d.appVersion}</td>
+                    <td className="text-right">
+                      <span className="inline-flex items-center gap-1.5 cell-num cell-strong">
+                        <Clock className="w-3.5 h-3.5 text-zinc-400" /> {d.totalOnline}
+                      </span>
+                    </td>
+                    <td className="cell-mono cell-muted">{d.appVersion}</td>
                   </tr>
                 );
               })}
@@ -410,142 +517,146 @@ export default function UpdateClient({
       {/* Timeline popup — a centered rectangle with the panel's usual backdrop blur. Closes on
           backdrop / Close / re-clicking the same row. */}
       {selectedDevice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <button
-            type="button"
-            aria-label="Close timeline"
-            onClick={() => setSelectedKeyId(null)}
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm cursor-default"
-          />
-          <div className="relative w-full max-w-xl max-h-[85vh] bg-[#0e0e12]/95 border border-white/10 rounded-2xl shadow-2xl flex flex-col animate-in zoom-in-95 fade-in duration-200">
-            <div className="flex items-start justify-between gap-3 p-5 border-b border-white/5 bg-white/[0.02] rounded-t-2xl">
-              <div className="min-w-0">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-zinc-300">Activity Timeline</h2>
-                <p className="text-sm font-bold text-white truncate mt-1">{selectedDevice.schoolName}</p>
-                <p className="text-[11px] font-mono text-zinc-500 truncate">{selectedDevice.activationKey}</p>
-                <div className="flex flex-wrap items-center gap-1.5 mt-2 text-[10px]">
-                  <span className={`px-2 py-0.5 rounded-md border font-semibold ${KEY_STATE[selectedDevice.keyState].cls}`}>
-                    {KEY_STATE[selectedDevice.keyState].label}
-                  </span>
-                  {selectedDevice.activatedAtIso && (
-                    <span className="px-2 py-0.5 rounded-md border border-white/10 bg-white/5 text-zinc-400">activated {selectedDevice.activatedExact}</span>
-                  )}
-                  {selectedDevice.expiresAtIso && (
-                    <span className="px-2 py-0.5 rounded-md border border-white/10 bg-white/5 text-zinc-400">
-                      {selectedDevice.keyState === 'expired' ? 'expired' : 'expires'} {selectedDevice.expiresExact}
+        <FormModal
+          open
+          onClose={() => setSelectedKeyId(null)}
+          panelClassName="glass relative w-full max-w-2xl max-h-[85vh] rounded-2xl flex flex-col overflow-hidden animate-slide-up"
+        >
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 px-6 py-4 border-b border-sidebar-border">
+              <div className="flex items-start gap-3 min-w-0">
+                <span className="w-10 h-10 shrink-0 rounded-[10px] flex items-center justify-center bg-accent-violet/10 border border-accent-violet/20 text-accent-violet">
+                  <Clock className="w-5 h-5" />
+                </span>
+                <div className="min-w-0">
+                  <h3 className="text-lg font-bold text-foreground tracking-tight flex items-center gap-2 min-w-0">
+                    <span className="truncate">{selectedDevice.schoolName}</span>
+                    <span className={`shrink-0 px-2 py-0.5 rounded-md border text-[11px] font-semibold ${KEY_STATE[selectedDevice.keyState].cls}`}>
+                      {KEY_STATE[selectedDevice.keyState].label}
                     </span>
-                  )}
-                  {selectedDevice.fingerprint && (
-                    <span className="px-2 py-0.5 rounded-md border border-white/10 bg-white/5 text-zinc-400">online {selectedDevice.totalOnline}</span>
-                  )}
+                  </h3>
+                  <p className="text-xs text-zinc-500 font-medium truncate">Activity timeline · <span className="font-mono">{selectedDevice.activationKey}</span></p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setSelectedKeyId(null)}
-                className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer shrink-0"
-                aria-label="Close timeline"
-              >
+              <button type="button" onClick={() => setSelectedKeyId(null)} className="icon-btn shrink-0" aria-label="Close timeline" title="Close">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5">
+            {/* Key facts */}
+            <div className="grid grid-cols-3 gap-2 px-6 py-3 border-b border-sidebar-border">
+              {[
+                { label: 'Activated', value: selectedDevice.activatedAtIso ? selectedDevice.activatedExact : '—', danger: false },
+                {
+                  label: selectedDevice.keyState === 'expired' ? 'Expired' : 'Expires',
+                  value: selectedDevice.expiresAtIso ? selectedDevice.expiresExact : '—',
+                  danger: selectedDevice.keyState === 'expired',
+                },
+                { label: 'Online total', value: selectedDevice.fingerprint ? selectedDevice.totalOnline : '—', danger: false },
+              ].map((f) => (
+                <div key={f.label} className="rounded-xl border border-white/5 bg-white/[0.02] px-3 py-2 min-w-0">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">{f.label}</div>
+                  <div className={`text-[13px] font-semibold truncate ${f.danger ? 'text-rose-500' : 'text-foreground'}`} title={String(f.value)}>{f.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Timeline */}
+            <div className="flex-1 overflow-y-auto px-6 py-5">
               {!selectedDevice.fingerprint ? (
-                <div className="text-zinc-500 text-sm">This key has not been activated on any device yet, so there is no activity to show.</div>
+                <div className="text-zinc-500 text-sm text-center py-8">This key has not been activated on any device yet, so there is no activity to show.</div>
               ) : timeline?.status === 'error' ? (
-                <div className="text-rose-300 text-sm">{timeline.error}</div>
+                <div className="text-rose-500 text-sm text-center py-8">{timeline.error}</div>
               ) : timeline?.status === 'loading' && timeline.events.length === 0 ? (
-                <div className="flex items-center gap-2 text-zinc-400 text-sm">
+                <div className="flex items-center justify-center gap-2 text-zinc-500 text-sm py-8">
                   <Loader2 className="w-4 h-4 animate-spin" /> Loading timeline…
                 </div>
               ) : eventsByDay.length === 0 ? (
-                <div className="text-zinc-500 text-sm">No activity recorded since this key was activated.</div>
+                <div className="text-zinc-500 text-sm text-center py-8">No activity recorded since this key was activated.</div>
               ) : (
-                /* One rail runs the full height — behind the day dividers AND every event node. */
-                <div className="relative">
-                  <span className="absolute left-4 top-2 bottom-2 w-px bg-white/10" aria-hidden="true" />
-                  <div className="space-y-6">
-                    {eventsByDay.map((group) => (
-                      <div key={group.dayKey}>
-                        <div className="relative flex items-center gap-3 mb-4">
-                          <span className="relative z-10 w-[33px] h-[33px] shrink-0 rounded-full border-2 border-white/15 bg-[#0e0e12] flex items-center justify-center">
-                            <Clock className="w-3.5 h-3.5 text-zinc-400" />
+                <div className="space-y-5">
+                  {eventsByDay.map((group) => (
+                    <section key={group.dayKey}>
+                      {/* Day divider */}
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-zinc-500 whitespace-nowrap">
+                          {group.dayKey === 'unknown' ? 'Date unknown' : dayLabelFor(group.dayKey)}
+                        </span>
+                        {group.totalOnline && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-emerald-500/25 bg-emerald-500/10 text-emerald-600 text-[10px] font-semibold whitespace-nowrap">
+                            <Wifi className="w-3 h-3" /> {group.totalOnline} online
                           </span>
-                          <span className="text-xs font-bold text-zinc-200 uppercase tracking-wide">
-                            {group.dayKey === 'unknown' ? 'Date unknown' : dayLabelFor(group.dayKey)}
-                          </span>
-                          {group.totalOnline && (
-                            <span className="px-1.5 py-0.5 rounded border border-emerald-500/25 bg-emerald-500/10 text-emerald-300 text-[10px] font-semibold whitespace-nowrap">
-                              {group.totalOnline} online
-                            </span>
-                          )}
-                        </div>
-
-                        {group.events.length === 0 && (
-                          <div className="text-xs text-zinc-500 mb-4 pl-[45px]">
-                            Online this day (session continued from the day before) — no new &quot;came online&quot; event.
-                          </div>
                         )}
+                      </div>
 
-                        <ol className="space-y-6">
-                          {group.events.map((e) => {
-                            const { label, Icon, tone } = eventStyle(e.type, e.detail);
-                            const c = TONE[tone];
-                            const reason =
-                              typeof e.detail?.reason === 'string'
-                                ? e.detail.reason
-                                : typeof e.detail?.reason_detail === 'string'
-                                ? e.detail.reason_detail
-                                : null;
-                            const occurrenceCount = typeof e.detail?.count === 'number' ? e.detail.count : null;
-                            const appV = typeof e.detail?.app_version === 'string' ? e.detail.app_version : null;
-                            const ip = typeof e.detail?.ip === 'string' ? e.detail.ip : null;
-                            const sessionSecs = typeof e.detail?.duration_seconds === 'number' ? e.detail.duration_seconds : null;
-                            const timeOfDay = e.createdAt
-                              ? new Date(e.createdAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST })
-                              : '—';
-                            return (
-                              <li key={e.id} className="relative flex gap-3">
-                                <span
-                                  className={`relative z-10 w-[33px] h-[33px] shrink-0 rounded-full border-2 ${c.ring} bg-[#0e0e12] flex items-center justify-center`}
-                                  aria-hidden="true"
-                                >
-                                  <Icon className={`w-3.5 h-3.5 ${c.text}`} />
-                                </span>
-                                <div className="min-w-0 flex-1 pt-1">
-                                  <div className="flex items-baseline justify-between gap-2">
-                                    <span className={`font-semibold text-sm ${c.text}`}>{label}</span>
-                                    <span className="text-[10px] font-mono text-zinc-500 whitespace-nowrap">{timeOfDay}</span>
-                                  </div>
-                                  {reason && (
-                                    <div className="text-xs text-zinc-400 mt-0.5 break-words">{TAMPER_REASON[reason] ?? reason}</div>
-                                  )}
-                                  <div className="flex flex-wrap gap-1.5 mt-2">
+                      {group.events.length === 0 && (
+                        <div className="text-xs text-zinc-500 mb-2">
+                          Online this day (session continued from the day before) — no new &quot;came online&quot; event.
+                        </div>
+                      )}
+
+                      {/* Events — a rail links the nodes within the day. */}
+                      <ol className="space-y-2">
+                        {group.events.map((e, i) => {
+                          const { label, Icon, tone } = eventStyle(e.type, e.detail);
+                          const c = TONE[tone];
+                          const reason =
+                            typeof e.detail?.reason === 'string'
+                              ? e.detail.reason
+                              : typeof e.detail?.reason_detail === 'string'
+                              ? e.detail.reason_detail
+                              : null;
+                          const occurrenceCount = typeof e.detail?.count === 'number' ? e.detail.count : null;
+                          const appV = typeof e.detail?.app_version === 'string' ? e.detail.app_version : null;
+                          const ip = typeof e.detail?.ip === 'string' ? e.detail.ip : null;
+                          const sessionSecs = typeof e.detail?.duration_seconds === 'number' ? e.detail.duration_seconds : null;
+                          const timeOfDay = e.createdAt
+                            ? new Date(e.createdAt).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST })
+                            : '—';
+                          const hasMeta = sessionSecs !== null || appV || ip || (occurrenceCount && occurrenceCount > 1);
+                          return (
+                            <li key={e.id} className="relative flex items-start gap-3 p-3 rounded-xl border border-white/5 bg-white/[0.02]">
+                              {/* Connector: from this icon down into the next card's icon (border 1 + padding 12 + half icon 16 − 1). */}
+                              {i < group.events.length - 1 && (
+                                <span className="absolute left-[28px] top-[44px] -bottom-[21px] w-0.5 rounded-full bg-sidebar-border z-10" aria-hidden="true" />
+                              )}
+                              <span
+                                className={`w-8 h-8 shrink-0 rounded-[10px] border flex items-center justify-center ${c.node}`}
+                                aria-hidden="true"
+                              >
+                                <Icon className="w-3.5 h-3.5" />
+                              </span>
+                              <div className="min-w-0 flex-1 pt-1">
+                                <div className="flex items-baseline justify-between gap-3">
+                                  <span className="text-[13px] font-semibold text-foreground">{label}</span>
+                                  <span className="text-[11px] text-zinc-500 tabular-nums whitespace-nowrap">{timeOfDay}</span>
+                                </div>
+                                {reason && (
+                                  <div className={`text-xs mt-0.5 break-words ${c.text}`}>{TAMPER_REASON[reason] ?? reason}</div>
+                                )}
+                                {hasMeta && (
+                                  <div className="flex flex-wrap gap-1.5 mt-1.5">
                                     {sessionSecs !== null && (
-                                      <span className={`px-1.5 py-0.5 rounded border text-[10px] ${c.chip}`}>
-                                        session {sessionSecs < 60 ? 'under 1m' : humanDuration(sessionSecs)}
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-white/10 bg-white/5 text-[10px] font-medium text-zinc-500">
+                                        <Clock className="w-3 h-3" /> {sessionSecs < 60 ? 'under 1m' : humanDuration(sessionSecs)}
                                       </span>
                                     )}
-                                    {appV && <span className={`px-1.5 py-0.5 rounded border text-[10px] ${c.chip}`}>app {appV}</span>}
-                                    {ip && <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">{ip}</span>}
-                                    {occurrenceCount && occurrenceCount > 1 && (
-                                      <span className="px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-[10px] text-zinc-400">×{occurrenceCount}</span>
-                                    )}
+                                    {appV && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-white/10 bg-white/5 text-[10px] font-medium text-zinc-500">app {appV}</span>}
+                                    {ip && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-white/10 bg-white/5 text-[10px] font-medium text-zinc-500 font-mono">{ip}</span>}
+                                    {occurrenceCount && occurrenceCount > 1 && <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border border-white/10 bg-white/5 text-[10px] font-medium text-zinc-500">×{occurrenceCount}</span>}
                                   </div>
-                                </div>
-                              </li>
-                            );
-                          })}
-                        </ol>
-                      </div>
-                    ))}
-                  </div>
+                                )}
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ol>
+                    </section>
+                  ))}
                 </div>
               )}
             </div>
-          </div>
-        </div>
+        </FormModal>
       )}
     </div>
   );

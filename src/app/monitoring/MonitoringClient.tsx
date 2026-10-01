@@ -25,14 +25,30 @@ import {
   Lock,
   CheckCircle2,
   FileCheck,
-  ShieldAlert
+  FileX,
+  ShieldAlert,
+  Power,
+  Ban,
+  CirclePause,
+  CircleDollarSign
 } from 'lucide-react';
 import StatusBadge from '@/components/StatusBadge';
 import GlassCard from '@/components/GlassCard';
+import FormModal from '@/components/FormModal';
+import EntityAvatar from '@/components/EntityAvatar';
 import { deactivateDevice } from './actions';
 import { useToast } from '@/components/Toast';
 import { productFilterOptionsFor, UNRESOLVED_PRODUCT_FILTER_VALUE, isProductId, productDisplayName } from '@/lib/productIdentity';
 import { tierStyle } from '@/lib/tierStyle';
+
+// Status column renders as an icon; the tooltip carries the word.
+const STATUS_ICON: Record<DeviceRow['status'], { Icon: React.ElementType; cls: string; label: string }> = {
+  Active:   { Icon: CheckCircle2,     cls: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-500', label: 'Active' },
+  Paid:     { Icon: CircleDollarSign, cls: 'bg-sky-500/10 border-sky-500/25 text-sky-500',             label: 'Paid' },
+  Unpaid:   { Icon: AlertCircle,      cls: 'bg-amber-500/10 border-amber-500/25 text-amber-500',       label: 'Unpaid' },
+  Inactive: { Icon: CirclePause,      cls: 'bg-zinc-500/10 border-zinc-500/25 text-zinc-400',          label: 'Inactive (expired)' },
+  Revoked:  { Icon: Ban,              cls: 'bg-rose-500/10 border-rose-500/25 text-rose-500',          label: 'Deactivated' },
+};
 
 interface DeviceRow {
   id: string;
@@ -227,6 +243,15 @@ function productStyle(product: string | null): { label: string; cls: string } {
   }
 }
 
+/** Table column: product family + platform — "School · Android", "Lab · Windows" (full name in the tooltip). */
+function productFamily(product: string | null): string {
+  const key = product ? (LEGACY_PRODUCT_ALIASES[product.toLowerCase()] ?? product.toUpperCase()) : '';
+  const family = key.includes('SCHOOL') ? 'School' : key.includes('LAB') ? 'Lab' : null;
+  if (!family) return 'Unknown';
+  const platform = key.endsWith('_ANDROID') ? 'Android' : key.endsWith('_WINDOWS') ? 'Windows' : key.endsWith('_LINUX') ? 'Linux' : null;
+  return platform ? `${family} · ${platform}` : family;
+}
+
 interface MonitoringClientProps {
   initialDevices: DeviceRow[];
   totalDevicesCount: number;
@@ -379,9 +404,10 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
       <div className="flex flex-col gap-3 pb-2">
         <div className="flex justify-between items-center flex-wrap gap-4">
           <h2 className="text-2xl font-bold text-foreground">Device Monitoring</h2>
-          <div className="flex items-center gap-4 text-xs font-bold text-zinc-400">
-            <span>Total Devices <span className="text-sm text-foreground ml-1">{totalDevicesCount}</span></span>
-            <span>{filteredDevices.length} shown</span>
+          <div className="flex items-center gap-2">
+            <span className="stat-chip"><Monitor className="w-3.5 h-3.5 text-accent-violet" /> Total devices <span className="stat-chip-value">{totalDevicesCount}</span></span>
+            <span className="stat-chip"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Active <span className="stat-chip-value">{devicesList.filter(d => d.status === 'Active').length}</span></span>
+            <span className="stat-chip"><Search className="w-3.5 h-3.5" /> Shown <span className="stat-chip-value">{filteredDevices.length}</span></span>
           </div>
         </div>
 
@@ -392,7 +418,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
                 key={t}
                 type="button"
                 onClick={() => { setEntityFilter(t); setPage(1); }}
-                className={`px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b ${entityFilter === t ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400'}`}
+                className={`filter-tab ${entityFilter === t ? 'filter-tab-active' : ''}`}
               >
                 {t}
               </button>
@@ -402,7 +428,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
               <button
                 type="button"
                 onClick={() => setIsProductMenuOpen(!isProductMenuOpen)}
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold cursor-pointer whitespace-nowrap border-b transition-colors ${productFilter !== 'all' ? 'border-foreground text-foreground' : 'border-transparent text-zinc-400'}`}
+                className={`filter-tab ${productFilter !== 'all' ? 'filter-tab-active' : ''}`}
               >
                 <Layers className="w-3.5 h-3.5" />
                 <span>
@@ -414,14 +440,14 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
               </button>
 
               {isProductMenuOpen && (
-                <div className="absolute top-full left-0 mt-2 w-48 z-50 animate-fade-in">
-                  <div className="bg-[#121216] border border-white/10 shadow-2xl py-1.5 rounded-xl flex flex-col">
+                <div className="absolute top-full left-0 mt-2 w-52 z-50 animate-fade-in">
+                  <div className="menu-panel">
                     {productFilterOptionsFor(panel).map(opt => (
                       <button
                         key={opt.value}
                         type="button"
                         onClick={() => { setProductFilter(opt.value); setPage(1); setIsProductMenuOpen(false); }}
-                        className={`text-left px-4 py-2.5 text-xs font-semibold transition-colors ${productFilter === opt.value ? 'bg-accent-violet/15 text-accent-violet' : 'text-zinc-300 hover:bg-white/5 hover:text-white'}`}
+                        className={`menu-item ${productFilter === opt.value ? 'menu-item-active' : ''}`}
                       >
                         {opt.label === 'All Products' ? 'All Product Types' : opt.label}
                       </button>
@@ -447,52 +473,49 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
 
       {/* Main Table list */}
       <GlassCard className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto px-[15px]">
-          <table className="w-full min-w-[1200px] text-left border-collapse">
+        <div className="overflow-x-auto px-[15px] py-2.5">
+          <table className="data-table data-table-rich min-w-[1040px]">
             <thead>
               <tr className="border-b border-sidebar-border h-[44px]">
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Device (Model + OS)</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Hardware Fingerprint</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">{entityFilter === 'Vendors' ? 'Vendor Name' : entityFilter === 'Users' ? 'Student Name' : entityFilter === 'All' ? 'Entity Name' : 'School Name'}</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Security Tier (Verified / Reported)</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Product</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Consent</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Activation</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Last Sync</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Remaining Time</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle">Status</th>
-                <th className="px-[9px] text-[10px] font-bold text-foreground uppercase tracking-widest align-middle text-right">Deactivate</th>
+                <th>Device</th>
+                <th>Fingerprint</th>
+                <th>{entityFilter === 'Vendors' ? 'Vendor Name' : entityFilter === 'Users' ? 'Student Name' : entityFilter === 'All' ? 'Entity Name' : 'School Name'}</th>
+                <th>Security Tier</th>
+                <th>Product</th>
+                <th className="text-center">Consent</th>
+                <th>Activation</th>
+                <th>Remaining</th>
+                <th className="text-center">Status</th>
+                <th className="text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody>
               {pagedDevices.length > 0 ? (
                 pagedDevices.map(dev => {
-                  const Icon = getDeviceIcon(dev.model, dev.os);
                   return (
                     <tr 
                       key={dev.id} 
                       onClick={() => setSelectedDevice(dev)}
-                      className="transition-colors group h-[44px] cursor-pointer"
+                      className="group cursor-pointer"
                     >
-                      <td className="px-[9px] align-middle">
-                        <div className="flex items-center gap-2 whitespace-nowrap">
-                          <Icon className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
-                          <span className="text-sm font-medium text-white">{dev.model}</span>
-                          <span className="text-[10px] text-zinc-500">{dev.os}</span>
+                      <td>
+                        <div className="flex items-center gap-2" title={dev.os}>
+                          <span className="cell-strong">{dev.model}</span>
                           {dev.deviceClass === 'managed_panel' && (
-                            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 text-[8px] font-bold uppercase tracking-wide">
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/15 text-black text-[8px] font-bold uppercase tracking-wide">
                               Interactive panel
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className="px-[9px] align-middle">
-                        <code className="text-xs text-zinc-400 font-mono whitespace-nowrap">
-                          {dev.fingerprint.substring(0, 12)}...
-                        </code>
+                      <td>
+                        <span className="cell-mono cell-muted" title={dev.fingerprint}>
+                          {dev.fingerprint.substring(0, 12)}…
+                        </span>
                       </td>
-                      <td className="px-[9px] align-middle text-sm text-zinc-300">
-                        <div className="flex items-center gap-2 whitespace-nowrap">
+                      <td>
+                        <div className="flex items-center gap-2">
+                          <EntityAvatar name={dev.entityName || dev.schoolName || '?'} />
                           <span>{dev.entityName || dev.schoolName}</span>
                           {dev.expiryTamper && (
                             <span
@@ -504,102 +527,106 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
                           )}
                         </div>
                       </td>
-                      <td className="px-[9px] align-middle">
-                        <div className="flex items-center gap-1.5 whitespace-nowrap">
+                      <td>
+                        <div className="flex items-center gap-1.5">
                           {(() => {
                             const v = verifiedTierStyle(dev.verifiedTier);
                             return (
                               <span
                                 title={`Server-verified tier (trusted): ${dev.verifiedTier}`}
-                                className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap ${v.cls}`}
+                                className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[11px] font-semibold whitespace-nowrap ${v.cls}`}
                               >
                                 {v.label}
                               </span>
                             );
                           })()}
-                          {(() => {
-                            const t = tierStyle(dev.securityTier);
-                            return (
-                              <span
-                                title={`Device-reported tier (untrusted self-report): ${dev.securityTier}`}
-                                className={`inline-flex items-center px-2 py-0.5 rounded-md border text-[9px] font-medium whitespace-nowrap opacity-70 ${t.cls}`}
-                              >
-                                reported: {t.label}
-                              </span>
-                            );
-                          })()}
                           {dev.attestationIssue && (
                             <span
-                              title={`Attestation issue (${dev.attestationIssue.action}) ×${dev.attestationIssue.count}: ${dev.attestationIssue.reasonDetail}`}
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[9px] font-semibold whitespace-nowrap bg-rose-500/10 border-rose-500/30 text-rose-400"
+                              title={`Attestation issue (${dev.attestationIssue.action}) ×${dev.attestationIssue.count}: ${attestationReasonLabel(dev.attestationIssue.reasonCode)} — ${dev.attestationIssue.reasonDetail}`}
+                              aria-label="Attestation issue"
+                              className="inline-flex items-center justify-center w-5 h-5 rounded-md border bg-rose-500/10 border-rose-500/30 text-rose-500"
                             >
-                              <ShieldAlert className="w-2.5 h-2.5" /> {attestationReasonLabel(dev.attestationIssue.reasonCode)}
-                              {dev.attestationIssue.count > 1 && ` ×${dev.attestationIssue.count}`}
+                              <ShieldAlert className="w-3 h-3" />
                             </span>
                           )}
                         </div>
+                        <div className="cell-sub" title={`Device-reported tier (untrusted self-report): ${dev.securityTier}`}>
+                          Reported: {tierStyle(dev.securityTier).label}
+                        </div>
                       </td>
-                      <td className="px-[9px] align-middle">
+                      <td>
                         {(() => {
                           const p = productStyle(dev.product);
                           return (
                             <span
-                              title={dev.product ?? undefined}
-                              className="text-xs text-zinc-400 whitespace-nowrap"
+                              title={p.label}
+                              className="cell-muted"
                             >
-                              {p.label}
+                              {productFamily(dev.product)}
                             </span>
                           );
                         })()}
                       </td>
-                      <td className="px-[9px] align-middle">
+                      <td className="text-center">
                         {dev.termsAccepted ? (
                           <span
                             title={`Privacy Policy + Terms accepted${dev.termsVersion ? ` (v${dev.termsVersion})` : ''}${dev.termsAcceptedAt ? ` on ${dev.termsAcceptedAt}` : ''}`}
-                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
+                            aria-label="Consent accepted"
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-lg border bg-emerald-500/10 border-emerald-500/25 text-emerald-500"
                           >
-                            <CheckCircle2 className="w-3 h-3" /> Accepted
+                            <FileCheck className="w-3.5 h-3.5" />
                           </span>
                         ) : (
                           <span
                             title="No pre-activation consent recorded for this device"
-                            className="inline-flex items-center px-2 py-0.5 rounded-md border text-[10px] font-semibold whitespace-nowrap bg-zinc-500/10 border-zinc-500/25 text-zinc-400"
+                            aria-label="Consent not recorded"
+                            className="inline-flex items-center justify-center w-7 h-7 rounded-lg border bg-zinc-500/10 border-zinc-500/25 text-zinc-400"
                           >
-                            Not recorded
+                            <FileX className="w-3.5 h-3.5" />
                           </span>
                         )}
                       </td>
-                      <td className="px-[9px] align-middle text-xs text-zinc-400 whitespace-nowrap">{dev.activationDate}</td>
-                      <td className="px-[9px] align-middle text-xs text-zinc-400 whitespace-nowrap">{dev.lastSync}</td>
-                      <td className="px-[9px] align-middle text-xs text-zinc-400 whitespace-nowrap">{dev.remainingTime}</td>
-                      <td className="px-[9px] align-middle">
-                        <StatusBadge status={dev.status} />
+                      <td className="cell-muted cell-num">{dev.activationDate}</td>
+                      <td>
+                        {(() => {
+                          const ended = dev.remainingTime === 'Expired' || dev.remainingTime === 'Deactivated';
+                          return (
+                            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border text-[11px] font-semibold tabular-nums ${
+                              ended ? 'bg-rose-500/10 border-rose-500/25 text-rose-500' : 'bg-emerald-500/10 border-emerald-500/25 text-emerald-600'
+                            }`}>
+                              <Clock className="w-3 h-3" /> {dev.remainingTime}
+                            </span>
+                          );
+                        })()}
                       </td>
-                      <td className="px-[9px] align-middle text-right">
-                        {dev.status !== 'Revoked' ? (
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeactivate(e, dev.id)}
-                            disabled={isPending}
-                            className="px-2.5 py-1 bg-rose-500/10 hover:bg-rose-500/25 border border-rose-500/20 text-[11px] font-semibold text-rose-400 rounded-md transition-colors cursor-pointer disabled:opacity-55"
-                          >
-                            Deactivate
-                          </button>
-                        ) : (
-                          <button
-                            disabled
-                            className="px-2.5 py-1 bg-zinc-800 border border-white/5 text-[11px] font-semibold text-zinc-500 rounded-md cursor-not-allowed"
-                          >
-                            Deactivated
-                          </button>
-                        )}
+                      <td className="text-center">
+                        {(() => {
+                          const st = STATUS_ICON[dev.status] ?? STATUS_ICON.Inactive;
+                          return (
+                            <span title={st.label} aria-label={st.label} className={`inline-flex items-center justify-center w-7 h-7 rounded-lg border ${st.cls}`}>
+                              <st.Icon className="w-3.5 h-3.5" />
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td className="text-right">
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeactivate(e, dev.id)}
+                          disabled={isPending || dev.status === 'Revoked'}
+                          title={dev.status === 'Revoked' ? 'Already deactivated' : 'Deactivate device license'}
+                          aria-label={dev.status === 'Revoked' ? 'Already deactivated' : 'Deactivate device license'}
+                          className="icon-btn icon-btn-danger"
+                        >
+                          <Power className="w-3.5 h-3.5" />
+                        </button>
                       </td>
                     </tr>
                   );
                 })
               ) : (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-zinc-500 text-sm">
+                  <td colSpan={10} className="!h-auto !whitespace-normal py-12 text-center text-zinc-500 text-sm">
                     {/* colSpan spans all columns incl. the Security Tier + Consent columns */}
                     <AlertCircle className="w-5 h-5 mx-auto mb-2 text-zinc-600" />
                     No registered devices matching search filters found in the database.
@@ -669,37 +696,41 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
 
       {/* Modern Premium Glassmorphic Modal overlay */}
       {selectedDevice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm transition-all duration-300 animate-in fade-in">
-          <div 
-            className="relative w-full max-w-3xl overflow-hidden rounded-2xl bg-[#0e0e12]/95 border border-white/10 shadow-2xl backdrop-blur-xl animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]"
-            onClick={e => e.stopPropagation()}
-          >
+        <FormModal
+          open
+          // Esc / backdrop must not close the details underneath an open deactivation prompt.
+          onClose={() => { if (confirmStep === 'none') setSelectedDevice(null); }}
+          panelClassName="glass relative w-full max-w-3xl max-h-[90vh] rounded-2xl flex flex-col overflow-hidden animate-slide-up"
+        >
             {/* Modal Header */}
-            <div className="flex items-center justify-between p-6 border-b border-white/5 bg-white/[0.02]">
-              <div className="flex items-center gap-3">
-                <span className="p-2.5 rounded-xl bg-accent-violet/10 border border-accent-violet/20">
+            <div className="flex items-center justify-between gap-4 px-6 py-4 border-b border-sidebar-border">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="w-10 h-10 shrink-0 rounded-[10px] flex items-center justify-center bg-accent-violet/10 border border-accent-violet/20">
                   {React.createElement(getDeviceIcon(selectedDevice.model, selectedDevice.os), {
-                    className: 'w-6 h-6 text-accent-violet'
+                    className: 'w-5 h-5 text-accent-violet'
                   })}
                 </span>
-                <div>
-                  <h3 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
-                    {selectedDevice.model}
+                <div className="min-w-0">
+                  <h3 className="text-lg font-bold text-foreground tracking-tight flex items-center gap-2">
+                    <span className="truncate">{selectedDevice.model}</span>
                     <StatusBadge status={selectedDevice.status} />
                   </h3>
-                  <p className="text-xs text-zinc-400 font-medium">OS: {selectedDevice.os} &bull; Handshake Verification Details</p>
+                  <p className="text-xs text-zinc-500 font-medium">{selectedDevice.os} &bull; Handshake verification details</p>
                 </div>
               </div>
-              <button 
+              <button
+                type="button"
                 onClick={() => setSelectedDevice(null)}
-                className="p-2 text-zinc-400 hover:text-white rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all cursor-pointer"
+                className="icon-btn shrink-0"
+                aria-label="Close"
+                title="Close"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Modal Content - Scrollable */}
-            <div className="p-6 overflow-y-auto space-y-6">
+            <div className="px-6 py-5 overflow-y-auto space-y-6">
               {/* Expiry-tamper alert — server detected this device reporting an expiry later than signed. */}
               {selectedDevice.expiryTamper && (
                 <div className="flex items-start gap-3 p-4 rounded-xl bg-rose-500/10 border border-rose-500/30">
@@ -1152,35 +1183,32 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
             </div>
 
             {/* Modal Footer */}
-            <div className="p-6 border-t border-white/5 bg-white/[0.01] flex justify-end gap-3">
-              {selectedDevice.status !== 'Revoked' ? (
+            <div className="px-6 py-4 border-t border-sidebar-border flex justify-end gap-2">
+              <button type="button" onClick={() => setSelectedDevice(null)} className="btn btn-secondary">
+                Close
+              </button>
+              {selectedDevice.status !== 'Revoked' && (
                 <button
                   type="button"
                   onClick={(e) => handleDeactivate(e, selectedDevice.id)}
                   disabled={isPending}
-                  className="px-4 py-2 bg-rose-500 hover:bg-rose-600 active:bg-rose-700 text-white text-xs font-semibold rounded-xl hover:shadow-lg transition-all cursor-pointer disabled:opacity-50"
+                  className="btn btn-danger"
                 >
-                  Deactivate Device License
+                  <Power className="w-4 h-4" />
+                  Deactivate license
                 </button>
-              ) : null}
-              <button 
-                onClick={() => setSelectedDevice(null)}
-                className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 hover:border-white/15 text-zinc-300 hover:text-white text-xs font-semibold rounded-xl transition-all cursor-pointer"
-              >
-                Close View
-              </button>
+              )}
             </div>
-          </div>
-        </div>
+        </FormModal>
       )}
 
       {/* Centered Glassmorphic Confirmation & Password Modal */}
       {confirmStep !== 'none' && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm transition-all duration-300 animate-in fade-in">
-          <div 
-            className="relative w-full max-w-md overflow-hidden rounded-2xl bg-[#0e0e12]/95 border border-white/10 shadow-2xl backdrop-blur-xl animate-in zoom-in-95 duration-200 p-6 flex flex-col space-y-6"
-            onClick={e => e.stopPropagation()}
-          >
+        <FormModal
+          open
+          onClose={() => { if (!isPending) { setConfirmStep('none'); setDeactivatingDeviceId(null); setDeactivationPassword(''); } }}
+          panelClassName="glass relative w-full max-w-md rounded-2xl p-6 flex flex-col space-y-6 animate-slide-up"
+        >
             {confirmStep === 'confirm' ? (
               <>
                 <div className="flex items-center gap-3">
@@ -1282,8 +1310,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
                 </form>
               </>
             )}
-          </div>
-        </div>
+        </FormModal>
       )}
     </div>
   );

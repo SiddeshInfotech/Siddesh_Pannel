@@ -46,6 +46,23 @@ const PaymentSchema = z.object({
   return true;
 }, { message: 'Generate at least 1 key.', path: ['keysCount'] });
 
+/**
+ * Next sequential transaction ID (TXN-0000001, TXN-0000002, …) for this panel's payments.
+ * Older random IDs (e.g. TXN-QL6IFST) don't match the numeric pattern and are skipped.
+ */
+async function nextTransactionId(): Promise<string> {
+  const { data } = await (await adminDb())
+    .from('payments')
+    .select('transaction_id')
+    .like('transaction_id', 'TXN-%');
+  let max = 0;
+  for (const row of (data ?? []) as { transaction_id: string | null }[]) {
+    const m = /^TXN-(\d+)$/.exec(row.transaction_id ?? '');
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `TXN-${String(max + 1).padStart(7, '0')}`;
+}
+
 export async function createPayment(formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult> {
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
@@ -59,9 +76,7 @@ export async function createPayment(formData: any /* eslint-disable-line @typesc
   const validData = parsed.data;
 
   try {
-    const generatedTxnId =
-      validData.transactionId ||
-      'TXN-' + Math.random().toString(36).substring(2, 9).toUpperCase();
+    const generatedTxnId = validData.transactionId || (await nextTransactionId());
 
     const { data: payment, error: paymentError } = await (await adminDb())
       .from('payments')
@@ -169,9 +184,7 @@ export async function updatePayment(id: string, formData: any /* eslint-disable-
         // Vendor: not applicable — NULL (see vendor_payments_optional_keys_count.sql).
         keys_count: validData.entityType === 'Vendor' ? null : validData.keysCount,
         bank_name: sanitize(validData.bankName || '') || 'Bank Transfer',
-        transaction_id:
-          sanitize(validData.transactionId || '') ||
-          'TXN-' + Math.random().toString(36).substring(2, 9).toUpperCase(),
+        transaction_id: sanitize(validData.transactionId || '') || (await nextTransactionId()),
         payment_date: new Date(validData.paymentDate).toISOString(),
         status: validData.status,
       })

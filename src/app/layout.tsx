@@ -8,8 +8,9 @@ import { getAdminSession } from '@/lib/auth';
 import { APP_PANEL } from '@/lib/appPanel';
 
 export const metadata: Metadata = {
-  title: APP_PANEL === 'lab' ? 'Lab Admin Console' : 'LMS Admin Console',
-  description: 'Premium enterprise suite for school license provisioning and device tracking.',
+  title: `Siddesh Tech — ${APP_PANEL === 'lab' ? 'Lab' : 'LMS'} Admin Console`,
+  description:
+    'One calm, secure command centre for every school, vendor and parent we serve — issue licence keys, track payments, watch every device live and verify each cryptographic handshake, all in a clean interface built to feel effortless in light or dark.',
 };
 
 export default async function RootLayout({
@@ -27,13 +28,13 @@ export default async function RootLayout({
           <AuthWrapper sessionExists={sessionExists}>
             {/* Sidebar Nav */}
             {sessionExists && (
-              <Suspense fallback={<div className="w-40 h-screen bg-surface-hover border-r border-sidebar-border fixed left-0 top-0 rounded-r-[14px]"></div>}>
+              <Suspense fallback={<div className="app-sidebar h-screen bg-surface-hover border-r border-sidebar-border fixed left-0 top-0"></div>}>
                 <Sidebar />
               </Suspense>
             )}
 
             {/* Content Wrapper */}
-            <div className={`flex-1 ${sessionExists ? 'ml-40' : ''} min-h-screen flex flex-col min-w-0`}>
+            <div className={`flex-1 ${sessionExists ? 'app-content' : ''} min-h-screen flex flex-col min-w-0`}>
               {/* Main Workspace */}
               <main className="flex-1 pt-8 pb-8 pl-4 pr-4 overflow-y-auto">
                 {sessionExists ? children : <div className="min-h-screen w-full bg-[#09090b]" />}

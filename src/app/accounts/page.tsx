@@ -1,10 +1,6 @@
 import React from 'react';
 import { getAdminSession } from '@/lib/auth';
 import DataTabs from './DataTabs';
-import type { Metadata } from 'next';
-import { APP_PANEL } from '@/lib/appPanel';
-import MetricCard from '@/components/MetricCard';
-import MetricGroup from '@/components/MetricGroup';
 import { School, Building2, Users } from 'lucide-react';
 import { adminDb } from '@/lib/panelTables';
 export const revalidate = 0;
@@ -95,9 +91,6 @@ async function getParentsData() {
   }));
 }
 
-export const metadata: Metadata = {
-  title: `Accounts · ${APP_PANEL === 'lab' ? 'Lab' : 'LMS'} Admin Console`,
-};
 
 export default async function AccountsPage(props: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   const searchParams = await props.searchParams;
@@ -114,29 +107,19 @@ export default async function AccountsPage(props: { searchParams: Promise<{ [key
   const totalParents = parentsData.length;
 
   return (
-    <div className="space-y-8 w-full">
-      <div className="h-6" />
-      
+    <div className="space-y-4 max-w-7xl mx-auto">
+      {/* Spacer to maintain layout height */}
+      <div className="h-10" />
+
       <div className="space-y-4">
-        <MetricGroup className="grid-cols-1 md:grid-cols-3">
-        <MetricCard
-          title="Total Schools"
-          value={totalSchools.toString()}
-          icon={School}
-        />
-
-        <MetricCard
-          title="Total Vendors"
-          value={totalVendors.toString()}
-          icon={Building2}
-        />
-
-        <MetricCard
-          title="Total Parents"
-          value={totalParents.toString()}
-          icon={Users}
-        />
-      </MetricGroup>
+        <div className="flex justify-between items-center flex-wrap gap-4 pb-2">
+          <h2 className="text-2xl font-bold text-foreground">Accounts</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="stat-chip"><Building2 className="w-3.5 h-3.5 text-accent-violet" /> Vendors <span className="stat-chip-value">{totalVendors}</span></span>
+            <span className="stat-chip"><School className="w-3.5 h-3.5 text-sky-500" /> Schools <span className="stat-chip-value">{totalSchools}</span></span>
+            <span className="stat-chip"><Users className="w-3.5 h-3.5 text-emerald-500" /> Parents <span className="stat-chip-value">{totalParents}</span></span>
+          </div>
+        </div>
 
       <DataTabs
         initialSchools={schoolsData}

@@ -3,7 +3,6 @@
 import React, { useState, useTransition, useCallback } from 'react';
 import { 
   Search,
-  School as SchoolIcon, 
   Plus,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
   ChevronRight,
@@ -13,6 +12,7 @@ import {
   X
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
+import EntityAvatar from '@/components/EntityAvatar';
 import StatusBadge from '@/components/StatusBadge';
 import Link from 'next/link';
 import FormModal from '@/components/FormModal';
@@ -81,36 +81,36 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
   };
 
   return (
-    <div className="space-y-6 relative">
+    <div className="space-y-4 relative">
         <FormModal open={showAdd} onClose={closeAdd}>
             <NewSchoolForm onClose={closeAdd} />
         </FormModal>
       {/* Directory Table */}
-      <GlassCard className="overflow-hidden !p-0">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-6 pt-5 pb-2">
-          {tabsNode}
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <div className="relative flex-1 md:flex-none md:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400 pointer-events-none" />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search schools..."
-                className="field-input pl-9"
-              />
+            <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border">
+                {tabsNode}
+                <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
+                    <div className="relative flex-1 xl:w-[260px]">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+                        <input
+                            value={search}
+                            onChange={(e) => setSearch(e.target.value)}
+                            placeholder="Search schools…"
+                            className="bare-input w-full pl-8 pr-2 py-1.5 bg-transparent text-xs text-foreground placeholder-zinc-500 focus:outline-none"
+                        />
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setShowAdd(true)}
+                        className="btn btn-secondary !h-8 !px-3 !text-xs shrink-0 whitespace-nowrap"
+                    >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add School
+                    </button>
+                </div>
             </div>
-            <button
-                type="button"
-                onClick={() => setShowAdd(true)}
-                className="btn btn-secondary shrink-0 whitespace-nowrap"
-            >
-              <Plus className="w-4 h-4" />
-              Add School
-            </button>
-          </div>
-        </div>
-        <div className="overflow-x-auto px-6 pb-6">
-          <table className="ui-table">
+      <GlassCard className="overflow-hidden !p-0">
+        <div className="overflow-x-auto px-[15px] py-2.5">
+          <table className="data-table data-table-rich">
             <thead>
               <tr>
                 <th>School Name</th>
@@ -126,24 +126,29 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
               </tr>
             </thead>
             <tbody>
+              {schools.length === 0 && (
+                <tr>
+                  <td colSpan={10} className="!h-auto !whitespace-normal text-center !py-10 text-zinc-500">
+                    No schools found.
+                  </td>
+                </tr>
+              )}
               {schools.map(sch => {
                 return (
-                  <tr key={sch.dbId} className="bg-surface-hover">
+                  <tr key={sch.dbId}>
                     <td>
-                      <div className="flex items-center gap-3">
-                        <span className="metric-icon">
-                          <SchoolIcon className="w-4 h-4 text-foreground" />
-                        </span>
+                      <div className="flex items-center gap-2.5">
+                        <EntityAvatar name={sch.name || '?'} size={32} />
                         <div>
-                          <span className="block font-semibold text-foreground">{sch.name}</span>
-                          <span className="block text-[11px] text-zinc-500 mt-0.5">ID: {sch.id}</span>
+                          <span className="block cell-strong">{sch.name}</span>
+                          <span className="block cell-sub">ID: {sch.id}</span>
                         </div>
                       </div>
                     </td>
-                    <td className="font-semibold">{sch.board}</td>
+                    <td className="cell-strong">{sch.board}</td>
                     <td>{sch.standard} / {sch.section}</td>
                     <td>{sch.fullClassName}</td>
-                    <td className="font-mono">{sch.academicYear}</td>
+                    <td className="cell-num">{sch.academicYear}</td>
                     <td>
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {sch.mediums.map((med: string) => (
@@ -159,21 +164,21 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
                       <StatusBadge status={sch.status as any} />
                     </td>
                     <td>
-                      <span className="block font-medium">{sch.lastSync}</span>
-                      <span className="block text-[11px] text-zinc-500 mt-0.5">{sch.gateway}</span>
+                      <span className="block">{sch.lastSync}</span>
+                      <span className="block cell-sub">{sch.gateway}</span>
                     </td>
                     <td className="num">
                       <div className="flex items-center justify-end gap-2">
                         <Link
                           href={`/schools/edit/${sch.dbId}`}
-                          className="btn btn-secondary !h-8 !px-2.5"
+                          className="icon-btn"
                           title="Edit Details"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </Link>
                         <button
                           onClick={() => confirmDelete(sch)}
-                          className="btn btn-secondary !h-8 !px-2.5 text-rose-500"
+                          className="icon-btn icon-btn-danger"
                           title="Delete School"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -190,8 +195,8 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
 
       {/* Confirmation Modal */}
       {showConfirmModal && schoolToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <GlassCard className="w-full max-w-md border border-white/10 p-6 space-y-6 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+          <GlassCard className="popup-panel animate-slide-up w-full max-w-md p-6 space-y-6 relative">
             <button 
               onClick={() => {
                 setShowConfirmModal(false);

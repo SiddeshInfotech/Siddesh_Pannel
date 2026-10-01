@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from 'lucide-react';
 
 interface AppleDatePickerProps {
@@ -24,6 +25,7 @@ export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/
   });
   
   const popoverRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({});
 
@@ -64,7 +66,7 @@ export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+      if (popoverRef.current && !popoverRef.current.contains(event.target as Node) && !panelRef.current?.contains(event.target as Node)) {
         // Also need to check if the click was inside the fixed popup
         // But since the popup is not a child of popoverRef when we use portals, wait... 
         // Here we render it inline, but with fixed position. Wait, if it's rendered inline,
@@ -148,46 +150,49 @@ export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/
         <button 
           type="button" 
           onClick={toggleOpen} 
-          className="p-1.5 hover:bg-white/10 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer flex items-center justify-center"
+          className="icon-btn !w-8 !h-8"
         >
           <CalendarIcon className="w-4 h-4" />
         </button>
       ) : (
         <div 
           onClick={toggleOpen}
-          className="w-full px-4 py-3 bg-[#121216] border border-white/10 hover:border-white/15 focus-within:border-accent-violet rounded-xl text-sm text-zinc-300 flex items-center justify-between cursor-pointer transition-all"
+          className="field-input flex items-center justify-between cursor-pointer"
         >
           <span>{value ? formatDateForDisplay(value) : placeholder}</span>
           <CalendarIcon className="w-4 h-4 text-zinc-500" />
         </div>
       )}
 
-      {isOpen && (
-        <div 
-          style={popupStyle}
-          className="p-4 bg-[#1e1e24]/80 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_0_40px_rgba(0,0,0,0.5)] animate-in fade-in zoom-in-95 duration-200"
+      {/* Portal to <body>: a transformed / blurred ancestor (cards, pop-ups) would otherwise trap
+          `position: fixed` and let the table paint over the calendar. */}
+      {isOpen && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={panelRef}
+          style={{ ...popupStyle, background: 'var(--surface-popover)' }}
+          className="popup-panel p-4 animate-in fade-in zoom-in-95 duration-200"
         >
           <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-semibold text-white ml-1 tracking-tight">
+            <span className="text-sm font-semibold text-foreground ml-1 tracking-tight">
               {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
             </span>
             <div className="flex items-center gap-1">
               <button 
                 onClick={prevMonth}
-                className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/10 text-zinc-400 hover:text-white transition-colors"
+                className="cal-nav"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button 
                 onClick={nextMonth}
-                className="w-7 h-7 flex items-center justify-center rounded-full hover:bg-white/10 text-zinc-400 hover:text-white transition-colors"
+                className="cal-nav"
               >
                 <ChevronRight className="w-4 h-4" />
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-7 gap-1 mb-2">
+          <div className="grid grid-cols-7 gap-0.5 mb-1">
             {weekDays.map(day => (
               <div key={day} className="text-center text-[10px] font-bold text-zinc-500 mb-1">
                 {day}
@@ -195,7 +200,7 @@ export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/
             ))}
           </div>
 
-          <div className="grid grid-cols-7 gap-1">
+          <div className="grid grid-cols-7 gap-0.5">
             {days.map((item, index) => {
               const isSelected = value && 
                 item.isCurrentMonth && 
@@ -214,11 +219,11 @@ export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/
                   key={index}
                   onClick={(e) => handleDateSelect(item.day, !!item.isPrevMonth, !!item.isNextMonth, e)}
                   style={{ backgroundColor: isSelected ? 'var(--accent-violet)' : undefined }}
-                  className={`w-8 h-8 rounded-full flex items-center justify-center text-[13px] font-medium transition-all
-                    ${!item.isCurrentMonth ? 'text-zinc-600 hover:text-zinc-400' : 'text-zinc-200'}
-                    ${isSelected ? 'text-white shadow-[0_4px_14px_rgba(139,92,246,0.4)]' : ''}
-                    ${!isSelected && isToday ? 'bg-white/10 text-white' : ''}
-                    ${!isSelected && !isToday ? 'hover:bg-white/10' : ''}
+                  className={`w-8 h-8 mx-auto rounded-full flex items-center justify-center text-[13px] font-medium tabular-nums transition-colors cursor-pointer
+                    ${!item.isCurrentMonth ? 'text-zinc-400' : 'text-foreground'}
+                    ${isSelected ? '!text-white shadow-md' : ''}
+                    ${!isSelected && isToday ? 'bg-accent-violet/10 !text-accent-violet font-semibold' : ''}
+                    ${!isSelected && !isToday ? 'cal-day' : ''}
                   `}
                 >
                   {item.day}
@@ -226,7 +231,8 @@ export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/
               );
             })}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
