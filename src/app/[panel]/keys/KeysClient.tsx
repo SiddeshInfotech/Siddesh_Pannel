@@ -27,7 +27,9 @@ import {
   CalendarX,
   Ban
 } from 'lucide-react';
+import { createPortal } from 'react-dom';
 import EntityAvatar from '@/components/EntityAvatar';
+import ScrollableTabs from '@/components/ScrollableTabs';
 import GlassCard from '@/components/GlassCard';
 import StatusBadge from '@/components/StatusBadge';
 import AppleDatePicker from '@/components/AppleDatePicker';
@@ -500,6 +502,8 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
   const [currentPage, setCurrentPage] = useState(1);
   const rowsPerPage = 15;
   const productMenuRef = useRef<HTMLDivElement>(null);
+  const productMenuPortalRef = useRef<HTMLDivElement>(null);
+  const [productMenuPos, setProductMenuPos] = useState<{ top: number; left: number } | null>(null);
 
   // Reset page when filters change (adjusted during render — no cascading effect render)
   const filterKey = JSON.stringify([filterEntityType, filterSchoolId, filterProductId, statusFilter, filterDate, panel, searchQuery]);
@@ -512,12 +516,22 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
   // Close custom dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (productMenuRef.current && !productMenuRef.current.contains(event.target as Node)) {
-        setIsProductMenuOpen(false);
-      }
+      const target = event.target as Node;
+      // The menu lives in a portal, so "inside" means the tab button OR the menu itself.
+      if (productMenuRef.current?.contains(target) || productMenuPortalRef.current?.contains(target)) return;
+      setIsProductMenuOpen(false);
     }
+    // The menu is fixed-positioned under its tab: close it when the page scrolls or resizes so
+    // it never floats away from the button.
+    const close = () => setIsProductMenuOpen(false);
     document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    window.addEventListener('resize', close);
+    document.addEventListener('scroll', close, true);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('resize', close);
+      document.removeEventListener('scroll', close, true);
+    };
   }, []);
 
   const handleCancelKeyForm = () => {
@@ -623,7 +637,7 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
 
         {/* Filter bar — underlined tabs with counts (Product Types last); search, date, Create Key on the right. */}
         <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border">
-          <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+          <ScrollableTabs className="gap-0 -mb-[1px] w-full xl:w-auto xl:flex-1" onScroll={() => setIsProductMenuOpen(false)}>
             <button type="button" onClick={() => { setFilterEntityType('all'); setFilterSchoolId('all'); setStatusFilter('All'); setFilterProductId('all'); }}
               className={`filter-tab ${filterEntityType === 'all' && statusFilter === 'All' && filterProductId === 'all' ? 'filter-tab-active' : ''}`}>
               All <span className="filter-tab-count">{searchedKeys.length}</span>
@@ -644,7 +658,13 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
             <div ref={productMenuRef} className="relative">
               <button
                 type="button"
-                onClick={() => setIsProductMenuOpen(!isProductMenuOpen)}
+                onClick={(e) => {
+                  // The tab strip scrolls (overflow clips children), so the menu is rendered in a
+                  // portal at a fixed position under this button instead of inside the strip.
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setProductMenuPos({ top: r.bottom + 8, left: Math.min(r.left, window.innerWidth - 216) });
+                  setIsProductMenuOpen(!isProductMenuOpen);
+                }}
                 className={`filter-tab ${filterProductId !== 'all' ? 'filter-tab-active' : ''}`}
               >
                 <Layers className="w-3.5 h-3.5" />
@@ -656,8 +676,8 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
                 <ChevronDown className={`w-3.5 h-3.5 opacity-50 transition-transform ${isProductMenuOpen ? 'rotate-180' : ''}`} />
               </button>
 
-              {isProductMenuOpen && (
-                <div className="absolute top-full left-0 mt-2 w-52 z-50 animate-fade-in">
+              {isProductMenuOpen && productMenuPos && createPortal(
+                <div ref={productMenuPortalRef} className="fixed w-52 z-50 animate-fade-in" style={{ top: productMenuPos.top, left: productMenuPos.left }}>
                   <div className="menu-panel">
                     {productFilterOptionsFor(panel).map(opt => (
                       <button
@@ -675,10 +695,11 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
                       </button>
                     ))}
                   </div>
-                </div>
+                </div>,
+                document.body
               )}
             </div>
-          </div>
+          </ScrollableTabs>
 
           <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
             <div className="relative flex-1 xl:w-[240px]">
