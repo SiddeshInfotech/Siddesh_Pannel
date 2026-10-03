@@ -120,7 +120,7 @@ export default function AppleDatePicker({ value, onChange, placeholder = 'mm/dd/
 
   const handleDateSelect = (day: number, isPrev: boolean, isNext: boolean, e: React.MouseEvent) => {
     e.stopPropagation();
-    let year = currentMonth.getFullYear();
+    const year = currentMonth.getFullYear();
     let month = currentMonth.getMonth();
     
     if (isPrev) month -= 1;

@@ -7,7 +7,7 @@ import { randomInt } from 'crypto';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { indianAcademicYear } from '@/lib/entity';
-import { PRODUCT_ID_ENUM, DEFAULT_PRODUCT_ID, productDisplayName, isProductId, panelFor } from '@/lib/productIdentity';
+import { PRODUCT_ID_ENUM, DEFAULT_PRODUCT_ID, productDisplayName, panelFor } from '@/lib/productIdentity';
 import {
   DEVICE_CLASS_ENUM,
   DEVICE_CLASS_STANDARD,
@@ -18,7 +18,6 @@ import {
   DEFAULT_PANEL_ACTIVATION_WINDOW_DAYS,
   MAX_PANEL_ACTIVATION_WINDOW_DAYS,
   PANEL_MIGRATION_FILE,
-  type DeviceClass,
 } from '@/lib/deviceClass';
 import { adminDb } from '@/lib/panelTables';
 
@@ -368,53 +367,6 @@ export async function resetDeviceBinding(id: string): Promise<ActionResult> {
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'RESET_DEVICE_BINDING_CRITICAL_ERROR', keyId: id }, err);
-    return fail(GENERIC_ERROR);
-  }
-}
-
-// Change an existing key between Standard and Interactive panel (e.g. keys generated before
-// this option existed). SECURITY: admin-only + audit-logged; Android products only. Takes
-// effect at the key's NEXT activation — an already-activated device keeps the licence it was
-// signed at activation, so to apply it to a bound device use Reset Device Binding as well.
-export async function setKeyDeviceClass(id: string, deviceClass: string): Promise<ActionResult> {
-  const session = await getAdminSession();
-  if (!session) return fail('Unauthorized. Please sign in again.');
-  if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
-  if (!(DEVICE_CLASS_ENUM as readonly string[]).includes(deviceClass)) return fail(GENERIC_ERROR);
-  const next = deviceClass as DeviceClass;
-
-  try {
-    const { data: existing, error: readError } = await (await adminDb())
-      .from('activation_keys')
-      .select('product_id')
-      .eq('id', id)
-      .single();
-    if (readError || !existing) return fail(GENERIC_ERROR);
-
-    const productId = isProductId(existing.product_id) ? existing.product_id : DEFAULT_PRODUCT_ID;
-    if (!deviceClassAllowedFor(productId, next)) {
-      return fail(`Interactive-panel keys are only available for Android products (this key is ${productDisplayName(productId)}).`);
-    }
-
-    const { error } = await (await adminDb())
-      .from('activation_keys')
-      .update(next === DEVICE_CLASS_MANAGED_PANEL
-        // A key switched to panel gets a fresh activation window (applies only while unbound).
-        ? { device_class: DEVICE_CLASS_MANAGED_PANEL, enrollment_expires_at: panelWindowEnd(DEFAULT_PANEL_ACTIVATION_WINDOW_DAYS) }
-        : { device_class: null, enrollment_expires_at: null })
-      .eq('id', id);
-
-    if (error) {
-      if (isMissingColumnError(error)) return fail(DEVICE_CLASS_MIGRATION_MSG);
-      logger.error({ event: 'SET_KEY_DEVICE_CLASS_DB_ERROR', keyId: id }, error);
-      return fail(GENERIC_ERROR);
-    }
-
-    logger.info({ event: 'SET_KEY_DEVICE_CLASS', keyId: id, deviceClass: next, adminEmail: session.email });
-    revalidatePath('/keys');
-    return ok(undefined);
-  } catch (err: unknown) {
-    logger.error({ event: 'SET_KEY_DEVICE_CLASS_CRITICAL_ERROR', keyId: id }, err);
     return fail(GENERIC_ERROR);
   }
 }

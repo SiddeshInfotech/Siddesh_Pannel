@@ -4,14 +4,13 @@ import React, { useState, useTransition } from 'react';
 import { 
   School as SchoolIcon, 
   Plus, 
-  ChevronRight,
   Edit2,
   Trash2,
   AlertTriangle,
   X
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
-import StatusBadge from '@/components/StatusBadge';
+import StatusBadge, { type StatusType } from '@/components/StatusBadge';
 import Link from 'next/link';
 import { deleteSchoolAction } from './actions';
 import { useToast } from '@/components/Toast';
@@ -140,7 +139,7 @@ export default function SchoolsClient({ initialSchools }: SchoolsClientProps) {
                       {sch.devicesUsed}
                     </td>
                     <td className="py-4 px-3.5">
-                      <StatusBadge status={sch.status as any} />
+                      <StatusBadge status={sch.status as StatusType} />
                     </td>
                     <td className="py-4 px-3.5">
                       <div>

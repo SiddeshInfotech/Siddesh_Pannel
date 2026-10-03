@@ -3,7 +3,6 @@
 import React, { useState, useTransition, useRef, useEffect } from 'react';
 import { 
   Key, 
-  School as SchoolIcon, 
   Calendar, 
   Lock, 
   ShieldAlert,
@@ -32,10 +31,10 @@ import EntityAvatar from '@/components/EntityAvatar';
 import GlassCard from '@/components/GlassCard';
 import StatusBadge from '@/components/StatusBadge';
 import AppleDatePicker from '@/components/AppleDatePicker';
-import { createActivationKeys, deleteActivationKey, resetDeviceBinding, setKeyDeviceClass } from './actions';
+import { createActivationKeys, deleteActivationKey, resetDeviceBinding } from './actions';
 import { useToast } from '@/components/Toast';
 import CustomSelect from '@/components/CustomSelect';
-import { DEFAULT_PRODUCT_ID, productDisplayName, ProductId, isProductId, targetOsFor, productsForPanel, defaultProductForPanel, productFilterOptionsFor } from '@/lib/productIdentity';
+import { productDisplayName, ProductId, targetOsFor, productsForPanel, defaultProductForPanel, productFilterOptionsFor } from '@/lib/productIdentity';
 import {
   DEVICE_CLASS_OPTIONS,
   DEVICE_CLASS_STANDARD,
@@ -45,11 +44,6 @@ import {
   deviceClassLabel,
   type DeviceClass,
 } from '@/lib/deviceClass';
-
-/** Interactive-panel keys exist only for Android products; an unset product is legacy School Android. */
-function isAndroidProduct(productId: string | null | undefined): boolean {
-  return targetOsFor(isProductId(productId) ? productId : DEFAULT_PRODUCT_ID) === 'ANDROID';
-}
 
 /** Product label with the device type appended for panel keys (key list, batch PDF). */
 function productWithDeviceClass(productId: string | null | undefined, deviceClass: string | null | undefined): string {
@@ -104,10 +98,6 @@ interface KeysClientProps {
 // is virtualized, so both mount a bounded slice and grow on demand instead of rendering
 // every key up front (which froze the page once batch generation became possible).
 const RESULTS_PAGE_SIZE = 100;
-const BATCH_KEYS_PAGE_SIZE = 25;
-// Past this size a batch isn't practical to read on screen, so its PDF export is always
-// offered — not just for the batch that happens to have been generated this session.
-const PDF_EXPORT_MIN_KEYS = 10;
 
 export default function KeysClient({ schools, keys, vendors, parents, panel }: KeysClientProps) {
   const { toast } = useToast();
@@ -189,11 +179,6 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
   // rendering every row at once locks the browser up, so only a slice is in the DOM and
   // the full list is delivered by the PDF.
   const [resultsVisibleCount, setResultsVisibleCount] = useState(RESULTS_PAGE_SIZE);
-  // Per-batch expansion in the history list below, keyed by batch id.
-  const [batchVisibleCounts, setBatchVisibleCounts] = useState<Record<string, number>>({});
-  // Per-batch collapse (chevron in the batch header). Absent = expanded, so every batch
-  // still opens by default exactly as before.
-  const [collapsedBatches, setCollapsedBatches] = useState<Record<string, boolean>>({});
   const [copiedKeyIndex, setCopiedKeyIndex] = useState<number | null>(null);
   // Two-level filter (image 2): first pick the entity TYPE, then a specific entity
   // of that type (or all of that type). filterSchoolId holds the selected entity name.
@@ -204,10 +189,11 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
   // leaked recording) — lets an admin trace a leak straight back to the bound tablet.
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Real-time ticking state for exact countdown displays
-  const [currentTime, setCurrentTime] = useState(new Date());
+  // Current time for the 'Expired' status, refreshed each minute (Date.now() can't run during
+  // render, and a per-second tick would re-render the whole key list for nothing).
+  const [now, setNow] = useState(() => Date.now());
   React.useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -381,6 +367,10 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
 
         setKeyList(prev => [...newKeyRows, ...prev]);
         setGeneratedKeys(issuedKeys);
+        if (issuedKeys.length > 0) {
+          setShowGeneratedPopup(true);
+          setShowKeyForm(false);
+        }
         setResultsVisibleCount(RESULTS_PAGE_SIZE); // fresh batch — start from the top slice again
         setWasBatchGeneration(isVendorBatch);
         setLastBatchMeta(isVendorBatch ? {
@@ -418,31 +408,6 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
       toast('Activation key deleted successfully.', 'success');
       setShowConfirmModal(false);
       setKeyToDelete(null);
-    });
-  };
-
-  // Switch an existing key between Standard and Interactive panel. Applies at the key's next
-  // activation, so a key already bound to a device also needs Reset Device Binding.
-  const toggleDeviceClass = (k: KeyRow) => {
-    const next: DeviceClass = k.deviceClass === DEVICE_CLASS_MANAGED_PANEL ? DEVICE_CLASS_STANDARD : DEVICE_CLASS_MANAGED_PANEL;
-    const boundNote = k.deviceFingerprint
-      ? '\n\nThis key is already bound to a device. The change applies at the next activation — use Reset Device Binding, then activate again on the panel.'
-      : '';
-    const message = next === DEVICE_CLASS_MANAGED_PANEL
-      ? `Mark ${k.key} as an INTERACTIVE PANEL key?\n\nAny Android panel activated with it is accepted without Google hardware attestation and may play video on panel firmware with a root binary. Use only for classroom panels.${boundNote}`
-      : `Change ${k.key} back to a STANDARD key (full security)?${boundNote}`;
-    if (!window.confirm(message)) return;
-
-    startTransition(async () => {
-      const res = await setKeyDeviceClass(k.id, next);
-      if (!res.ok) {
-        toast(res.error, 'error');
-        return;
-      }
-      setKeyList(prev => prev.map(x => x.id === k.id
-        ? { ...x, deviceClass: next === DEVICE_CLASS_MANAGED_PANEL ? DEVICE_CLASS_MANAGED_PANEL : null }
-        : x));
-      toast(`${k.key} is now a ${deviceClassLabel(next)} key.`, 'success');
     });
   };
 
@@ -507,28 +472,6 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
   const keyEntityType = (k: KeyRow): 'School' | 'Vendor' | 'Parent' =>
     k.vendorId ? 'Vendor' : k.parentId ? 'Parent' : 'School';
 
-  // Entity names available for the second dropdown, scoped to the chosen type.
-  const keySchools = React.useMemo(() => {
-    const unique = new Map<string, string>();
-    keyList.forEach(k => {
-      if (filterEntityType !== 'all' && keyEntityType(k) !== filterEntityType) return;
-      unique.set(k.entityName, k.entityName);
-    });
-    return Array.from(unique.keys()).sort();
-  }, [keyList, filterEntityType]);
-
-  const filterOptions = React.useMemo(() => {
-    const allLabel =
-      filterEntityType === 'School' ? 'All Schools'
-      : filterEntityType === 'Vendor' ? 'All Vendors'
-      : filterEntityType === 'Parent' ? 'All Parents'
-      : 'All Entities';
-    return [
-      { value: 'all', label: allLabel },
-      ...keySchools.map(name => ({ value: name, label: name }))
-    ];
-  }, [keySchools, filterEntityType]);
-
   const filteredKeyList = React.useMemo(() => {
     let list = keyList;
     if (filterEntityType !== 'all') list = list.filter(k => keyEntityType(k) === filterEntityType);
@@ -548,22 +491,6 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
     return list;
   }, [keyList, filterEntityType, filterSchoolId, searchQuery, filterProductId]);
 
-  const batches = React.useMemo(() => {
-    const map: { [key: string]: { id: string; entityName: string; createdAt: string; keys: KeyRow[] } } = {};
-    filteredKeyList.forEach(k => {
-      const batchKey = k.batchId || `legacy-${k.entityName}-${k.createdAt}`;
-      if (!map[batchKey]) {
-        map[batchKey] = {
-          id: batchKey,
-          entityName: k.entityName,
-          createdAt: k.createdAt,
-          keys: []
-        };
-      }
-      map[batchKey].keys.push(k);
-    });
-    return Object.values(map);
-  }, [filteredKeyList]);
   // New state for popup modal form & generated keys popup
   const [showKeyForm, setShowKeyForm] = useState(false);
   const [showGeneratedPopup, setShowGeneratedPopup] = useState(false);
@@ -574,10 +501,13 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
   const rowsPerPage = 15;
   const productMenuRef = useRef<HTMLDivElement>(null);
 
-  // Reset page when filters change
-  useEffect(() => {
+  // Reset page when filters change (adjusted during render — no cascading effect render)
+  const filterKey = JSON.stringify([filterEntityType, filterSchoolId, filterProductId, statusFilter, filterDate, panel, searchQuery]);
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey);
     setCurrentPage(1);
-  }, [filterEntityType, filterSchoolId, filterProductId, statusFilter, filterDate, panel, searchQuery]);
+  }
 
   // Close custom dropdown when clicking outside
   useEffect(() => {
@@ -594,14 +524,14 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
     setShowKeyForm(false);
   };
 
-  const keyMatchesStatus = (k: KeyRow, status: typeof statusFilter): boolean => {
+  const keyMatchesStatus = React.useCallback((k: KeyRow, status: typeof statusFilter): boolean => {
     const s = (k.status || '').toLowerCase();
     if (status === 'Expired') {
-      if (k.expiresAt && new Date(k.expiresAt).getTime() < Date.now()) return true;
+      if (k.expiresAt && new Date(k.expiresAt).getTime() < now) return true;
       if (k.activatedAt && !k.expiresAt) {
         const activeDate = new Date(k.activatedAt).getTime();
         const durationMs = k.durationDays * 24 * 60 * 60 * 1000;
-        if (activeDate + durationMs < Date.now()) return true;
+        if (activeDate + durationMs < now) return true;
       }
       return false;
     }
@@ -610,7 +540,7 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
     if (status === 'Unpaid') return s === 'unpaid';
     if (status === 'Revoked') return s === 'revoked';
     return true;
-  };
+  }, [now]);
 
   // Tab counts follow the search box (not the other tabs), so each number matches its tab.
   const searchedKeys = React.useMemo(() => {
@@ -643,7 +573,7 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
     }
 
     return list;
-  }, [filteredKeyList, statusFilter, filterDate]);
+  }, [filteredKeyList, statusFilter, filterDate, keyMatchesStatus]);
 
   const totalPages = Math.ceil(tableKeys.length / rowsPerPage);
   const paginatedKeys = React.useMemo(() => {
@@ -674,13 +604,6 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
     handleGenerate(e);
   };
 
-  // Show popup when new keys are generated
-  React.useEffect(() => {
-    if (generatedKeys.length > 0) {
-      setShowGeneratedPopup(true);
-      setShowKeyForm(false);
-    }
-  }, [generatedKeys]);
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto relative">

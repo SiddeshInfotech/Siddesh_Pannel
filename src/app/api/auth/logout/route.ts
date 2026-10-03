@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { COOKIE_NAME, clearAuthCookie, verifyAdminToken } from '@/lib/auth';
+import { invalidateSession } from '@/lib/sessionCache';
 import { supabaseFor } from '@/lib/supabase';
 
 /**
@@ -59,6 +60,8 @@ export async function POST(req: NextRequest) {
           .from('admin_sessions')
           .update({ revoked: true })
           .eq('session_id', session.sid);
+        // Refuse this session immediately on this server instance (no cache grace period).
+        invalidateSession(session.panel, session.sid);
       }
     }
   } catch (err) {

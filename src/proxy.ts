@@ -27,9 +27,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify, importSPKI } from 'jose';
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-import { verifyAdminToken, COOKIE_NAME } from './lib/auth';
-import { supabaseFor } from './lib/supabase';
+import { checkSessionInDb, COOKIE_NAME } from './lib/auth';
+import { isSessionLiveCached } from './lib/sessionCache';
 import { BASE_PATH } from './lib/appPanel';
 import { logger } from './lib/logger';
 
@@ -259,7 +258,7 @@ export async function proxy(req: NextRequest) {
     // A pre-MFA challenge token (purpose:'mfa-challenge', no sid/role) is signed
     // with the same key/issuer/audience but must NEVER grant page/API access.
     // Require an explicit admin-session token. Fail closed.
-    if (purpose !== 'admin-session' || role !== 'administrator' || !sid || !tokenPanel) {
+    if (purpose !== 'admin-session' || role !== 'administrator' || !sid || !tokenPanel || typeof email !== 'string' || !email) {
       console.error('[proxy] Access blocked: token is not a valid admin session.');
       const response = pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
@@ -270,62 +269,19 @@ export async function proxy(req: NextRequest) {
       return injectSecurityHeaders(response, true);
     }
 
-    const authDb = supabaseFor(tokenPanel);
-
-    // ── Admin Allowlist (multi-admin) ──────────────────────────────────────
-    // The panel supports up to 5 co-equal administrators. Grant access to any
-    // JWT whose email matches a row in admin_users (case-insensitive). This
-    // replaces the previous single-admin lock that only accepted the
-    // first-created account. Session revocation/expiry is still enforced below.
-    const { data: adminUsers, error: queryError } = await authDb
-      .from('admin_users')
-      .select('email')
-      .ilike('email', email)
-      .limit(1);
-
-    const adminUser = adminUsers?.[0];
-    if (queryError || !adminUser) {
-      console.error('[proxy] Access blocked: JWT email is not a registered admin.');
-
+    // ── Live-session check (admin allowlist + admin_sessions row; fail closed) ──
+    // Briefly cached with background re-validation (src/lib/sessionCache.ts) so page
+    // navigation does not wait on the database each click. Signature/expiry above are
+    // still verified on every request.
+    if (!(await isSessionLiveCached({ panel: tokenPanel, sid, email }, checkSessionInDb))) {
+      console.error('[proxy] Session revoked, expired, removed, or unverifiable.');
       const response = pathname.startsWith('/api/')
-        ? NextResponse.json({ error: 'Unauthorized email.' }, { status: 401 })
+        ? NextResponse.json({ error: 'Session revoked or expired.' }, { status: 401 })
         : NextResponse.redirect(new URL(`${BASE_PATH}/`, req.url));
-      
       response.cookies.set(COOKIE_NAME, '', {
-        maxAge: 0,
-        path: '/',
-        secure: isProd,
-        httpOnly: true,
-        sameSite: 'strict',
+        maxAge: 0, path: '/', secure: isProd, httpOnly: true, sameSite: 'strict',
       });
       return injectSecurityHeaders(response, true);
-    }
-
-    // Stateful session check in database (mandatory — sid is guaranteed present
-    // by the token-type gate above; fail closed on any error/miss).
-    {
-      const { data: session, error: sessionError } = await authDb
-        .from('admin_sessions')
-        .select('revoked, expires_at')
-        .eq('session_id', sid)
-        .maybeSingle();
-
-      if (sessionError || !session || session.revoked || new Date() > new Date(session.expires_at)) {
-        console.error('[proxy] Session revoked, expired, or unverifiable.');
-
-        const response = pathname.startsWith('/api/')
-          ? NextResponse.json({ error: 'Session revoked or expired.' }, { status: 401 })
-          : NextResponse.redirect(new URL(`${BASE_PATH}/`, req.url));
-
-        response.cookies.set(COOKIE_NAME, '', {
-          maxAge: 0,
-          path: '/',
-          secure: isProd,
-          httpOnly: true,
-          sameSite: 'strict',
-        });
-        return injectSecurityHeaders(response, true);
-      }
     }
 
     return injectSecurityHeaders(pageNext(), true);

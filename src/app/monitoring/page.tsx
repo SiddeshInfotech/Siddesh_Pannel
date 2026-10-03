@@ -52,9 +52,14 @@ async function fetchActivatedKeys(includeTier: boolean) {
 
 // Pre-activation consent records, keyed by device fingerprint. Best-effort: if the
 // terms_acceptances table isn't migrated yet (scripts/add_terms_acceptances.sql),
+
+// Rows from the untyped Supabase client (select strings are built at runtime per panel).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DbRow = Record<string, any>;
+
 // PostgREST 400s — we swallow it and every device just shows "Not recorded".
-async function fetchTermsAcceptances(fingerprints: string[]): Promise<Map<string, any>> {
-  const map = new Map<string, any>();
+async function fetchTermsAcceptances(fingerprints: string[]): Promise<Map<string, DbRow>> {
+  const map = new Map<string, DbRow>();
   if (fingerprints.length === 0) return map;
   const { data, error } = await (await adminDb())
     .from('terms_acceptances')
@@ -141,22 +146,23 @@ async function fetchAttestationIssues(fingerprints: string[]): Promise<Map<strin
 }
 
 async function getDevicesData() {
-  let { data: keys, error } = await fetchActivatedKeys(true);
-  if (error) {
+  const first = await fetchActivatedKeys(true);
+  let keys = first.data;
+  if (first.error) {
     // Most likely the security_tier column isn't migrated yet — fall back gracefully.
     ({ data: keys } = await fetchActivatedKeys(false));
   }
 
   const fingerprints = (keys ?? [])
-    .map((k: any) => k.device_fingerprint)
-    .filter((f: any): f is string => !!f);
+    .map((k: DbRow) => k.device_fingerprint)
+    .filter((f: unknown): f is string => typeof f === 'string' && !!f);
   const termsByFp = await fetchTermsAcceptances(fingerprints);
   const keyIds = ((keys ?? []) as unknown as Array<{ id: string }>).map((k) => k.id).filter((id) => !!id);
   const tamperById = await fetchTamperFlags(keyIds);
   const deviceClassById = await fetchDeviceClasses(keyIds);
   const attestationIssueByFp = await fetchAttestationIssues(fingerprints);
 
-  return (keys ?? []).map((k: any ) => {
+  return (keys ?? []).map((k: DbRow) => {
     const terms = k.device_fingerprint ? termsByFp.get(k.device_fingerprint) : undefined;
     const tamper = tamperById.get(k.id);
     const attestationIssue = k.device_fingerprint ? attestationIssueByFp.get(k.device_fingerprint) ?? null : null;

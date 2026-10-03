@@ -9,6 +9,8 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    ".next-lab/**", // old Lab-Admin build output (that separate app no longer exists)
+    ".next-lab/**", // old Lab-Admin build output (that separate app no longer exists)
     "out/**",
     "build/**",
     "next-env.d.ts",

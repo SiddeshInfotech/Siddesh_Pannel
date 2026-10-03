@@ -17,6 +17,7 @@ import { NextResponse } from 'next/server';
 import { cache } from 'react';
 import { supabaseFor, type Panel } from './supabase';
 import { logger } from './logger';
+import { isSessionLiveCached, type SessionKey } from './sessionCache';
 
 const isProd = process.env.NODE_ENV === 'production';
 // One app serves both panels: a single session cookie whose signed `panel` claim picks
@@ -164,7 +165,7 @@ export async function verifyAdminToken(
     // pre-MFA challenge token shares the signing key/issuer/audience but carries
     // purpose:'mfa-challenge' and no sid/role — reject anything that isn't an
     // explicit admin-session. Fail CLOSED.
-    if (purpose !== 'admin-session' || role !== 'administrator' || !sid) {
+    if (purpose !== 'admin-session' || role !== 'administrator' || !sid || typeof email !== 'string' || !email) {
       logger.warn({ event: 'TOKEN_REJECTED_WRONG_TYPE', purpose: purpose ?? null, hasSid: !!sid });
       return null;
     }
@@ -176,23 +177,11 @@ export async function verifyAdminToken(
       return null;
     }
 
-    // ── Stateful revocation check (mandatory; fail closed) ────────────────────
-    // Sessions live in the database of the panel that issued them (LMS-Admin or Lab-Admin).
-    const { data: session, error } = await supabaseFor(panel)
-      .from('admin_sessions')
-      .select('revoked, expires_at')
-      .eq('session_id', sid)
-      .maybeSingle();
-
-    if (error || !session) {
-      // No silent stateless fallback: if we cannot positively confirm the
-      // session is live, deny. (The admin_sessions table is a hard dependency.)
-      logger.error({ event: 'SESSION_LOOKUP_FAILED', sid, error: error?.message ?? 'no-row' });
+    // ── Stateful check (mandatory; fail closed) ──────────────────────────────
+    // The account must still be an admin of that panel and the session row must be live and
+    // unexpired. Briefly cached (src/lib/sessionCache.ts) so page navigation stays fast.
+    if (!(await isSessionLiveCached({ panel, sid, email }, checkSessionInDb))) {
       return null;
-    }
-
-    if (session.revoked || new Date() > new Date(session.expires_at)) {
-      return null; // Session is revoked or expired
     }
 
     logger.info({ event: 'TOKEN_VERIFIED', adminId: sid });
@@ -201,6 +190,27 @@ export async function verifyAdminToken(
     console.error('❌ verifyAdminToken failed:', err);
     return null;
   }
+}
+
+/**
+ * The uncached database check behind every session: the email is still a registered admin of
+ * the token's panel, and the session row exists, is not revoked and has not expired.
+ * Both queries run in parallel. Throws on a database error (the cache treats that as not live).
+ */
+export async function checkSessionInDb({ panel, sid, email }: SessionKey): Promise<{ live: boolean; expiresAt?: number }> {
+  const db = supabaseFor(panel);
+  const [admins, sessions] = await Promise.all([
+    db.from('admin_users').select('email').ilike('email', email).limit(1),
+    db.from('admin_sessions').select('revoked, expires_at').eq('session_id', sid).maybeSingle(),
+  ]);
+  if (admins.error || sessions.error) {
+    logger.error({ event: 'SESSION_LOOKUP_FAILED', sid, error: admins.error?.message ?? sessions.error?.message });
+    throw new Error('Session lookup failed');
+  }
+  const session = sessions.data;
+  if (!admins.data?.[0] || !session || session.revoked) return { live: false };
+  const expiresAt = new Date(session.expires_at).getTime();
+  return Number.isFinite(expiresAt) && Date.now() < expiresAt ? { live: true, expiresAt } : { live: false };
 }
 
 /**

@@ -68,7 +68,7 @@ describe('activation matrix: license product vs client product', () => {
     ['LMS_LAB_LINUX', 'LMS_LAB_LINUX'],
   ];
   it.each(PASS_CASES)('license %s + app %s → PASS', (license, client) => {
-    const result = checkProductMatch(license, client as any);
+    const result = checkProductMatch(license, client as Parameters<typeof checkProductMatch>[1]);
     expect(result.ok).toBe(true);
   });
 
@@ -81,7 +81,7 @@ describe('activation matrix: license product vs client product', () => {
     ['LMS_LAB_ANDROID', 'LMS_LAB_WINDOWS'],
   ];
   it.each(FAIL_CASES)('license %s + app %s → FAIL', (license, client) => {
-    const result = checkProductMatch(license, client as any);
+    const result = checkProductMatch(license, client as Parameters<typeof checkProductMatch>[1]);
     expect(result.ok).toBe(false);
   });
 

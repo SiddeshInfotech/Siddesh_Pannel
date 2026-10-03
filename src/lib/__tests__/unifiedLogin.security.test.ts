@@ -24,8 +24,10 @@ function builder(table: string) {
 
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({ from: builder, rpc: vi.fn() }) }));
 vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => undefined }) }));
+vi.mock('next/server', () => ({ NextResponse: {}, after: () => { throw new Error('no request scope'); } }));
 
 let auth: typeof import('../auth');
+let cache: typeof import('../sessionCache');
 let privateKey: CryptoKey;
 
 beforeAll(async () => {
@@ -36,13 +38,18 @@ beforeAll(async () => {
   privateKey = pair.privateKey;
   process.env.ADMIN_JWT_PRIVATE_KEY = await exportPKCS8(pair.privateKey);
   auth = await import('../auth');
+  cache = await import('../sessionCache');
 });
 
 const future = () => new Date(Date.now() + 3600_000).toISOString();
 
 beforeEach(() => {
   for (const k of Object.keys(tables)) delete tables[k];
+  // Every session test runs against a registered admin of both panels unless it says otherwise.
+  tables.admin_users = [{ email: 'a@x.com' }];
+  tables.lab_admin_users = [{ email: 'lab@x.com' }];
   touched.length = 0;
+  cache._resetSessionCache();
 });
 
 /** A token signed with the real key but crafted claims (what an insider/bug could produce). */
@@ -91,6 +98,12 @@ describe('session token: panel comes only from the signed claim', () => {
     expect(await auth.verifyAdminToken(none)).toBeNull();
   });
 
+  it('rejects a session whose admin account was removed', async () => {
+    tables.lab_admin_users = [];
+    tables.lab_admin_sessions = [{ session_id: 'sid-lab', revoked: false, expires_at: future() }];
+    expect(await auth.verifyAdminToken(await auth.signAdminToken('lab@x.com', 'sid-lab', 'lab'))).toBeNull();
+  });
+
   it('rejects a revoked session even with a valid signature', async () => {
     tables.lab_admin_sessions = [{ session_id: 'sid-lab', revoked: true, expires_at: future() }];
     expect(await auth.verifyAdminToken(await auth.signAdminToken('lab@x.com', 'sid-lab', 'lab'))).toBeNull();
@@ -117,6 +130,7 @@ describe('MFA challenge token', () => {
 
 describe('universal sign-in lookup', () => {
   it('finds a Lab admin and reports the Lab panel', async () => {
+    tables.admin_users = [];
     tables.lab_admin_users = [{ email: 'lab@x.com' }];
     const r = await auth.findAdminAccount('lab@x.com');
     expect(r.panel).toBe('lab');
@@ -124,6 +138,7 @@ describe('universal sign-in lookup', () => {
   });
 
   it('finds an LMS admin and reports the LMS panel', async () => {
+    tables.lab_admin_users = [];
     tables.admin_users = [{ email: 'lms@x.com' }];
     expect((await auth.findAdminAccount('lms@x.com')).panel).toBe('lms');
   });
@@ -139,6 +154,7 @@ describe('universal sign-in lookup', () => {
 
   it('always queries both tables, so timing does not reveal the panel', async () => {
     tables.admin_users = [{ email: 'lms@x.com' }];
+    tables.lab_admin_users = [];
     await auth.findAdminAccount('lms@x.com');
     expect(touched).toEqual(expect.arrayContaining(['admin_users', 'lab_admin_users']));
   });
