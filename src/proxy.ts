@@ -30,7 +30,7 @@ import { jwtVerify, importSPKI } from 'jose';
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import { verifyAdminToken, COOKIE_NAME } from './lib/auth';
 import { supabaseFor } from './lib/supabase';
-import { APP_PANEL, BASE_PATH } from './lib/appPanel';
+import { BASE_PATH } from './lib/appPanel';
 import { logger } from './lib/logger';
 
 // Must match auth.ts: admin JWTs are verified with the admin signing key
@@ -244,14 +244,14 @@ export async function proxy(req: NextRequest) {
     const { payload } = await jwtVerify(token, key, {
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
+      algorithms: ['ES256'],
     });
 
     const email = payload.email as string;
     const sid = payload.sid as string | undefined;
-    // Each admin app accepts only sessions of its own panel (LMS-Admin / Lab-Admin); the panel
-    // is a signed claim, and a token from the other app is treated like no session.
-    const authDb = supabaseFor(APP_PANEL);
-    const tokenPanel = payload.panel === 'lab' ? 'lab' : 'lms';
+    // One app serves both panels: the signed `panel` claim (must be exactly 'lms' or 'lab')
+    // picks the login/session tables. A missing or unknown claim is treated like no session.
+    const tokenPanel = payload.panel === 'lms' || payload.panel === 'lab' ? payload.panel : null;
     const role = payload.role as string | undefined;
     const purpose = payload.purpose as string | undefined;
 
@@ -259,7 +259,7 @@ export async function proxy(req: NextRequest) {
     // A pre-MFA challenge token (purpose:'mfa-challenge', no sid/role) is signed
     // with the same key/issuer/audience but must NEVER grant page/API access.
     // Require an explicit admin-session token. Fail closed.
-    if (purpose !== 'admin-session' || role !== 'administrator' || !sid || tokenPanel !== APP_PANEL) {
+    if (purpose !== 'admin-session' || role !== 'administrator' || !sid || !tokenPanel) {
       console.error('[proxy] Access blocked: token is not a valid admin session.');
       const response = pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
@@ -269,6 +269,8 @@ export async function proxy(req: NextRequest) {
       });
       return injectSecurityHeaders(response, true);
     }
+
+    const authDb = supabaseFor(tokenPanel);
 
     // ── Admin Allowlist (multi-admin) ──────────────────────────────────────
     // The panel supports up to 5 co-equal administrators. Grant access to any

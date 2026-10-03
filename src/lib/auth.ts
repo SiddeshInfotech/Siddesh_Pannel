@@ -17,14 +17,20 @@ import { NextResponse } from 'next/server';
 import { cache } from 'react';
 import { supabaseFor, type Panel } from './supabase';
 import { logger } from './logger';
-import { APP_PANEL } from './appPanel';
 
 const isProd = process.env.NODE_ENV === 'production';
-// One cookie per admin app (src/lib/appPanel.ts), so an LMS-Admin and a Lab-Admin session coexist
-// in the same browser. LMS-Admin keeps its original cookie name.
-const COOKIE_BASE = APP_PANEL === 'lab' ? 'lab_admin_token' : 'admin_token';
+// One app serves both panels: a single session cookie whose signed `panel` claim picks
+// LMS-Admin or Lab-Admin. LMS-Admin keeps its original cookie name.
+const COOKIE_BASE = 'admin_token';
 export const COOKIE_NAME = isProd ? `__Host-${COOKIE_BASE}` : COOKIE_BASE;
 const EXPIRY_SECONDS = 8 * 60 * 60; // 8 hours
+// Only ES256 is ever accepted — pinned so no other algorithm can be negotiated by a token header.
+const JWT_ALG = 'ES256';
+
+/** Strict panel claim: 'lms' | 'lab', anything else (incl. missing) → null. */
+function parsePanel(value: unknown): Panel | null {
+  return value === 'lms' || value === 'lab' ? value : null;
+}
 const JWT_ISSUER = 'siddesh-lms-admin';
 const JWT_AUDIENCE = 'siddesh-lms-client';
 
@@ -125,7 +131,7 @@ export async function signAdminToken(email: string, sessionId: string, panel: 'l
   // `panel` (admin_users.panel) decides which admin dashboard + table set this session uses
   // (src/lib/panelTables.ts). It is inside the signed token, so a client cannot switch it.
   return await new SignJWT({ email, role: 'administrator', sid: sessionId, purpose: 'admin-session', panel })
-    .setProtectedHeader({ alg: 'ES256' })
+    .setProtectedHeader({ alg: JWT_ALG })
     .setIssuedAt()
     .setIssuer(JWT_ISSUER)
     .setAudience(JWT_AUDIENCE)
@@ -144,14 +150,14 @@ export async function verifyAdminToken(
     const { payload } = await jwtVerify(token, key, {
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
+      algorithms: [JWT_ALG],
     });
 
     const email = payload.email as string;
     const sid = payload.sid as string | undefined;
     const role = payload.role as string | undefined;
     const purpose = payload.purpose as string | undefined;
-    // Sessions issued before the Lab-Admin split carry no panel claim: they are LMS-Admin.
-    const panel = payload.panel === 'lab' ? 'lab' : 'lms';
+    const panel = parsePanel(payload.panel);
 
     // ── Token-type gate (closes the MFA-challenge-token bypass) ───────────────
     // ONLY a fully-authenticated session token may stand in for a session. The
@@ -163,9 +169,10 @@ export async function verifyAdminToken(
       return null;
     }
 
-    // A session is valid only in the admin app that issued it (LMS-Admin vs Lab-Admin).
-    if (panel !== APP_PANEL) {
-      logger.warn({ event: 'TOKEN_REJECTED_WRONG_PANEL', panel, appPanel: APP_PANEL });
+    // The panel claim must be explicit: a token without one (or with an unknown value) is
+    // rejected, never defaulted to LMS-Admin.
+    if (!panel) {
+      logger.warn({ event: 'TOKEN_REJECTED_NO_PANEL' });
       return null;
     }
 
@@ -212,24 +219,12 @@ export const getAdminSession = cache(async (): Promise<{ email: string; role: st
 });
 
 /**
- * Panel ('lms' | 'lab') of the current request's admin token, from its signature-verified
- * claims only (no DB round trip) — used to pick the table set on every query. Authentication
- * itself is still enforced by getAdminSession() in each page/action. Null without a valid token.
+ * Panel ('lms' | 'lab') of the current request's admin session — the table set every query
+ * uses. Derived only from a fully verified session (signature + DB revocation/expiry check),
+ * never from the URL, body or an unsigned value. Null without a live session.
  */
-export const getAdminPanel = cache(async (): Promise<'lms' | 'lab' | null> => {
-  const token = (await cookies()).get(COOKIE_NAME)?.value;
-  if (!token) return null;
-  try {
-    const { payload } = await jwtVerify(token, await getVerificationKey(), {
-      issuer: JWT_ISSUER,
-      audience: JWT_AUDIENCE,
-    });
-    if (payload.purpose !== 'admin-session') return null;
-    const panel = payload.panel === 'lab' ? 'lab' : 'lms';
-    return panel === APP_PANEL ? panel : null;
-  } catch {
-    return null;
-  }
+export const getAdminPanel = cache(async (): Promise<Panel | null> => {
+  return (await getAdminSession())?.panel ?? null;
 });
 
 /**
@@ -290,16 +285,16 @@ export async function logSecurityEvent(
 }
 
 /**
- * Sign a 2-minute temporary challenge token for Phase 1 of MFA login.
+ * Sign a 1-minute temporary challenge token for Phase 1 of MFA login.
  */
 export async function signChallengeToken(email: string, nonce: string, panel: Panel): Promise<string> {
   const key = await getSigningKey();
   return await new SignJWT({ email, purpose: 'mfa-challenge', nonce, panel })
-    .setProtectedHeader({ alg: 'ES256' })
+    .setProtectedHeader({ alg: JWT_ALG })
     .setIssuedAt()
     .setIssuer(JWT_ISSUER)
     .setAudience(JWT_AUDIENCE)
-    .setExpirationTime('2m')
+    .setExpirationTime('1m')
     .sign(key);
 }
 
@@ -313,16 +308,20 @@ export async function verifyChallengeToken(token: string): Promise<any | null> {
     const { payload } = await jwtVerify(token, key, {
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
+      algorithms: [JWT_ALG],
     });
 
     if (payload.purpose !== 'mfa-challenge') {
       return { error: 'Invalid purpose' };
     }
 
+    const panel = parsePanel(payload.panel);
+    if (!panel) return { error: 'Missing panel' };
+
     return {
       email: payload.email as string,
       nonce: payload.nonce as string,
-      panel: (payload.panel === 'lab' ? 'lab' : 'lms') as Panel,
+      panel,
     };
   } catch (err: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
     console.error('❌ verifyChallengeToken failed:', err);
@@ -333,7 +332,7 @@ export async function verifyChallengeToken(token: string): Promise<any | null> {
 
 /**
  * Finds an admin account by email in ONE panel's login table (admin_users / lab_admin_users).
- * Each admin app signs in only its own panel's accounts (src/lib/appPanel.ts).
+ * Sign-in goes through findAdminAccount(), which searches both panels.
  */
 export async function findAdminUser(
   email: string,
@@ -356,4 +355,27 @@ export async function findAdminUser(
     .limit(1);
   if (error) return { user: null, error: error.message };
   return { user: data?.[0] ?? null, error: null };
+}
+
+/**
+ * Universal sign-in lookup: finds an admin account by email in BOTH login tables
+ * (admin_users and lab_admin_users) and says which panel it belongs to. Both lookups always
+ * run, so response time does not reveal which panel (if any) holds the email. An email present
+ * in both tables is ambiguous and is refused (never guessed).
+ */
+export async function findAdminAccount(
+  email: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<{ user: any | null; panel: Panel | null; error: string | null }> {
+  const [lms, lab] = await Promise.all([findAdminUser(email, 'lms'), findAdminUser(email, 'lab')]);
+  if (lms.error || lab.error) {
+    return { user: null, panel: null, error: lms.error ?? lab.error };
+  }
+  if (lms.user && lab.user) {
+    logger.error({ event: 'ADMIN_EMAIL_IN_BOTH_PANELS', email });
+    return { user: null, panel: null, error: 'Ambiguous account' };
+  }
+  if (lms.user) return { user: lms.user, panel: 'lms', error: null };
+  if (lab.user) return { user: lab.user, panel: 'lab', error: null };
+  return { user: null, panel: null, error: null };
 }

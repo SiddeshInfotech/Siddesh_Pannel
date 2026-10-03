@@ -16,10 +16,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { signAdminToken, setAuthCookie, logSecurityEvent, signChallengeToken, verifyChallengeToken, getAdminSession, findAdminUser } from '@/lib/auth';
+import { signAdminToken, setAuthCookie, logSecurityEvent, signChallengeToken, verifyChallengeToken, getAdminSession, findAdminAccount } from '@/lib/auth';
 import { verifyPassword, verifyTOTP, encryptAES, decryptAES, generateTOTPSecret, generateRecoveryCodes, hashRecoveryCode } from '@/lib/crypto';
 import { supabaseAdmin, supabaseFor } from '@/lib/supabase';
-import { APP_PANEL } from '@/lib/appPanel';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
@@ -193,12 +192,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Challenge expired. Please sign in again.' }, { status: 401 });
       }
 
-      // The challenge token carries (signed) which panel the account was found in; it must be
-      // this app's panel, so a challenge from the other admin app cannot finish here.
-      if (challenge.panel !== APP_PANEL) {
-        return NextResponse.json({ error: 'Challenge expired. Please sign in again.' }, { status: 401 });
-      }
-      const authPanel = APP_PANEL;
+      // The challenge token carries (signed, verified above) the panel the account was found
+      // in at password time; MFA and the session stay in that panel's tables.
+      const authPanel = challenge.panel;
       const authDb = supabaseFor(authPanel);
       const { data: adminUsers, error: queryError } = await authDb
         .from('admin_users')
@@ -396,20 +392,26 @@ export async function POST(req: NextRequest) {
     }
 
     const trimmedEmail = email.trim().toLowerCase();
-    // Each admin app (LMS-Admin / Lab-Admin, src/lib/appPanel.ts) signs in only its own panel's
-    // accounts; the panel is carried through the MFA challenge into the session token.
-    const authPanel = APP_PANEL;
-    const { user: matchedUser, error: lookupError } = await findAdminUser(trimmedEmail, authPanel);
-    const queryError = lookupError ? { message: lookupError } : null;
-    const authDb = supabaseFor(authPanel);
+    // Universal sign-in: the account's panel (LMS-Admin or Lab-Admin) is decided by which login
+    // table holds this email — never by the URL or request body. It is carried, signed, through
+    // the MFA challenge into the session token.
+    const { user: matchedUser, panel: foundPanel, error: lookupError } = await findAdminAccount(trimmedEmail);
 
-    if (queryError || !matchedUser || matchedUser.email.trim().toLowerCase() !== trimmedEmail) {
+    if (lookupError || !matchedUser || !foundPanel || matchedUser.email.trim().toLowerCase() !== trimmedEmail) {
       const fakeSalt = '00000000000000000000000000000000';
       const fakeHash = '00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000';
       await verifyPassword(password, fakeHash, fakeSalt);
-      await logSecurityEvent(trimmedEmail, 'FAILED_LOGIN_USER_NOT_FOUND', ip, req.headers.get('user-agent'), authPanel);
+      await logSecurityEvent(
+        trimmedEmail,
+        lookupError === 'Ambiguous account' ? 'FAILED_LOGIN_EMAIL_IN_BOTH_PANELS' : 'FAILED_LOGIN_USER_NOT_FOUND',
+        ip,
+        req.headers.get('user-agent'),
+        foundPanel ?? 'lms'
+      );
       return NextResponse.json({ error: 'Invalid credentials.' }, { status: 401 });
     }
+    const authPanel = foundPanel;
+    const authDb = supabaseFor(authPanel);
 
     // Check lockout status
     if (matchedUser.mfa_locked_until && new Date() < new Date(matchedUser.mfa_locked_until)) {

@@ -5,10 +5,9 @@ import Sidebar from '@/components/Sidebar';
 import { ToastProvider } from '@/components/Toast';
 import AuthWrapper from '@/components/AuthWrapper';
 import { getAdminSession } from '@/lib/auth';
-import { APP_PANEL } from '@/lib/appPanel';
 
 export const metadata: Metadata = {
-  title: `Siddesh Tech — ${APP_PANEL === 'lab' ? 'Lab' : 'LMS'} Admin Console`,
+  title: 'Siddesh Tech — Admin Console',
   description:
     'One calm, secure command centre for every school, vendor and parent we serve — issue licence keys, track payments, watch every device live and verify each cryptographic handshake, all in a clean interface built to feel effortless in light or dark.',
 };

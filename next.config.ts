@@ -10,23 +10,13 @@ import type { NextConfig } from "next";
 // uses basePath '/rotarydhuleconnect'). We proxy that zone under our own domain.
 const ROTARY_ZONE = 'https://custom-templete-palate.vercel.app';
 
-// The same code runs as two separate apps (src/lib/appPanel.ts):
-//   LMS-Admin — default          → basePath /lms-admin, build dir .next
-//   Lab-Admin — ADMIN_PANEL=lab  → basePath /lab-admin, build dir .next-lab
-// Separate build dirs let both dev servers run at once from this folder.
-const ADMIN_PANEL = process.env.ADMIN_PANEL === 'lab' ? 'lab' : 'lms';
-const BASE_PATH = ADMIN_PANEL === 'lab' ? '/lab-admin' : '/lms-admin';
-// Where the Lab-Admin app runs. The LMS-Admin app forwards /lab-admin/* there, like the rotary
-// zone below. Production: set LAB_ZONE_URL to the Lab-Admin Vercel URL. Local dev defaults to
-// `npm run dev:lab` on port 3001.
-const LAB_ZONE_URL = (
-  process.env.LAB_ZONE_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001')
-).replace(/\/+$/, '');
+// One app serves both admin panels under /lms-admin (src/lib/appPanel.ts). Which panel a
+// signed-in admin sees — LMS-Admin or Lab-Admin — comes from the signed `panel` claim in their
+// session token, decided at login by which login table holds their email.
+const BASE_PATH = '/lms-admin';
 
 const nextConfig: NextConfig = {
   basePath: BASE_PATH,
-  distDir: ADMIN_PANEL === 'lab' ? '.next-lab' : '.next',
-  env: { NEXT_PUBLIC_ADMIN_PANEL: ADMIN_PANEL },
   // Remove X-Powered-By: Next.js header — prevents tech stack fingerprinting
   poweredByHeader: false,
   // Keep the dev-only Next.js badge off the sidebar's bottom-left buttons.
@@ -37,17 +27,8 @@ const nextConfig: NextConfig = {
   // strips all CSS/JS from the proxied pages. `basePath: false` opts these paths out
   // of the '/lms-admin' prefix so they match at the domain root.
   async rewrites() {
-    // Zone forwarding lives only in the LMS-Admin app (the one serving the domain).
-    if (ADMIN_PANEL === 'lab') return { beforeFiles: [], afterFiles: [], fallback: [] };
-    const labZone = LAB_ZONE_URL
-      ? [
-          { source: '/lab-admin', destination: `${LAB_ZONE_URL}/lab-admin`, basePath: false as const },
-          { source: '/lab-admin/:path+', destination: `${LAB_ZONE_URL}/lab-admin/:path+`, basePath: false as const },
-        ]
-      : [];
     return {
       beforeFiles: [
-        ...labZone,
         {
           source: '/siddeshcomputers',
           destination: `${ROTARY_ZONE}/rotarydhuleconnect/siddeshcomputers`,
@@ -70,6 +51,9 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
+      // Lab-Admin no longer has its own app: its admins sign in at the universal /lms-admin login.
+      { source: '/lab-admin', destination: '/lms-admin', basePath: false, permanent: false },
+      { source: '/lab-admin/:path*', destination: '/lms-admin', basePath: false, permanent: false },
       // The Data page was renamed Accounts: old links and bookmarks keep working.
       { source: '/data', destination: '/accounts', permanent: true },
       { source: '/data/:path*', destination: '/accounts/:path*', permanent: true },
