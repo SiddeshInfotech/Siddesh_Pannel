@@ -14,7 +14,7 @@
 
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
-import { BASE_PATH } from '@/lib/appPanel';
+import { usePanelSlug } from '@/lib/usePanelPath';
 import { AuthProvider } from '@/context/AuthContext';
 import {
   Mail,
@@ -39,6 +39,7 @@ export default function AuthWrapper({
   children: React.ReactNode;
   sessionExists: boolean;
 }) {
+  const panelSlug = usePanelSlug();
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(sessionExists);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -139,7 +140,7 @@ export default function AuthWrapper({
         payload.password = password;
       }
 
-      const response = await fetch(`${BASE_PATH}/api/auth/login`, {
+      const response = await fetch(`/${panelSlug}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'same-origin',
@@ -193,7 +194,7 @@ export default function AuthWrapper({
   // ── Logout ────────────────────────────────────────────────────────────────
   const handleLogout = async () => {
     try {
-      await fetch(`${BASE_PATH}/api/auth/logout`, {
+      await fetch(`/${panelSlug}/api/auth/logout`, {
         method: 'POST',
         credentials: 'same-origin',
       });

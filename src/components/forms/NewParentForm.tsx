@@ -1,12 +1,12 @@
 'use client';
 
 import React, { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePanelRouter } from '@/lib/usePanelPath';
 import { 
   Check
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
-import { createParent } from '@/app/parents/new/actions';
+import { createParent } from '@/app/[panel]/parents/new/actions';
 import CustomSelect from '@/components/CustomSelect';
 import FormHeader, { FORM_INPUT_CLASS, FORM_GRID_CLASS, FORM_SAVE_BUTTON_CLASS } from './FormHeader';
 import { MAHARASHTRA_DISTRICTS, MAHARASHTRA_STATE } from '@/lib/constants';
@@ -22,7 +22,7 @@ export interface NewParentFormProps {
 export default function NewParentForm({ onClose, onSaved }: NewParentFormProps = {}) {
   const inModal = !!onClose;
   const { toast } = useToast();
-  const router = useRouter();
+  const router = usePanelRouter();
   const [isPending, startTransition] = useTransition();
 
   // Form states

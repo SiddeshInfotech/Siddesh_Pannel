@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import Link from 'next/link';
+import Link from '@/components/PanelLink';
 import { ChevronLeft } from 'lucide-react';
 
 /** Shared look of the Add Vendor / School / Parent forms (page and pop-up). */

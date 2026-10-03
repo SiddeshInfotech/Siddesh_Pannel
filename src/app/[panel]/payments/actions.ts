@@ -1,0 +1,276 @@
+'use server';
+
+import { revalidatePath } from 'next/cache';
+import { getAdminSession } from '@/lib/auth';
+import { sanitize } from '@/lib/sanitize';
+import { z } from 'zod';
+import { logger } from '@/lib/logger';
+import { randomInt } from 'crypto';
+import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
+import { indianAcademicYear } from '@/lib/entity';
+import { adminDb } from '@/lib/panelTables';
+
+// Activation keys are CREDENTIALS — generate the random portion with a CSPRNG
+// (crypto.randomInt is unbiased), never Math.random() which is predictable and
+// would let an attacker enumerate valid keys. 10 chars over a 32-symbol
+// unambiguous alphabet ≈ 50 bits of entropy.
+const KEY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+function generateActivationCode(len = 10): string {
+  let s = '';
+  for (let i = 0; i < len; i++) s += KEY_ALPHABET[randomInt(KEY_ALPHABET.length)];
+  return s;
+}
+
+const PaymentSchema = z.object({
+  entityType: z.enum(['School', 'Vendor', 'Individual']),
+  schoolId: z.string().optional(),
+  vendorId: z.string().optional(),
+  parentId: z.string().optional(),
+  amount: z.number({ message: 'Amount must be a number.' }).min(0, 'Amount cannot be negative.').max(100000000, 'Amount is too large.').optional(),
+  // Not applicable to Vendor: a vendor's payment is a licensing agreement, not a
+  // fixed pre-paid key count — vendors generate keys separately in the Keys tab
+  // (Single / Batch). See the entityType refine below for the School/Individual
+  // requirement this optionality carves an exception out of.
+  keysCount: z.number({ message: 'Keys count must be a number.' }).int('Keys count must be a whole number.').min(1, 'Generate at least 1 key.').max(10000, 'Keys count is too large.').optional(),
+  bankName: z.string().trim().max(120, 'Bank name is too long.').optional(),
+  transactionId: z.string().trim().max(120, 'Transaction ID is too long.').optional(),
+  paymentDate: z.string().min(1, 'Select a payment date.'),
+  status: z.enum(['Unpaid', 'Pending Approval', 'Paid'], { message: 'Select a valid status.' }),
+}).refine(data => {
+  if (data.entityType === 'School' && !data.schoolId) return false;
+  if (data.entityType === 'Vendor' && !data.vendorId) return false;
+  if (data.entityType === 'Individual' && !data.parentId) return false;
+  return true;
+}, { message: 'Select an entity.' }).refine(data => {
+  if (data.entityType !== 'Vendor' && (data.keysCount === undefined || data.keysCount === null)) return false;
+  return true;
+}, { message: 'Generate at least 1 key.', path: ['keysCount'] });
+
+/**
+ * Next sequential transaction ID (TXN-0000001, TXN-0000002, …) for this panel's payments.
+ * Older random IDs (e.g. TXN-QL6IFST) don't match the numeric pattern and are skipped.
+ */
+async function nextTransactionId(): Promise<string> {
+  const { data } = await (await adminDb())
+    .from('payments')
+    .select('transaction_id')
+    .like('transaction_id', 'TXN-%');
+  let max = 0;
+  for (const row of (data ?? []) as { transaction_id: string | null }[]) {
+    const m = /^TXN-(\d+)$/.exec(row.transaction_id ?? '');
+    if (m) max = Math.max(max, Number(m[1]));
+  }
+  return `TXN-${String(max + 1).padStart(7, '0')}`;
+}
+
+export async function createPayment(formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult> {
+  const session = await getAdminSession();
+  if (!session) return fail('Unauthorized. Please sign in again.');
+
+  const parsed = PaymentSchema.safeParse(formData);
+  if (!parsed.success) {
+    logger.warn({ event: 'CREATE_PAYMENT_VALIDATION_FAILED', errors: parsed.error.flatten() });
+    return fail(parsed.error.issues[0]?.message ?? 'Please check the form and try again.');
+  }
+
+  const validData = parsed.data;
+
+  try {
+    const generatedTxnId = validData.transactionId || (await nextTransactionId());
+
+    const { data: payment, error: paymentError } = await (await adminDb())
+      .from('payments')
+      .insert({
+        school_id: validData.entityType === 'School' ? validData.schoolId : null,
+        vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
+        parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
+        amount: validData.amount || 0,
+        // Vendor: not applicable — NULL (see vendor_payments_optional_keys_count.sql).
+        keys_count: validData.entityType === 'Vendor' ? null : validData.keysCount,
+        bank_name: sanitize(validData.bankName || '') || 'Bank Transfer',
+        transaction_id: sanitize(generatedTxnId),
+        payment_date: new Date(validData.paymentDate).toISOString(),
+        status: validData.status,
+      })
+      .select()
+      .single();
+
+    if (paymentError) {
+      logger.error({ event: 'CREATE_PAYMENT_DB_ERROR' }, paymentError);
+      return fail(GENERIC_ERROR);
+    }
+
+    let entityName = 'ENTITY';
+    if (validData.entityType === 'School') {
+      const { data: school } = await (await adminDb()).from('schools').select('name').eq('id', validData.schoolId).single();
+      if (school) entityName = school.name;
+    } else if (validData.entityType === 'Vendor') {
+      const { data: vendor } = await (await adminDb()).from('vendors').select('vendor_name').eq('vendor_id', validData.vendorId).single();
+      if (vendor) entityName = vendor.vendor_name;
+    } else if (validData.entityType === 'Individual') {
+      const { data: parent } = await (await adminDb()).from('parents').select('parent_name').eq('id', validData.parentId).single();
+      if (parent) entityName = parent.parent_name;
+    }
+
+    const sanitizedEntityName = entityName.replace(/[^a-zA-Z0-9]/g, '').toUpperCase().substring(0, 8);
+
+    // Auto-provision activation keys linked to this payment. Vendor is excluded: its
+    // keys_count is not applicable (validated null above) — a vendor generates its own
+    // keys later, in bulk, via the Keys tab (Single / Batch), gated on this payment
+    // being 'Paid', the same way School/Individual keys are gated when using that tab.
+    const keyStatus = validData.status === 'Paid' ? 'Paid' : 'Unpaid';
+    // Academic year of issuance — served back at activation as the entity's "year".
+    const academicYear = indianAcademicYear();
+    const keysToProvision = validData.entityType === 'Vendor' ? 0 : (validData.keysCount ?? 0);
+    const keyRows = Array.from({ length: keysToProvision }, () => {
+      return {
+        school_id: validData.entityType === 'School' ? validData.schoolId : null,
+        vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
+        parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
+        payment_id: payment.id,
+        key: `LMS-${sanitizedEntityName}-${generateActivationCode()}`,
+        status: keyStatus as 'Unpaid' | 'Paid',
+        duration_days: 365,
+        academic_year: academicYear,
+      };
+    });
+
+    if (keyRows.length > 0) {
+      await (await adminDb()).from('activation_keys').insert(keyRows);
+    }
+
+    if (keyStatus === 'Paid') {
+      if (validData.entityType === 'School') {
+        await (await adminDb()).from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
+      } else if (validData.entityType === 'Vendor') {
+        await (await adminDb()).from('vendors').update({ status: 'Active' }).eq('vendor_id', validData.vendorId);
+      } else if (validData.entityType === 'Individual') {
+        await (await adminDb()).from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
+      }
+    }
+
+    logger.info({ event: 'PAYMENT_CREATED', paymentId: payment.id, adminEmail: session.email });
+    revalidatePath('/[panel]/payments', 'page');
+    revalidatePath('/[panel]/keys', 'page');
+    revalidatePath('/[panel]/accounts', 'page');
+    return ok(undefined);
+  } catch (err: unknown) {
+    logger.error({ event: 'CREATE_PAYMENT_CRITICAL_ERROR' }, err);
+    return fail(GENERIC_ERROR);
+  }
+}
+
+export async function updatePayment(id: string, formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult> {
+  const session = await getAdminSession();
+  if (!session) return fail('Unauthorized. Please sign in again.');
+  if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
+
+  const parsed = PaymentSchema.safeParse(formData);
+  if (!parsed.success) {
+    logger.warn({ event: 'UPDATE_PAYMENT_VALIDATION_FAILED', errors: parsed.error.flatten() });
+    return fail(parsed.error.issues[0]?.message ?? 'Please check the form and try again.');
+  }
+
+  const validData = parsed.data;
+
+  try {
+    const { error } = await (await adminDb())
+      .from('payments')
+      .update({
+        school_id: validData.entityType === 'School' ? validData.schoolId : null,
+        vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
+        parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
+        amount: validData.amount || 0,
+        // Vendor: not applicable — NULL (see vendor_payments_optional_keys_count.sql).
+        keys_count: validData.entityType === 'Vendor' ? null : validData.keysCount,
+        bank_name: sanitize(validData.bankName || '') || 'Bank Transfer',
+        transaction_id: sanitize(validData.transactionId || '') || (await nextTransactionId()),
+        payment_date: new Date(validData.paymentDate).toISOString(),
+        status: validData.status,
+      })
+      .eq('id', id);
+
+    if (error) {
+      logger.error({ event: 'UPDATE_PAYMENT_DB_ERROR', paymentId: id }, error);
+      return fail(GENERIC_ERROR);
+    }
+
+    // Sync linked activation keys' status
+    const keyStatus = validData.status === 'Paid' ? 'Paid' : 'Unpaid';
+    await (await adminDb())
+      .from('activation_keys')
+      .update({
+        school_id: validData.entityType === 'School' ? validData.schoolId : null,
+        vendor_id: validData.entityType === 'Vendor' ? validData.vendorId : null,
+        parent_id: validData.entityType === 'Individual' ? validData.parentId : null,
+        status: keyStatus 
+      })
+      .eq('payment_id', id);
+
+    if (keyStatus === 'Paid') {
+      if (validData.entityType === 'School') {
+        await (await adminDb()).from('schools').update({ status: 'Active' }).eq('id', validData.schoolId);
+      } else if (validData.entityType === 'Vendor') {
+        await (await adminDb()).from('vendors').update({ status: 'Active' }).eq('vendor_id', validData.vendorId);
+      } else if (validData.entityType === 'Individual') {
+        await (await adminDb()).from('parents').update({ status: 'Active' }).eq('id', validData.parentId);
+      }
+    }
+
+    logger.info({ event: 'PAYMENT_UPDATED', paymentId: id, adminEmail: session.email });
+    revalidatePath('/[panel]/payments', 'page');
+    revalidatePath('/[panel]/keys', 'page');
+    revalidatePath('/[panel]/accounts', 'page');
+    return ok(undefined);
+  } catch (err: unknown) {
+    logger.error({ event: 'UPDATE_PAYMENT_CRITICAL_ERROR', paymentId: id }, err);
+    return fail(GENERIC_ERROR);
+  }
+}
+
+export async function deletePayment(id: string): Promise<ActionResult> {
+  const session = await getAdminSession();
+  if (!session) return fail('Unauthorized. Please sign in again.');
+  if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
+
+  try {
+    // Clean up linked activation keys first
+    await (await adminDb()).from('activation_keys').delete().eq('payment_id', id);
+
+    const { error } = await (await adminDb()).from('payments').delete().eq('id', id);
+    if (error) {
+      logger.error({ event: 'DELETE_PAYMENT_DB_ERROR', paymentId: id }, error);
+      return fail(GENERIC_ERROR);
+    }
+
+    logger.info({ event: 'PAYMENT_DELETED', paymentId: id, adminEmail: session.email });
+    revalidatePath('/[panel]/payments', 'page');
+    revalidatePath('/[panel]/keys', 'page');
+    return ok(undefined);
+  } catch (err: unknown) {
+    logger.error({ event: 'DELETE_PAYMENT_CRITICAL_ERROR', paymentId: id }, err);
+    return fail(GENERIC_ERROR);
+  }
+}
+
+export async function cancelPayment(id: string): Promise<ActionResult> {
+  const session = await getAdminSession();
+  if (!session) return fail('Unauthorized. Please sign in again.');
+  if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
+
+  try {
+    await (await adminDb()).from('payments').update({ status: 'Unpaid' }).eq('id', id);
+    await (await adminDb())
+      .from('activation_keys')
+      .update({ status: 'Unpaid' })
+      .eq('payment_id', id);
+
+    logger.info({ event: 'PAYMENT_CANCELLED', paymentId: id, adminEmail: session.email });
+    revalidatePath('/[panel]/payments', 'page');
+    revalidatePath('/[panel]/keys', 'page');
+    return ok(undefined);
+  } catch (err: unknown) {
+    logger.error({ event: 'CANCEL_PAYMENT_CRITICAL_ERROR', paymentId: id }, err);
+    return fail(GENERIC_ERROR);
+  }
+}

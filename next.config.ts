@@ -10,13 +10,12 @@ import type { NextConfig } from "next";
 // uses basePath '/rotarydhuleconnect'). We proxy that zone under our own domain.
 const ROTARY_ZONE = 'https://custom-templete-palate.vercel.app';
 
-// One app serves both admin panels under /lms-admin (src/lib/appPanel.ts). Which panel a
-// signed-in admin sees — LMS-Admin or Lab-Admin — comes from the signed `panel` claim in their
-// session token, decided at login by which login table holds their email.
-const BASE_PATH = '/lms-admin';
+// One app serves both admin panels, each under its own prefix: /lms-admin/... and /lab-admin/...
+// (app/[panel]/..., src/lib/appPanel.ts). The prefix must match the signed `panel` claim of the
+// session token — enforced in src/proxy.ts and app/[panel]/layout.tsx.
+const PANEL = ':panel(lms-admin|lab-admin)';
 
 const nextConfig: NextConfig = {
-  basePath: BASE_PATH,
   // Remove X-Powered-By: Next.js header — prevents tech stack fingerprinting
   poweredByHeader: false,
   // Keep the dev-only Next.js badge off the sidebar's bottom-left buttons.
@@ -24,25 +23,21 @@ const nextConfig: NextConfig = {
   // Multi-zone proxy. These MUST be `beforeFiles` so they run before this app's
   // own `_next/static` filesystem handler — otherwise `/rotarydhuleconnect/_next/*`
   // asset requests get swallowed here (404) instead of proxying to the zone, which
-  // strips all CSS/JS from the proxied pages. `basePath: false` opts these paths out
-  // of the '/lms-admin' prefix so they match at the domain root.
+  // strips all CSS/JS from the proxied pages.
   async rewrites() {
     return {
       beforeFiles: [
         {
           source: '/siddeshcomputers',
           destination: `${ROTARY_ZONE}/rotarydhuleconnect/siddeshcomputers`,
-          basePath: false,
         },
         {
           source: '/rotarydhuleconnect',
           destination: `${ROTARY_ZONE}/rotarydhuleconnect`,
-          basePath: false,
         },
         {
           source: '/rotarydhuleconnect/:path+',
           destination: `${ROTARY_ZONE}/rotarydhuleconnect/:path+`,
-          basePath: false,
         },
       ],
       afterFiles: [],
@@ -51,15 +46,15 @@ const nextConfig: NextConfig = {
   },
   async redirects() {
     return [
-      // Lab-Admin no longer has its own app: its admins sign in at the universal /lms-admin login.
-      { source: '/lab-admin', destination: '/lms-admin', basePath: false, permanent: false },
-      { source: '/lab-admin/:path*', destination: '/lms-admin', basePath: false, permanent: false },
+      // Neutral entry point for the universal login; after sign-in the proxy moves each admin
+      // to their own panel's prefix.
+      { source: '/admin', destination: '/lms-admin', permanent: false },
       // The Data page was renamed Accounts: old links and bookmarks keep working.
-      { source: '/data', destination: '/accounts', permanent: true },
-      { source: '/data/:path*', destination: '/accounts/:path*', permanent: true },
-      { source: '/schools', destination: '/accounts?tab=schools', permanent: true },
-      { source: '/vendors', destination: '/accounts?tab=vendors', permanent: true },
-      { source: '/parents', destination: '/accounts?tab=parents', permanent: true },
+      { source: `/${PANEL}/data`, destination: '/:panel/accounts', permanent: true },
+      { source: `/${PANEL}/data/:path*`, destination: '/:panel/accounts/:path*', permanent: true },
+      { source: `/${PANEL}/schools`, destination: '/:panel/accounts?tab=schools', permanent: true },
+      { source: `/${PANEL}/vendors`, destination: '/:panel/accounts?tab=vendors', permanent: true },
+      { source: `/${PANEL}/parents`, destination: '/:panel/accounts?tab=parents', permanent: true },
     ];
   },
   async headers() {

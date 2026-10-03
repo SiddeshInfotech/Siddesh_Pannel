@@ -4,7 +4,7 @@ import React, { useState, useTransition, useEffect } from 'react';
 import { Terminal, ChevronLeft, ChevronRight, Loader2, Search } from 'lucide-react';
 import GlassCard from './GlassCard';
 import HandshakeLogsList from './HandshakeLogsList';
-import { getHandshakeLogs } from '@/app/actions';
+import { getHandshakeLogs } from '@/app/[panel]/actions';
 
 export default function DashboardTabs() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

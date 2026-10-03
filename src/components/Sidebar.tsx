@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
+import Link from '@/components/PanelLink';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { BASE_PATH } from '@/lib/appPanel';
+import { usePanelSlug } from '@/lib/usePanelPath';
 import {
   LayoutDashboard,
   School,
@@ -34,7 +34,9 @@ const MENU_ITEMS: MenuItem[] = [
 ];
 
 export default function Sidebar() {
-  const pathname = usePathname();
+  const panelSlug = usePanelSlug();
+  // In-panel path: '/lab-admin/keys' → '/keys' (menu paths are panel-relative).
+  const pathname = usePathname().slice(panelSlug.length + 1) || '/';
   const [isDark, setIsDark] = useState(true);
   // F-10 fix: get logout from React Context instead of window.__adminLogout
   const { logout } = useAuth();
@@ -71,7 +73,7 @@ export default function Sidebar() {
     <aside className="app-sidebar bg-surface-hover border-r border-sidebar-border flex flex-col items-center h-screen fixed left-0 top-0 z-40">
       {/* Brand Logo */}
       <div className="pt-4 pb-3">
-        <Image src={`${BASE_PATH}/siddesh_logo.png`} alt="Siddesh Logo" width={36} height={36} className="w-9 h-9 object-contain rounded-lg" />
+        <Image src="/siddesh_logo.png" alt="Siddesh Logo" width={36} height={36} className="w-9 h-9 object-contain rounded-lg" />
       </div>
 
       {/* Navigation Links — icon on top, name below */}

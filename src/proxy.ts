@@ -29,7 +29,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify, importSPKI } from 'jose';
 import { checkSessionInDb, COOKIE_NAME } from './lib/auth';
 import { isSessionLiveCached } from './lib/sessionCache';
-import { BASE_PATH } from './lib/appPanel';
+import { PANEL_SLUG, panelFromSlug, panelPath, type PanelSlug } from './lib/appPanel';
 import { logger } from './lib/logger';
 
 // Must match auth.ts: admin JWTs are verified with the admin signing key
@@ -128,14 +128,22 @@ const PUBLIC_ROUTES = [
 //   and the Google-Fonts @import in globals.css CANNOT carry a nonce (CSP nonces
 //   only apply to <style> elements, not style="" attributes). Inline styles are a
 //   far lower XSS risk than scripts, so this is the correct, non-breaking trade-off.
+// The Supabase project this deployment talks to (from SUPABASE_URL), so the CSP never points at
+// a stale project after a migration.
+const SUPABASE_HOST = (() => {
+  try { return new URL(process.env.SUPABASE_URL ?? '').host; } catch { return ''; }
+})();
+
 function buildCsp(nonce: string, isDev: boolean): string {
+  const sb = SUPABASE_HOST ? ` https://${SUPABASE_HOST}` : '';
+  const sbWs = SUPABASE_HOST ? ` wss://${SUPABASE_HOST}` : '';
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ''}`,
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com data:",
-    "img-src 'self' data: blob: https://pwvilsmuxyegangnboub.supabase.co",
-    "connect-src 'self' https://pwvilsmuxyegangnboub.supabase.co wss://pwvilsmuxyegangnboub.supabase.co",
+    `img-src 'self' data: blob:${sb}`,
+    `connect-src 'self'${sb}${sbWs}`,
     "frame-ancestors 'none'",
     "frame-src 'none'",
     "object-src 'none'",
@@ -200,22 +208,37 @@ export async function proxy(req: NextRequest) {
     );
   }
 
-  // Always allow public API routes
-  if (PUBLIC_ROUTES.some(route => pathname.startsWith(route))) {
-    return injectSecurityHeaders(NextResponse.next(), false);
-  }
-
-  // Always allow Next.js internal routes and genuine static assets. We match a
-  // strict extension allowlist at the END of the path — NOT a bare `includes('.')`,
-  // which let any dotted path (e.g. `/keys/x.y`) skip authentication entirely.
+  // Always allow Next.js internal routes and genuine static assets (served at the domain root).
+  // Strict extension allowlist at the END of the path — NOT a bare `includes('.')`, which let any
+  // dotted path (e.g. `/keys/x.y`) skip authentication entirely. Panel routes never qualify.
   const STATIC_EXT = /\.(?:png|jpe?g|svg|ico|webp|gif|css|js|map|woff2?|ttf|eot|txt|json)$/i;
   if (
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon') ||
     pathname.startsWith('/siddesh_logo') ||
-    STATIC_EXT.test(pathname)
+    pathname === '/icon.png' ||
+    (STATIC_EXT.test(pathname) && !/^\/(lms|lab)-admin(\/|$)/.test(pathname))
   ) {
     return NextResponse.next();
+  }
+
+  // ── Panel prefix: /<lms-admin|lab-admin>/<route> ─────────────────────────
+  // Anything else is not part of the admin app. Answer 404 HERE: routes live under the dynamic
+  // [panel] segment, so letting e.g. /x/api/... through would reach a route handler without
+  // this auth gate (layouts do not wrap API routes).
+  const slugMatch = /^\/(lms-admin|lab-admin)(?=\/|$)/.exec(pathname);
+  if (!slugMatch) {
+    return injectSecurityHeaders(new NextResponse('Not Found', { status: 404 }), false);
+  }
+  const urlSlug = slugMatch[1] as PanelSlug;
+  const urlPanel = panelFromSlug(urlSlug)!;
+  // From here on `pathname` is the in-panel route ('/keys', '/api/auth/login', '/').
+  pathname = pathname.slice(urlSlug.length + 1) || '/';
+  const panelHome = new URL(`/${urlSlug}`, req.url);
+
+  // Always allow public API routes (login, device endpoints) under either prefix
+  if (PUBLIC_ROUTES.some(route => pathname.startsWith(route))) {
+    return injectSecurityHeaders(NextResponse.next(), false);
   }
 
   // Read the JWT from HttpOnly cookie
@@ -262,7 +285,7 @@ export async function proxy(req: NextRequest) {
       console.error('[proxy] Access blocked: token is not a valid admin session.');
       const response = pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
-        : NextResponse.redirect(new URL(`${BASE_PATH}/`, req.url));
+        : NextResponse.redirect(panelHome);
       response.cookies.set(COOKIE_NAME, '', {
         maxAge: 0, path: '/', secure: isProd, httpOnly: true, sameSite: 'strict',
       });
@@ -277,11 +300,24 @@ export async function proxy(req: NextRequest) {
       console.error('[proxy] Session revoked, expired, removed, or unverifiable.');
       const response = pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Session revoked or expired.' }, { status: 401 })
-        : NextResponse.redirect(new URL(`${BASE_PATH}/`, req.url));
+        : NextResponse.redirect(panelHome);
       response.cookies.set(COOKIE_NAME, '', {
         maxAge: 0, path: '/', secure: isProd, httpOnly: true, sameSite: 'strict',
       });
       return injectSecurityHeaders(response, true);
+    }
+
+    // ── Panel prefix must match the signed panel claim (defense in depth) ──
+    // A Lab-Admin session on /lms-admin/* (or the reverse) is sent to the same route under its
+    // own prefix; an API call under the wrong prefix is refused outright.
+    if (tokenPanel !== urlPanel) {
+      logger.warn({ event: 'PANEL_PREFIX_MISMATCH', tokenPanel, urlPanel, path: pathname });
+      if (pathname.startsWith('/api/')) {
+        return injectSecurityHeaders(NextResponse.json({ error: 'Forbidden.' }, { status: 403 }), true);
+      }
+      const target = new URL(panelPath(PANEL_SLUG[tokenPanel], pathname), req.url);
+      target.search = req.nextUrl.search;
+      return injectSecurityHeaders(NextResponse.redirect(target), true);
     }
 
     return injectSecurityHeaders(pageNext(), true);

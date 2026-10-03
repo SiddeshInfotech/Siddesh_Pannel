@@ -1,6 +1,6 @@
 import React from 'react';
 import { School, Key, CreditCard } from 'lucide-react';
-import { getDashboardMetrics } from '@/app/actions';
+import { getDashboardMetrics } from '@/app/[panel]/actions';
 
 export default async function DashboardMetrics() {
   const metrics = await getDashboardMetrics();

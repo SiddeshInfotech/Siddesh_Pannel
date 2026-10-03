@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePanelRouter } from '@/lib/usePanelPath';
 import { 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
   MapPin, 
@@ -21,8 +21,8 @@ import {
   Briefcase
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
-import { createVendor } from '@/app/vendors/new/actions';
-import { updateVendorAction, type VendorEditData } from '@/app/accounts/actions';
+import { createVendor } from '@/app/[panel]/vendors/new/actions';
+import { updateVendorAction, type VendorEditData } from '@/app/[panel]/accounts/actions';
 import CustomSelect from '@/components/CustomSelect';
 import FormHeader, { type FormStepDef } from './FormHeader';
 import { MAHARASHTRA_DISTRICTS, MAHARASHTRA_STATE } from '@/lib/constants';
@@ -47,7 +47,7 @@ const STEPS: FormStepDef<FormStep>[] = [
 export default function NewVendorForm({ onClose, onSaved, vendor }: NewVendorFormProps = {}) {
   const inModal = !!onClose;
   const { toast } = useToast();
-  const router = useRouter();
+  const router = usePanelRouter();
   const [isPending, startTransition] = useTransition();
   const [activeStep, setActiveStep] = useState<FormStep>('basic');
 

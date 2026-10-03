@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["icn1"],
   "cleanUrls": true,
   "trailingSlash": false,
   "headers": [

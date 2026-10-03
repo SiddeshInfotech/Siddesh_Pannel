@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useTransition } from 'react';
-import { useRouter } from 'next/navigation';
+import { usePanelRouter } from '@/lib/usePanelPath';
 import {
   ChevronLeft,
   ChevronRight,
@@ -10,7 +10,7 @@ import {
 import CustomSelect from '@/components/CustomSelect';
 import FormHeader, { type FormStepDef, FORM_INPUT_CLASS, FORM_GRID_CLASS, FORM_SAVE_BUTTON_CLASS } from './FormHeader';
 import { useToast } from '@/components/Toast';
-import { createSchool } from '@/app/schools/new/actions';
+import { createSchool } from '@/app/[panel]/schools/new/actions';
 import { MAHARASHTRA_DISTRICTS, MAHARASHTRA_STATE } from '@/lib/constants';
 
 type FormStep = 'identity' | 'location' | 'admin';
@@ -36,7 +36,7 @@ export interface NewSchoolFormProps {
 export default function NewSchoolForm({ onClose }: NewSchoolFormProps = {}) {
   const inModal = !!onClose;
   const { toast } = useToast();
-  const router = useRouter();
+  const router = usePanelRouter();
   const [isPending, startTransition] = useTransition();
   const [activeStep, setActiveStep] = useState<FormStep>('identity');
 
