@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Circle, Clock, Server, Search, Wifi, WifiOff, ShieldAlert, KeyRound,
   CheckCircle2, AlertTriangle, X, CalendarX, Ban, Replace, Loader2, Info, Layers, ChevronDown,
 } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
+import ProductTypeMenu from '@/components/ProductTypeMenu';
 import FormModal from '@/components/FormModal';
 import EntityAvatar from '@/components/EntityAvatar';
 import { productFilterOptionsFor, UNRESOLVED_PRODUCT_FILTER_VALUE, productDisplayName } from '@/lib/productIdentity';
@@ -107,18 +108,9 @@ export default function UpdateClient({
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [showLegend, setShowLegend] = useState(false);
   const [isProductMenuOpen, setIsProductMenuOpen] = useState(false);
-  const productMenuRef = useRef<HTMLDivElement>(null);
-
-  // Close the product dropdown on any click outside it.
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (productMenuRef.current && !productMenuRef.current.contains(event.target as Node)) {
-        setIsProductMenuOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  const productMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const filterBarRef = useRef<HTMLDivElement>(null);
+  const closeProductMenu = React.useCallback(() => setIsProductMenuOpen(false), []);
   // Selects a table ROW (one licence key), not a device: the same device_fingerprint can
   // carry more than one key over time, so only the key's own row id is unique.
   const [selectedKeyId, setSelectedKeyId] = useState<string | null>(null);
@@ -247,7 +239,7 @@ export default function UpdateClient({
         </div>
 
         {/* Filter bar — same underlined tabs as Keys / Monitoring; search + legend on the right. */}
-        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border mt-2">
+        <div ref={filterBarRef} className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border mt-2">
           <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
             {statusTabs.map((t) => (
               <button
@@ -261,9 +253,12 @@ export default function UpdateClient({
               </button>
             ))}
 
-            <div ref={productMenuRef} className="relative">
+            <div className="relative">
               <button
+                ref={productMenuButtonRef}
                 type="button"
+                aria-haspopup="menu"
+                aria-expanded={isProductMenuOpen}
                 onClick={() => setIsProductMenuOpen((v) => !v)}
                 className={`filter-tab ${productFilter !== 'all' ? 'filter-tab-active' : ''}`}
               >
@@ -276,22 +271,15 @@ export default function UpdateClient({
                 <ChevronDown className={`w-3.5 h-3.5 opacity-50 transition-transform ${isProductMenuOpen ? 'rotate-180' : ''}`} />
               </button>
 
-              {isProductMenuOpen && (
-                <div className="absolute top-full left-0 mt-2 w-52 z-50 animate-fade-in">
-                  <div className="menu-panel">
-                    {productOptions.map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => { setProductFilter(opt.value); setStatusFilter('all'); setIsProductMenuOpen(false); }}
-                        className={`menu-item ${productFilter === opt.value ? 'menu-item-active' : ''}`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
+              <ProductTypeMenu
+                open={isProductMenuOpen}
+                onClose={closeProductMenu}
+                anchorRef={productMenuButtonRef}
+                boundaryRef={filterBarRef}
+                options={productOptions}
+                value={productFilter}
+                onSelect={(v) => { setProductFilter(v); setStatusFilter('all'); setIsProductMenuOpen(false); }}
+              />
             </div>
           </div>
 

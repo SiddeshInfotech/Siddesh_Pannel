@@ -95,12 +95,22 @@ export function productsForPanel(panel: 'lms' | 'lab') {
 // silently made them disappear from the list with no way to isolate or even see them.
 export const UNRESOLVED_PRODUCT_FILTER_VALUE = 'unresolved';
 
+/** Dropdown group of a product: its lab package (STEM, Robotics & Drone, …) or LMS family. */
+function productGroup(p: (typeof PRODUCT_DEFINITIONS)[number]): string {
+  return p.labPackage ?? p.family;
+}
+
 /** UI dropdown options, "All Products" first — used by every Product filter. */
-export const PRODUCT_FILTER_OPTIONS = [
+export const PRODUCT_FILTER_OPTIONS: Array<{ value: string; label: string; group?: string }> = [
   { value: 'all', label: 'All Products' },
-  ...PRODUCT_DEFINITIONS.map((p) => ({ value: p.id as string, label: p.displayName })),
+  ...PRODUCT_DEFINITIONS.map((p) => ({ value: p.id as string, label: p.displayName, group: productGroup(p) })),
   { value: UNRESOLVED_PRODUCT_FILTER_VALUE, label: 'Unresolved' },
 ];
+
+/** One panel's products as grouped dropdown options (Key Generation form). */
+export function productOptionsFor(panel: 'lms' | 'lab') {
+  return productsForPanel(panel).map((p) => ({ value: p.id as string, label: p.displayName, group: productGroup(p) }));
+}
 
 /** Default product in a panel's Key Generation form. */
 export function defaultProductForPanel(panel: 'lms' | 'lab'): ProductId {

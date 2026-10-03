@@ -2,13 +2,19 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { commonPrefix } from '@/lib/labelGroups';
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
 import GlassCard from './GlassCard';
 
 interface Option {
   value: string;
   label: string;
+  /** Options sharing a group get the same background shade (one shade per group). */
+  group?: string;
 }
+
+// Group shades, light → darker, cycling after five groups (accent mixed into the item background).
+const GROUP_TINT_PERCENT = [6, 11, 16, 21, 26];
 
 interface CustomSelectProps {
   value: string;
@@ -45,6 +51,40 @@ export default function CustomSelect({
   }, []);
 
   const selectedOption = options.find((opt) => opt.value === value);
+  // Distinct groups in display order — decides each group's tint shade.
+  const groupOrder = [...new Set(options.map((o) => o.group).filter((g): g is string => !!g))];
+
+  // Consecutive options with the same group form one section (one shaded card).
+  const sections: Array<{ group?: string; items: Option[] }> = [];
+  for (const opt of options) {
+    const last = sections[sections.length - 1];
+    if (last && last.group === opt.group) last.items.push(opt);
+    else sections.push({ group: opt.group, items: [opt] });
+  }
+
+  const renderRow = (opt: Option, text: string, inGroup: boolean) => {
+    const isSelected = opt.value === value;
+    return (
+      <button
+        key={opt.value}
+        type="button"
+        onClick={() => handleSelect(opt.value)}
+        title={opt.label}
+        className={`w-full text-left px-2.5 py-2 rounded-lg text-xs font-semibold select-none cursor-pointer transition-all flex items-center justify-between ${
+          isSelected
+            ? 'bg-accent-violet/15 text-accent-violet'
+            // Grouped rows avoid `bg-white/` classes: the light theme forces a gray background on
+            // those (globals.css), which would cover the group shade.
+            : inGroup
+              ? 'text-foreground hover:bg-foreground/5'
+              : 'text-zinc-300 hover:bg-white/5 hover:text-white'
+        }`}
+      >
+        <span>{text}</span>
+        {isSelected && <div className="w-1.5 h-1.5 rounded-full bg-accent-violet"></div>}
+      </button>
+    );
+  };
 
   const handleSelect = (val: string) => {
     onChange(val);
@@ -86,24 +126,27 @@ export default function CustomSelect({
       {isOpen && (
         <div className="absolute left-0 right-0 mt-2 z-50 animate-fade-in custom-select-dropdown">
           <div className="bg-[#121216] border border-white/10 shadow-2xl p-1.5 max-h-60 overflow-y-auto rounded-xl custom-select-container">
-            {options.map((opt) => {
-              const isSelected = opt.value === value;
+            {sections.map((section, si) => {
+              // Ungrouped options (e.g. "All Products", "Unresolved") keep the plain row style.
+              if (!section.group) {
+                return section.items.map((opt) => renderRow(opt, opt.label, false));
+              }
+              const tint = GROUP_TINT_PERCENT[groupOrder.indexOf(section.group) % GROUP_TINT_PERCENT.length];
+              const title = section.items.length > 1 ? commonPrefix(section.items.map((o) => o.label)) : '';
               return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => handleSelect(opt.value)}
-                  className={`w-full text-left px-3.5 py-2.5 rounded-lg text-xs font-semibold select-none cursor-pointer transition-all flex items-center justify-between ${
-                    isSelected
-                      ? 'bg-accent-violet/15 text-accent-violet'
-                      : 'text-zinc-300 hover:bg-white/5 hover:text-white'
-                  }`}
+                <div
+                  key={section.group + si}
+                  className="rounded-xl p-1 my-1 first:mt-0 last:mb-0"
+                  style={{ backgroundColor: `color-mix(in srgb, var(--accent-violet) ${tint}%, transparent)` }}
                 >
-                  <span>{opt.label}</span>
-                  {isSelected && (
-                    <div className="w-1.5 h-1.5 rounded-full bg-accent-violet"></div>
+                  {title && (
+                    <div className="px-2.5 pt-1.5 pb-1 text-[9px] font-bold uppercase tracking-widest text-accent-violet">
+                      {title}
+                    </div>
                   )}
-                </button>
+                  {/* Under a group title, rows show only what differs (Android / Windows / Linux). */}
+                  {section.items.map((opt) => renderRow(opt, title ? opt.label.slice(title.length).trim() || opt.label : opt.label, true))}
+                </div>
               );
             })}
             {options.length === 0 && (
