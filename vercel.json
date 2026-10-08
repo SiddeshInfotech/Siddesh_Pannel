@@ -44,11 +44,11 @@
   "crons": [
     {
       "path": "/lms-admin/api/diagnostics/cleanup",
-      "schedule": "0 * * * *"
+      "schedule": "0 21 * * *"
     },
     {
       "path": "/lms-admin/api/ops/sync",
-      "schedule": "0 * * * *"
+      "schedule": "30 21 * * *"
     }
   ]
 }

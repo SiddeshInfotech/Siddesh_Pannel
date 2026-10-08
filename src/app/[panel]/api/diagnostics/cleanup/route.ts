@@ -8,7 +8,7 @@ import { diagDb, loadRetention } from '@/lib/diagnostics/server';
 // Honors each panel's configured cleanupEveryMinutes by skipping if the last run is too recent.
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const maxDuration = 60; // Vercel Hobby limit; work is bounded (≤200 issues, ≤1000 artifacts per run)
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;

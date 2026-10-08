@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'crypto';
 import { evaluateRules, loadOps, opsRetention, rollup, syncProviders } from '@/lib/ops/engine';
 
-// GET /api/ops/sync — scheduled Operations Center worker (Vercel Cron, Bearer CRON_SECRET).
+// GET /api/ops/sync — scheduled Operations Center worker (Vercel Cron daily 21:30 UTC = 03:00 IST, Bearer CRON_SECRET).
 // Provider sync (each provider honours its own sync_minutes), hourly/daily rollups,
 // alert-rule evaluation, retention. Dashboards never call providers directly.
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300;
+export const maxDuration = 60; // Vercel Hobby limit; each step is bounded and failures are isolated per panel
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
