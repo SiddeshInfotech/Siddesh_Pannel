@@ -17,7 +17,7 @@ import { logger } from './logger';
  * ============================================================================
  */
 
-export type AlertKind = 'EXPIRY_TAMPER' | 'REMOTE_KILL' | 'PANEL_POP_FAILED';
+export type AlertKind = 'EXPIRY_TAMPER' | 'REMOTE_KILL' | 'PANEL_POP_FAILED' | 'OPS_ALERT';
 
 const ALERT_TIMEOUT_MS = 3000;
 

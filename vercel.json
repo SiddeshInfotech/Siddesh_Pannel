@@ -1,6 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["icn1"],
+  "regions": [
+    "icn1"
+  ],
   "cleanUrls": true,
   "trailingSlash": false,
   "headers": [
@@ -37,6 +39,16 @@
           "value": "camera=(self), microphone=(), geolocation=()"
         }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/lms-admin/api/diagnostics/cleanup",
+      "schedule": "0 * * * *"
+    },
+    {
+      "path": "/lms-admin/api/ops/sync",
+      "schedule": "0 * * * *"
     }
   ]
 }

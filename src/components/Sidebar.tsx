@@ -13,6 +13,8 @@ import {
   Key,
   Activity,
   DownloadCloud,
+  ScrollText,
+  HeartPulse,
   Sun,
   Moon,
   LogOut,
@@ -29,8 +31,10 @@ const MENU_ITEMS: MenuItem[] = [
   { label: 'Accounts', icon: School, path: '/accounts' },
   { label: 'Payments', icon: CreditCard, path: '/payments' },
   { label: 'Keys', icon: Key, path: '/keys' },
+  { label: 'Health', icon: HeartPulse, path: '/health' },
   { label: 'Monitoring', icon: Activity, path: '/monitoring' },
   { label: 'Update', icon: DownloadCloud, path: '/update' },
+  { label: 'Logs', icon: ScrollText, path: '/logs' },
 ];
 
 export default function Sidebar() {

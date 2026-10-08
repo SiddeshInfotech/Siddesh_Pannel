@@ -114,6 +114,10 @@ const PUBLIC_ROUTES = [
   // auth downstream; the admin-JWT gate here must not apply to them.
   '/api/device/terms-accept', // pre-activation consent (hardware key-attestation)
   '/api/device/ping',         // telemetry heartbeat (device-fingerprint bound)
+  '/api/diagnostics/ingest',  // Siddesh Logs batch upload (device-fingerprint bound)
+  '/api/diagnostics/artifact',// crash dump / screenshot upload (device-fingerprint bound)
+  '/api/diagnostics/cleanup', // lifecycle cleanup worker (CRON_SECRET bearer)
+  '/api/ops/sync',            // Operations Center worker (CRON_SECRET bearer)
   '/api/seed', // Self-guarded: returns 403 in production, requires SEED_SECRET in dev
 ];
 
