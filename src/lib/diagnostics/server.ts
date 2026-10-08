@@ -14,7 +14,8 @@ export const diagDb = () => supabaseAdmin;
 
 /** Bootstrap Super Admins (comma-separated emails) — needed once to grant the first roles. */
 function bootstrapSuperAdmins(): Set<string> {
-  return new Set((process.env.DIAG_SUPER_ADMINS ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
+  // Tolerate values pasted with quotes/spaces/semicolons in the Vercel UI ("a@x.com"; b@y.com).
+  return new Set((process.env.DIAG_SUPER_ADMINS ?? '').split(/[,;\s]+/).map((e) => e.replace(/["']/g, '').trim().toLowerCase()).filter(Boolean));
 }
 
 export async function resolveActor(): Promise<Actor | null> {
