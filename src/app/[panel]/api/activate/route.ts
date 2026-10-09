@@ -12,7 +12,9 @@ import { verifyWindowsAttestation } from '@/lib/windowsAttestation';
 import { signPayload } from '@/lib/licenseSign';
 import { resolveEffectiveProductId, resolveLegacyProductId, checkProductMatch } from '@/lib/product';
 import { PRODUCT_ID_ENUM, productDisplayName, isProductId, labPackageFor, familyFor } from '@/lib/productIdentity';
-import { entityRefFromRow, resolveEntity, isEntitledToAll } from '@/lib/entity';
+import { entityRefFromRow, resolveEntity } from '@/lib/entity';
+import { mayReleaseLegacyMasterKey } from '@/lib/contentKeyPolicy';
+import { createContentGrant } from '@/lib/contentGrant';
 import { shouldEnforceAttestation, deriveServerTier, validateAttestationConfig } from '@/lib/attestationPolicy';
 import { LAB_MASTER_CEK_ENV, labScopeIds, labScopeIdsForPackage, masterCekFor } from '@/lib/labCourses';
 import { recordAttestationIssue } from '@/lib/attestationTelemetry';
@@ -1033,13 +1035,19 @@ export async function POST(req: NextRequest) {
       signature,
       wks: wrappedCeks,                 // F7: opaque wire name (client maps wks -> wrapped_ceks)
     };
+    const contentGrant = createContentGrant({
+      productId: product, fingerprint: hardware_fingerprint, publicKeyBase64: device_wrap_pubkey,
+      activationKeyId: keyRecord.id,
+      issuedAt: activatedAt.toISOString(), expiresAt: expiresAt.toISOString(), wrappedScopes: wrappedCeks,
+    }, signPayload);
+    if (contentGrant) Object.assign(responseBody, contentGrant);
 
     // Legacy single master CEK (unlocks ALL classes). V-07: NEVER send it to a
     // device that is not entitled to every content class — that would defeat the
     // per-class scoping above. Also gated by LMS_DISABLE_LEGACY_CEK so it can be
     // turned off entirely once all content is on per-subject keys (recommended).
-    const entitledToAll = isEntitledToAll(classIds);
-    if (process.env.LMS_DISABLE_LEGACY_CEK !== 'true' && entitledToAll) {
+    // School activations always receive scoped keys, never the shared content master.
+    if (mayReleaseLegacyMasterKey(product, classIds, process.env.LMS_DISABLE_LEGACY_CEK === 'true')) {
       responseBody.wk0 = wrapOne(masterCek);   // F7: opaque wire name (client maps wk0 -> wrapped_cek)
     }
 
