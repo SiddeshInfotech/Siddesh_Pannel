@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { KeyRound, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { KeyRound, Search, X } from 'lucide-react';
 import FormModal from '@/components/FormModal';
 import { getAccountKeys, type AccountKeyRow, type AccountKeyStatus, type AccountKind } from './actions';
 
@@ -68,6 +68,18 @@ export default function AccountKeysModal({ target, onClose }: { target: KeysTarg
   const rows = current?.rows ?? null;
   const error = current?.error ?? null;
 
+  // Search text, also tagged so it starts empty for each account opened.
+  const [search, setSearch] = useState({ for: '', q: '' });
+  const query = search.for === tag ? search.q : '';
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!rows || !q) return rows;
+    // Matches the key, status, time left and the dates as displayed (e.g. "15 Oct", "expired").
+    return rows.filter((k) =>
+      [k.key, STATUS_LABEL[k.status], k.timeLeft, fmt(k.createdAt), fmt(k.activatedAt)]
+        .some((v) => v.toLowerCase().includes(q)));
+  }, [rows, query]);
+
   return (
     <FormModal
       open={!!target}
@@ -81,12 +93,28 @@ export default function AccountKeysModal({ target, onClose }: { target: KeysTarg
               <h3 className="text-lg font-bold text-foreground">Licence keys</h3>
               <p className="text-xs text-zinc-500">
                 {target.name} · <span className="cell-mono">{target.publicId}</span>
-                {rows && ` · ${rows.length} key${rows.length === 1 ? '' : 's'}`}
+                {rows && shown && (shown.length === rows.length
+                  ? ` · ${rows.length} key${rows.length === 1 ? '' : 's'}`
+                  : ` · ${shown.length} of ${rows.length} keys`)}
               </p>
             </div>
-            <button type="button" onClick={onClose} className="icon-btn" title="Close">
-              <X className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-2">
+              {rows && rows.length > 0 && (
+                <div className="relative w-[220px] rounded-lg border border-sidebar-border">
+                  <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
+                  <input
+                    value={query}
+                    onChange={(e) => setSearch({ for: tag, q: e.target.value })}
+                    placeholder="Search keys, status, date…"
+                    autoFocus
+                    className="bare-input w-full pl-8 pr-2 py-1.5 bg-transparent text-xs text-foreground placeholder-zinc-500 focus:outline-none"
+                  />
+                </div>
+              )}
+              <button type="button" onClick={onClose} className="icon-btn" title="Close">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
           {error ? (
@@ -95,6 +123,8 @@ export default function AccountKeysModal({ target, onClose }: { target: KeysTarg
             <p className="text-xs text-zinc-500 py-6 text-center">Loading keys…</p>
           ) : rows.length === 0 ? (
             <p className="text-xs text-zinc-500 py-6 text-center">No licence keys for this account.</p>
+          ) : shown?.length === 0 ? (
+            <p className="text-xs text-zinc-500 py-6 text-center">No keys match “{query.trim()}”.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="data-table data-table-rich">
@@ -108,7 +138,7 @@ export default function AccountKeysModal({ target, onClose }: { target: KeysTarg
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((k) => (
+                  {(shown ?? rows).map((k) => (
                     <tr key={k.id}>
                       <td className="cell-mono">{k.key}</td>
                       <td className="cell-muted cell-num">{fmt(k.createdAt)}</td>
