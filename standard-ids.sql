@@ -26,13 +26,13 @@
 --   • IDs contain no personal data (no names, cities, boards).
 --   • Bugs / crashes / incidents get an explicit `environment` field ('production' | 'test').
 --
--- Applied by the CI/CD pipeline (db/migrate.mjs) BEFORE the panel build that stops
--- sending IDs is deployed — see Documents/CICD.md. Idempotent, so a manual run in the
--- Supabase SQL editor is also safe (then record it: `npm run db:migrate -- baseline <file>`).
+-- Run ONCE in the Supabase SQL editor (Dashboard → SQL Editor → New Query → paste → Run),
+-- BEFORE deploying the panel build that stops sending IDs. Safe to re-run.
 -- Requires: lab-admin-schema.sql, parents-schema.sql, diagnostics-schema.sql, ops-schema.sql.
--- No BEGIN/COMMIT here: the runner wraps the whole file in one transaction.
 -- ============================================================================
 
+
+BEGIN;
 
 -- ── 1. Counters + registry ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS public_id_counters (
@@ -306,6 +306,8 @@ REVOKE ALL ON FUNCTION diag_touch_issue(text, text, text, text, text, text, text
 REVOKE ALL ON FUNCTION next_public_seq(text, text) FROM public, anon, authenticated;
 REVOKE ALL ON FUNCTION issue_account_id(text, text, timestamptz) FROM public, anon, authenticated;
 
+
+COMMIT;
 
 -- ── Checks ─────────────────────────────────────────────────────────────────
 -- Triggers installed (expect 6 assign + 6 keep on accounts, 3 + 3 on bug/crash/incident):
