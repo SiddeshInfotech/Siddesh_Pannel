@@ -51,7 +51,6 @@ export async function POST(req: NextRequest) {
     const { data: schoolOakridge, error: e1 } = await supabaseAdmin
       .from('schools')
       .insert({
-        school_id: 'SCH-2024-001',
         name: 'Oakridge International',
         board: 'CBSE',
         mediums: ['English', 'Hindi'],
@@ -75,7 +74,6 @@ export async function POST(req: NextRequest) {
     const { data: schoolDelhi, error: e2 } = await supabaseAdmin
       .from('schools')
       .insert({
-        school_id: 'SCH-2024-042',
         name: 'Delhi Public School',
         board: 'ICSE',
         mediums: ['English'],
@@ -99,7 +97,6 @@ export async function POST(req: NextRequest) {
     const { data: schoolHeritage, error: e3 } = await supabaseAdmin
       .from('schools')
       .insert({
-        school_id: 'SCH-2024-109',
         name: 'The Heritage School',
         board: 'IGCSE',
         mediums: ['English'],
@@ -123,7 +120,6 @@ export async function POST(req: NextRequest) {
     const { data: schoolGlobal, error: e4 } = await supabaseAdmin
       .from('schools')
       .insert({
-        school_id: 'SCH-2024-312',
         name: 'Global Pathways Academy',
         board: 'State Board',
         mediums: ['English', 'Marathi'],

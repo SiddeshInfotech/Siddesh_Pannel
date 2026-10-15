@@ -49,6 +49,8 @@ export const IngestSchema = z.object({
   product_id: z.string().max(64).optional(),
   product_name: str(80), product_version: str(40), build_number: str(40), build_commit: str(64),
   installation_id: str(64), computer_name: str(64),
+  // Explicit production/test marker for crash + bug records (absent = production).
+  environment: z.enum(['production', 'test']).optional(),
   events: z.array(z.unknown()).max(LIMITS.batchEvents).default([]),
   crashes: z.array(z.unknown()).max(20).default([]),
 });
@@ -139,7 +141,7 @@ export function normalizeCrash(raw: unknown, b: IngestBody, id: DeviceIdentity, 
   // Last-N events: keep the most recent LIMITS.crashLastEvents, each redacted, whole thing size-bounded.
   const last = (c.last_events ?? []).slice(-LIMITS.crashLastEvents);
   const row = {
-    id: c.crash_id, ...base, ts: ts.toISOString(),
+    id: c.crash_id, ...base, ts: ts.toISOString(), environment: b.environment ?? 'production',
     user_id: cleanLine(c.user_id, 64), session_id: cleanLine(c.session_id, 64), process_id: c.process_id ?? null,
     module: cleanLine(c.module, 80), feature: cleanLine(c.feature, 80), action: cleanLine(c.action, 120), current_screen: cleanLine(c.current_screen, 120),
     event_type: c.event_type, exception: exc, stack_trace: stack,

@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { adminDb } from '@/lib/panelTables';
+import { chunk, fetchAllPages, humanDuration } from '../update/telemetry';
 
 const UpdateSchoolSchema = z.object({
   name: z.string().trim().min(1, 'School name is required.').max(120, 'School name is too long.'),
@@ -364,3 +365,116 @@ export async function getVendorForEdit(id: string) {
 }
 
 export type VendorEditData = NonNullable<Awaited<ReturnType<typeof getVendorForEdit>>>;
+
+// ── Licence keys of one account (Accounts page → key-count pop-up) ───────────────────────
+export type AccountKind = 'vendor' | 'school' | 'parent';
+export type AccountKeyStatus = 'active' | 'superseded' | 'expired' | 'failed' | 'revoked' | 'not_activated';
+export interface AccountKeyRow {
+  id: string;
+  key: string;
+  createdAt: string | null;
+  activatedAt: string | null;
+  expiresAt: string | null;
+  timeLeft: string;
+  status: AccountKeyStatus;
+}
+
+const OWNER_COLUMN: Record<AccountKind, 'vendor_id' | 'school_id' | 'parent_id'> = {
+  vendor: 'vendor_id',
+  school: 'school_id',
+  parent: 'parent_id',
+};
+
+function timeLeft(expiresAt: string | null, activatedAt: string | null, durationDays: number | null, now: number): string {
+  if (expiresAt) {
+    const ms = new Date(expiresAt).getTime() - now;
+    return ms <= 0 ? 'Expired' : `${humanDuration(ms / 1000)} left`;
+  }
+  if (!activatedAt && durationDays) return `${durationDays}d from activation`;
+  return 'No expiry';
+}
+
+/**
+ * Every licence key owned by one vendor / school / parent, with its lifecycle status:
+ *   revoked → deactivated by an admin
+ *   expired → past expires_at
+ *   failed  → never activated, and at least one activation attempt with it FAILED
+ *   not_activated → never activated (no failed attempts either)
+ *   superseded → was activated, but a newer key has since been activated on the same device
+ *   active  → activated and still the key that device runs
+ * `id` is the owner reference used on activation_keys: vendors.vendor_id, schools.id, parents.id.
+ */
+export async function getAccountKeys(kind: AccountKind, id: string): Promise<ActionResult<AccountKeyRow[]>> {
+  const session = await getAdminSession();
+  if (!session) return fail('Unauthorized. Please sign in again.');
+  if (!(kind in OWNER_COLUMN) || typeof id !== 'string' || id.length === 0 || id.length > 100) return fail(GENERIC_ERROR);
+
+  try {
+    const db = await adminDb();
+    const { data: keys, error } = await fetchAllPages<any /* eslint-disable-line @typescript-eslint/no-explicit-any */>((from, to) =>
+      db.from('activation_keys')
+        .select('id, key, status, created_at, activated_at, expires_at, duration_days, device_fingerprint')
+        .eq(OWNER_COLUMN[kind], id)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(from, to));
+    if (error) {
+      logger.error({ event: 'ACCOUNT_KEYS_LOAD_ERROR', kind, message: error.message });
+      return fail(GENERIC_ERROR);
+    }
+
+    // Successor activations on the same devices (any owner) and each device's live key.
+    const fingerprints = [...new Set(keys.map((k) => k.device_fingerprint).filter(Boolean))] as string[];
+    const activationsByFp = new Map<string, { id: string; at: number }[]>();
+    const liveKeyByFp = new Map<string, string>();
+    for (const part of chunk(fingerprints)) {
+      const [{ data: onDevice }, { data: status }] = await Promise.all([
+        db.from('activation_keys').select('id, activated_at, device_fingerprint').in('device_fingerprint', part).not('activated_at', 'is', null),
+        db.from('device_status').select('device_fingerprint, activation_key').in('device_fingerprint', part),
+      ]);
+      for (const k of onDevice ?? []) {
+        const list = activationsByFp.get(k.device_fingerprint) ?? [];
+        list.push({ id: k.id, at: new Date(k.activated_at).getTime() });
+        activationsByFp.set(k.device_fingerprint, list);
+      }
+      for (const s of status ?? []) if (s.activation_key) liveKeyByFp.set(s.device_fingerprint, s.activation_key);
+    }
+
+    // Failed activation attempts for keys that never got bound.
+    const unbound = keys.filter((k) => !k.device_fingerprint).map((k) => k.key).filter(Boolean) as string[];
+    const failedKeys = new Set<string>();
+    for (const part of chunk(unbound)) {
+      const { data: logs } = await db.from('handshake_logs').select('activation_key').in('activation_key', part).eq('status', 'FAILED');
+      for (const l of logs ?? []) failedKeys.add(l.activation_key);
+    }
+
+    const now = Date.now();
+    const rows: AccountKeyRow[] = keys.map((k) => {
+      const fp: string | null = k.device_fingerprint || null;
+      const expired = !!k.expires_at && new Date(k.expires_at).getTime() <= now;
+      let status: AccountKeyStatus;
+      if (k.status === 'Revoked') status = 'revoked';
+      else if (expired) status = 'expired';
+      else if (!fp) status = failedKeys.has(k.key) ? 'failed' : 'not_activated';
+      else {
+        const live = liveKeyByFp.get(fp);
+        const at = k.activated_at ? new Date(k.activated_at).getTime() : 0;
+        const newer = (activationsByFp.get(fp) ?? []).some((o) => o.id !== k.id && o.at > at);
+        status = (live ? live !== k.key : newer) ? 'superseded' : 'active';
+      }
+      return {
+        id: k.id,
+        key: k.key ?? '—',
+        createdAt: k.created_at ?? null,
+        activatedAt: k.activated_at ?? null,
+        expiresAt: k.expires_at ?? null,
+        timeLeft: status === 'revoked' ? '—' : timeLeft(k.expires_at ?? null, k.activated_at ?? null, k.duration_days ?? null, now),
+        status,
+      };
+    });
+    return ok(rows);
+  } catch (err: unknown) {
+    logger.error({ event: 'ACCOUNT_KEYS_CRITICAL_ERROR', kind }, err);
+    return fail(GENERIC_ERROR);
+  }
+}

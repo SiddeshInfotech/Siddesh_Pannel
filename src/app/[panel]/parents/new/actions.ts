@@ -19,11 +19,6 @@ const CreateParentSchema = z.object({
   status: z.enum(['Active', 'Inactive'], { message: 'Status must be Active or Inactive.' }),
 });
 
-function generateParentId(): string {
-  const random = Math.floor(1000 + Math.random() * 9000);
-  return `PAR-${new Date().getFullYear()}-${random}`;
-}
-
 export async function createParent(formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult<string>> {
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
@@ -42,11 +37,9 @@ export async function createParent(formData: any /* eslint-disable-line @typescr
     return fail('Enter a valid Mobile Number (exactly 10 digits).');
   }
 
-  const parentId = generateParentId();
-
   // Create structured payload
   const parentPayload = {
-    parent_id: parentId,
+    // parent_id (PAR-YYYY-NNNN) is assigned by the database (standard-ids.sql) — never here.
     parent_name: sanitize(validData.parentName),
     kid_name: sanitize(validData.kidName),
     email: sanitize(validData.email),

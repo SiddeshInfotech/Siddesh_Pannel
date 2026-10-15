@@ -3,10 +3,27 @@ import { getAdminSession } from '@/lib/auth';
 import DataTabs from './DataTabs';
 import { School, Building2, Users } from 'lucide-react';
 import { adminDb } from '@/lib/panelTables';
+import { fetchAllPages } from '../update/telemetry';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
-async function getSchoolsData() {
+// Number of licence keys per owner (activation_keys.school_id / vendor_id / parent_id).
+async function getKeyCounts() {
+  const db = await adminDb();
+  const { data } = await fetchAllPages<{ school_id: string | null; vendor_id: string | null; parent_id: string | null }>((from, to) =>
+    db.from('activation_keys').select('school_id, vendor_id, parent_id').order('id').range(from, to), 200_000);
+  const count = { school: new Map<string, number>(), vendor: new Map<string, number>(), parent: new Map<string, number>() };
+  const bump = (m: Map<string, number>, id: string | null) => { if (id) m.set(id, (m.get(id) ?? 0) + 1); };
+  for (const k of data) {
+    bump(count.school, k.school_id);
+    bump(count.vendor, k.vendor_id);
+    bump(count.parent, k.parent_id);
+  }
+  return count;
+}
+type KeyCounts = Awaited<ReturnType<typeof getKeyCounts>>;
+
+async function getSchoolsData(keyCounts: KeyCounts) {
   const { data: schools, error } = await (await adminDb())
     .from('schools')
     .select('*')
@@ -31,10 +48,11 @@ async function getSchoolsData() {
     status: sch.status === 'Active' ? 'OPERATIONAL' : 'DRAFT',
     lastSync: sch.created_at ? new Date(sch.created_at).toLocaleDateString() : 'N/A',
     gateway: sch.city?.toUpperCase() || 'N/A',
+    keyCount: keyCounts.school.get(sch.id) ?? 0,
   }));
 }
 
-async function getVendorsData() {
+async function getVendorsData(keyCounts: KeyCounts) {
   const { data: vendors, error } = await (await adminDb())
     .from('vendors')
     .select('*')
@@ -43,7 +61,6 @@ async function getVendorsData() {
     console.error('getVendorsData error:', error.message);
     return [];
   }
-  console.log("VENDORS DB RESULT:", vendors[0]);
 
   return (vendors ?? []).map((vendor: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => ({
     id: vendor.vendor_id,
@@ -58,13 +75,14 @@ async function getVendorsData() {
     email: vendor.email_address,
     city: vendor.city,
     status: vendor.status,
+    keyCount: keyCounts.vendor.get(vendor.vendor_id) ?? 0,
     dateAdded: vendor.created_at
       ? new Date(vendor.created_at).toLocaleDateString()
       : 'N/A',
   }));
 }
 
-async function getParentsData() {
+async function getParentsData(keyCounts: KeyCounts) {
   const { data: parents, error } = await (await adminDb())
     .from('parents')
     .select('*')
@@ -85,6 +103,7 @@ async function getParentsData() {
     city: parent.city,
     grade: parent.grade,
     status: parent.status,
+    keyCount: keyCounts.parent.get(parent.id) ?? 0,
     dateAdded: parent.created_at
       ? new Date(parent.created_at).toLocaleDateString()
       : 'N/A',
@@ -99,10 +118,11 @@ export default async function AccountsPage(props: { searchParams: Promise<{ [key
   if (!session) return null;
 
   // Independent queries: run them in parallel, not one after another.
+  const keyCounts = await getKeyCounts();
   const [schoolsData, vendorsData, parentsData] = await Promise.all([
-    getSchoolsData(),
-    getVendorsData(),
-    getParentsData(),
+    getSchoolsData(keyCounts),
+    getVendorsData(keyCounts),
+    getParentsData(keyCounts),
   ]);
 
   const totalSchools = schoolsData.length;

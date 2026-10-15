@@ -18,6 +18,7 @@ import Link from '@/components/PanelLink';
 import FormModal from '@/components/FormModal';
 import NewSchoolForm from '@/components/forms/NewSchoolForm';
 import { deleteSchoolAction } from './actions';
+import AccountKeysModal, { KeyCountButton, type KeysTarget } from './AccountKeysModal';
 import { useToast } from '@/components/Toast';
 
 interface SchoolRow {
@@ -34,6 +35,7 @@ interface SchoolRow {
   section: string;
   standard: string;
   fullClassName: string;
+  keyCount: number;
 }
 
 interface SchoolsClientProps {
@@ -44,6 +46,8 @@ interface SchoolsClientProps {
 export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClientProps) {
   const { toast } = useToast();
   const [search, setSearch] = useState('');
+  const [keysTarget, setKeysTarget] = useState<KeysTarget | null>(null);
+  const showKeys = (s: SchoolRow) => setKeysTarget({ kind: 'school', id: s.dbId, name: s.name, publicId: s.id });
   const [isPending, startTransition] = useTransition();
   const [schools, setSchools] = useState<SchoolRow[]>(initialSchools);
   // Keep the list in step with fresh server data (router.refresh() after adding from the pop-up).
@@ -82,6 +86,7 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
 
   return (
     <div className="space-y-4 relative">
+        <AccountKeysModal target={keysTarget} onClose={() => setKeysTarget(null)} />
         <FormModal open={showAdd} onClose={closeAdd}>
             <NewSchoolForm onClose={closeAdd} />
         </FormModal>
@@ -120,6 +125,7 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
                 <th>Academic Year</th>
                 <th>Mediums</th>
                 <th className="num">Devices</th>
+                <th className="num">Keys</th>
                 <th>Status</th>
                 <th>Last Sync</th>
                 <th className="num">Actions</th>
@@ -128,7 +134,7 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
             <tbody>
               {schools.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="!h-auto !whitespace-normal text-center !py-10 text-zinc-500">
+                  <td colSpan={11} className="!h-auto !whitespace-normal text-center !py-10 text-zinc-500">
                     No schools found.
                   </td>
                 </tr>
@@ -139,7 +145,7 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
                     <td>
                       <div className="flex items-center gap-2.5">
                         <EntityAvatar name={sch.name || '?'} size={32} />
-                        <div>
+                        <div className="cursor-pointer" onClick={() => showKeys(sch)} title="Show licence keys">
                           <span className="block cell-strong">{sch.name}</span>
                           <span className="block cell-sub">ID: {sch.id}</span>
                         </div>
@@ -159,6 +165,7 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
                       </div>
                     </td>
                     <td className="num font-semibold">{sch.devicesUsed}</td>
+                    <td className="num"><KeyCountButton count={sch.keyCount} onClick={() => showKeys(sch)} /></td>
                     <td>
     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                       <StatusBadge status={sch.status as any} />

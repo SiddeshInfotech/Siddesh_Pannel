@@ -6,8 +6,6 @@ import { sanitize } from '@/lib/sanitize';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, fail, ok } from '@/lib/actionResult';
-import fs from 'fs';
-import path from 'path';
 import { adminDb } from '@/lib/panelTables';
 
 // Define Zod validation schema for vendor fields
@@ -44,11 +42,6 @@ const CreateVendorSchema = z.object({
   panCardData: z.string().optional() // Base64 representation of file
 });
 
-function generateVendorId(): string {
-  const random = Math.floor(1000 + Math.random() * 9000);
-  return `VND-${new Date().getFullYear()}-${random}`;
-}
-
 function generateVendorCode(): string {
   const random = Math.floor(100 + Math.random() * 900);
   return `VND-CODE-${random}`;
@@ -72,13 +65,12 @@ export async function createVendor(formData: any /* eslint-disable-line @typescr
     return fail('Enter a valid Mobile Number (exactly 10 digits).');
   }
 
-  const vendorId = generateVendorId();
+  // vendor_id (VND-YYYY-NNNN) is assigned by the database (standard-ids.sql) — never here.
   const vendorCode = generateVendorCode();
   const dateAdded = new Date().toISOString();
 
   // Create structured payload
   const vendorPayload = {
-    vendor_id: vendorId,
     vendor_code: vendorCode,
     vendor_name: sanitize(validData.vendorName),
     vendor_type: sanitize(validData.vendorType),
@@ -114,7 +106,6 @@ export async function createVendor(formData: any /* eslint-disable-line @typescr
     updated_at: dateAdded
   };
 
-  // Try saving to Supabase vendors table
   try {
     const { data: newVendor, error } = await (await adminDb())
       .from('vendors')
@@ -122,53 +113,16 @@ export async function createVendor(formData: any /* eslint-disable-line @typescr
       .select('vendor_id')
       .single();
 
-    if (!error) {
-      logger.info({ event: 'VENDOR_CREATED_DB', vendorId: newVendor.vendor_id, adminEmail: session.email });
-      revalidatePath('/[panel]/vendors', 'page');
-      return ok(newVendor.vendor_id as string);
-    }
-    
-    // Log error and fall back to local file if table not found
-    logger.warn({ event: 'CREATE_VENDOR_DB_ERROR_FALLBACK', code: error.code, message: error.message });
-  } catch (err) {
-    logger.error({ event: 'CREATE_VENDOR_DB_CRITICAL_FALLBACK' }, err);
-  }
-
-  // Fallback: Save to src/lib/vendors.json
-  try {
-    const filePath = path.join(process.cwd(), 'src/lib/vendors.json');
-    let vendorsList: any /* eslint-disable-line @typescript-eslint/no-explicit-any */[] = [];
-    
-    if (fs.existsSync(filePath)) {
-      const fileData = fs.readFileSync(filePath, 'utf8');
-      vendorsList = JSON.parse(fileData);
-    }
-    
-    vendorsList.push(vendorPayload);
-    fs.writeFileSync(filePath, JSON.stringify(vendorsList, null, 2), 'utf8');
-    
-    logger.info({ event: 'VENDOR_CREATED_LOCAL', vendorId, adminEmail: session.email });
-    
-    // Also save uploaded files locally to public/uploads/ if supplied
-    const uploadDir = path.join(process.cwd(), 'public/uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    
-    if (validData.gstCertificateData && validData.gstCertificateName) {
-      const base64Data = validData.gstCertificateData.replace(/^data:.+;base64,/, "");
-      fs.writeFileSync(path.join(uploadDir, `${vendorId}_gst_${validData.gstCertificateName}`), base64Data, 'base64');
-    }
-    
-    if (validData.panCardData && validData.panCardName) {
-      const base64Data = validData.panCardData.replace(/^data:.+;base64,/, "");
-      fs.writeFileSync(path.join(uploadDir, `${vendorId}_pan_${validData.panCardName}`), base64Data, 'base64');
+    if (error) {
+      logger.error({ event: 'CREATE_VENDOR_DB_ERROR', code: error.code, message: error.message });
+      return fail('Failed to register vendor profile.');
     }
 
-    revalidatePath('/[panel]/vendors', 'page');
-    return ok(vendorId);
+    logger.info({ event: 'VENDOR_CREATED_DB', vendorId: newVendor.vendor_id, adminEmail: session.email });
+    revalidatePath('/[panel]/accounts', 'page');
+    return ok(newVendor.vendor_id as string);
   } catch (err) {
-    logger.error({ event: 'CREATE_VENDOR_LOCAL_CRITICAL_ERROR' }, err);
+    logger.error({ event: 'CREATE_VENDOR_DB_CRITICAL' }, err);
     return fail('Failed to register vendor profile.');
   }
 }

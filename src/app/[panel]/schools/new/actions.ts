@@ -28,14 +28,6 @@ const CreateSchoolSchema = z.object({
   fullClassName: z.string().trim().max(80).optional(),
 });
 
-// Auto-generate schoolId matching the original Mongoose pre-save hook logic
-function generateSchoolId(board: string, city: string): string {
-  const random = Math.floor(100 + Math.random() * 900);
-  const boardCode = board.replace(/\s+/g, '').toUpperCase().substring(0, 4);
-  const cityCode = city.toUpperCase().substring(0, 3);
-  return `SCH-${new Date().getFullYear()}-${boardCode}-${cityCode}-${random}`;
-}
-
 export async function createSchool(formData: any /* eslint-disable-line @typescript-eslint/no-explicit-any */): Promise<ActionResult<string>> {
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
@@ -56,7 +48,7 @@ export async function createSchool(formData: any /* eslint-disable-line @typescr
 
   try {
     const { data: newSchool, error } = await (await adminDb()).from('schools').insert({
-      school_id: generateSchoolId(validData.board, validData.city),
+      // school_id (SCH-YYYY-NNNN) is assigned by the database (standard-ids.sql) — never here.
       name: sanitize(validData.name),
       board: validData.board,
       mediums: validData.mediums,

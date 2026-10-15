@@ -19,6 +19,7 @@ import EntityAvatar from '@/components/EntityAvatar';
 import StatusBadge, { StatusType } from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
 import { deleteParentAction } from './actions';
+import AccountKeysModal, { KeyCountButton, type KeysTarget } from './AccountKeysModal';
 
 interface Parent {
     dbId: string;
@@ -31,6 +32,7 @@ interface Parent {
     grade: string;
     status: StatusType;
     dateAdded: string;
+    keyCount: number;
 }
 
 interface ParentsClientProps {
@@ -53,6 +55,8 @@ export default function ParentsClient({
     const [showAdd, setShowAdd] = useState(false);
     const closeAdd = useCallback(() => setShowAdd(false), []);
     const [search, setSearch] = useState('');
+    const [keysTarget, setKeysTarget] = useState<KeysTarget | null>(null);
+    const showKeys = (p: Parent) => setKeysTarget({ kind: 'parent', id: p.dbId, name: p.parentName, publicId: p.parentId });
     const { toast } = useToast();
     const [isPending, startTransition] = useTransition();
     const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -100,6 +104,7 @@ export default function ParentsClient({
 
     return (
         <div className="space-y-4">
+            <AccountKeysModal target={keysTarget} onClose={() => setKeysTarget(null)} />
             <FormModal open={showAdd} onClose={closeAdd}>
                 <NewParentForm onClose={closeAdd} onSaved={() => { closeAdd(); router.refresh(); }} />
             </FormModal>
@@ -137,6 +142,7 @@ export default function ParentsClient({
                                 <th>Grade</th>
                                 <th>Contact</th>
                                 <th>Status</th>
+                                <th className="num">Keys</th>
                                 <th className="num">Actions</th>
                             </tr>
                         </thead>
@@ -147,7 +153,7 @@ export default function ParentsClient({
                                         <span className="cell-mono cell-muted">{parent.parentId}</span>
                                     </td>
                                     <td>
-                                        <div className="flex items-center gap-2.5">
+                                        <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => showKeys(parent)} title="Show licence keys">
                                             <EntityAvatar name={parent.parentName || '?'} />
                                             <span className="cell-strong">{parent.parentName}</span>
                                         </div>
@@ -161,6 +167,7 @@ export default function ParentsClient({
                                     <td>
                                         <StatusBadge status={parent.status as StatusType} />
                                     </td>
+                                    <td className="num"><KeyCountButton count={parent.keyCount} onClick={() => showKeys(parent)} /></td>
                                     <td className="num">
                                         <div className="flex items-center justify-end gap-2">
                                             {/* We can add an edit page later: href={`/parents/edit/${parent.dbId}`} */}
@@ -180,7 +187,7 @@ export default function ParentsClient({
                             ))}
                             {filteredParents.length === 0 && (
                                 <tr>
-                                    <td colSpan={7} className="!h-auto !whitespace-normal text-center !py-10 text-zinc-500">
+                                    <td colSpan={8} className="!h-auto !whitespace-normal text-center !py-10 text-zinc-500">
                                         No parents found matching your search.
                                     </td>
                                 </tr>

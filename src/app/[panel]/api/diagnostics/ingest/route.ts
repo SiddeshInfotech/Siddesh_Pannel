@@ -3,7 +3,7 @@ import { getClientIp } from '@/lib/sanitize';
 import { authenticateDevice } from '@/lib/diagnostics/deviceAuth';
 import { diagDb, loadRetention, rateLimit } from '@/lib/diagnostics/server';
 import { IngestSchema, normalizeCrash, normalizeEvent, type TouchSpec } from '@/lib/diagnostics/ingest';
-import { LIMITS, crashCode } from '@/lib/diagnostics/core';
+import { LIMITS } from '@/lib/diagnostics/core';
 
 // ============================================================================
 // POST /api/diagnostics/ingest — batched, offline-queue friendly diagnostics upload.
@@ -79,6 +79,7 @@ export async function POST(req: NextRequest) {
       p_product: identity.productId, p_exc_type: g.t.exc_type, p_message: g.t.message, p_stack: g.t.stack,
       p_expected: g.t.expected, p_actual: g.t.actual, p_school: identity.entityId, p_machine: identity.machineId,
       p_version: g.version, p_module: g.t.module, p_count: g.n, p_seen: g.seen,
+      p_environment: body.environment ?? 'production',
     });
     if (!error && data) issueByFp.set(fp, data as string);
   }
@@ -128,9 +129,17 @@ export async function POST(req: NextRequest) {
   for (const c of freshCrashes) {
     const issueId = issueByFp.get(c.touch.fingerprint);
     if (!issueId) { failed.push(c.row.id); continue; }
-    const code = crashCode(c.row.id, new Date(c.row.ts));
-    const { error } = await db.from('diag_crashes').upsert({ ...c.row, code, issue_id: issueId }, { onConflict: 'id', ignoreDuplicates: true });
-    if (error) failed.push(c.row.id); else crashAck.push({ crash_id: c.row.id, code });
+    // `code` (CR-YYYYMMDD-NNNN) is assigned by the database (standard-ids.sql), never here.
+    const { data: ins, error } = await db.from('diag_crashes')
+      .upsert({ ...c.row, issue_id: issueId }, { onConflict: 'id', ignoreDuplicates: true })
+      .select('code');
+    let code = (ins?.[0]?.code as string | undefined) ?? null;
+    if (!error && !code) {
+      // Stored concurrently by a retry of the same batch → report the code it already has.
+      const { data: prev } = await db.from('diag_crashes').select('code').eq('id', c.row.id).maybeSingle();
+      code = (prev?.code as string | undefined) ?? null;
+    }
+    if (error || !code) failed.push(c.row.id); else crashAck.push({ crash_id: c.row.id, code });
   }
 
   const failedSet = new Set(failed);

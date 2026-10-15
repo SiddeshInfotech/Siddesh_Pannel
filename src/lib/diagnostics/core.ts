@@ -263,7 +263,10 @@ export function sniffArtifact(kind: string, buf: Uint8Array): string | null {
   return null;
 }
 
-/** Display-only id like CR-20261008-3F9A1. */
+/**
+ * LEGACY format only (CR-20261008-3F9A1), kept for reading old records. New crash codes are
+ * CR-YYYYMMDD-NNNN and are assigned by the database (standard-ids.sql), never by the app.
+ */
 export function crashCode(id: string, ts: Date): string {
   const d = ts.toISOString().slice(0, 10).replace(/-/g, '');
   return `CR-${d}-${id.replace(/-/g, '').slice(0, 5).toUpperCase()}`;

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 
 import { deleteVendorAction } from './actions';
+import AccountKeysModal, { KeyCountButton, type KeysTarget } from './AccountKeysModal';
 
 interface Vendor {
     dbId: string;
@@ -35,6 +36,7 @@ interface Vendor {
     city: string;
     status: string;
     dateAdded: string;
+    keyCount: number;
 }
 
 interface VendorsClientProps {
@@ -59,6 +61,8 @@ export default function VendorsClient({
     const closeAdd = useCallback(() => setShowAdd(false), []);
 
     const [search, setSearch] = useState('');
+    const [keysTarget, setKeysTarget] = useState<KeysTarget | null>(null);
+    const showKeys = (v: Vendor) => setKeysTarget({ kind: 'vendor', id: v.dbId, name: v.vendorName, publicId: v.vendorId });
 
     const { toast } = useToast();
 
@@ -130,6 +134,7 @@ const [vendorToDelete, setVendorToDelete] =
 
     return (
         <div className="space-y-4 relative">
+            <AccountKeysModal target={keysTarget} onClose={() => setKeysTarget(null)} />
             <FormModal open={showAdd} onClose={closeAdd}>
                 <NewVendorForm onClose={closeAdd} onSaved={() => { closeAdd(); router.refresh(); }} />
             </FormModal>
@@ -178,6 +183,7 @@ const [vendorToDelete, setVendorToDelete] =
                                 <th>Email</th>
                                 <th>City</th>
                                 <th>Status</th>
+                                <th className="num">Keys</th>
                                 <th>Date Added</th>
                                 <th className="num">Actions</th>
                             </tr>
@@ -185,7 +191,7 @@ const [vendorToDelete, setVendorToDelete] =
                         <tbody>
                             {filteredVendors.length === 0 ? (
                                 <tr>
-                                    <td colSpan={10} className="!h-auto !whitespace-normal text-center !py-10 text-zinc-500">
+                                    <td colSpan={11} className="!h-auto !whitespace-normal text-center !py-10 text-zinc-500">
                                         No vendors found.
                                     </td>
                                 </tr>
@@ -195,7 +201,7 @@ const [vendorToDelete, setVendorToDelete] =
                                         <td>
                                             <div className="flex items-center gap-2.5">
                                                 <EntityAvatar name={vendor.vendorName || '?'} size={32} />
-                                                <div>
+                                                <div className="cursor-pointer" onClick={() => showKeys(vendor)} title="Show licence keys">
                                                     <span className="block cell-strong">{vendor.vendorName}</span>
                                                     <span className="block cell-sub">ID: {vendor.vendorId}</span>
                                                 </div>
@@ -211,6 +217,7 @@ const [vendorToDelete, setVendorToDelete] =
     {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
                                             <StatusBadge status={vendor.status as any} />
                                         </td>
+                                        <td className="num"><KeyCountButton count={vendor.keyCount} onClick={() => showKeys(vendor)} /></td>
                                         <td className="cell-muted cell-num">{vendor.dateAdded}</td>
                                         <td className="num">
                                             <div className="flex justify-end gap-2">
