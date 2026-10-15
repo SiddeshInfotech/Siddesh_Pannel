@@ -7,11 +7,13 @@ import { DiagAuthError, audit, dbErrorMessage, diagDb, rateLimit, requireActor, 
 import { cleanLine } from '@/lib/diagnostics/core';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { panelDb } from '@/lib/panelTables';
-import { productsForPanel } from '@/lib/productIdentity';
+import { productDisplayName, productsForPanel } from '@/lib/productIdentity';
+import { fetchAllPages } from '@/app/[panel]/update/telemetry';
+import type { Panel } from '@/lib/supabase';
 import { encryptAES } from '@/lib/crypto';
 import { computeMetrics, infraSnapshot, loadDevices, loadOps, maybeEvaluate, maybeRecordActivity, syncProviders } from '@/lib/ops/engine';
 import { PROVIDER_FIELDS } from '@/lib/ops/providers';
-import { RANGES, RULE_METRICS, freshness, mergeOps, regressionCheck, versionDistribution, type RangeKey } from '@/lib/ops/health';
+import { RANGES, RULE_METRICS, freshness, heartbeatState, mergeOps, regressionCheck, versionDistribution, type RangeKey } from '@/lib/ops/health';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- dynamic Supabase rows */
 const db = () => diagDb();
@@ -71,23 +73,39 @@ export async function getOverview(product?: string | null): Promise<ActionResult
     ]);
 
     // Every product of this panel with the same fields (24 h), plus an "All products" total.
-    const summarize = async (id: string | null, name: string) => {
-      const pd = allDevices.filter((d) => !id || d.product === id);
-      const { data: s24 } = await db().rpc('ops_event_series', { p_panel: a.panel, p_from: iso(now - 86_400_000), p_to: iso(now), p_bucket_s: 86_400, p_product: id });
+    type Ctx = { panel: 'lms' | 'lab'; devices: typeof allDevices; releases: any[] };
+    const own: Ctx = { panel: a.panel, devices: allDevices, releases: releases.data ?? [] };
+    const summarize = async (ctx: Ctx, id: string | null, name: string, os: string | null = null) => {
+      const pd = ctx.devices.filter((d) => !id || d.product === id);
+      const { data: s24 } = await db().rpc('ops_event_series', { p_panel: ctx.panel, p_from: iso(now - 86_400_000), p_to: iso(now), p_bucket_s: 86_400, p_product: id });
       const r = (s24 ?? []).reduce((t: any, x: any) => ({ events: t.events + Number(x.events), errors: t.errors + Number(x.errors), crashes: t.crashes + Number(x.crashes), users: Math.max(t.users, Number(x.users)) }), { events: 0, errors: 0, crashes: 0, users: 0 });
       const active24 = pd.filter((d) => d.lastSeen && now - Date.parse(d.lastSeen) < 86_400_000).length;
       const errorRate = r.events ? (r.errors / r.events) * 100 : null;
       const crashRate = active24 ? (r.crashes / active24) * 100 : null;
       const status = !pd.length && !r.events ? 'UNKNOWN' : (crashRate ?? 0) > 2 || (errorRate ?? 0) > 10 ? 'CRITICAL' : (crashRate ?? 0) > 0.5 || (errorRate ?? 0) > 3 ? 'WARNING' : 'HEALTHY';
       return {
-        id: id ?? '', name, status, version: id ? versionDistribution(pd.map((d) => d.version)).latest : null,
+        id: id ?? '', name, group: name.replace(/ (Android|Windows|Linux)$/, ''), os, status, version: id ? versionDistribution(pd.map((d) => d.version)).latest : null,
+        // `external`: a product of the OTHER admin, shown for reference only (it can't filter this page).
+        panel: ctx.panel, external: ctx.panel !== a.panel,
         devices: pd.length, online: pd.filter((d) => d.state === 'ONLINE').length,
         schools: new Set(pd.map((d) => d.entity).filter(Boolean)).size, activeUsers: r.users || null,
         errors24h: r.errors, crashes24h: r.crashes, errorRate, crashRate,
-        lastDeployment: (releases.data ?? []).find((x: any) => !id || x.product_id === id)?.first_seen ?? null,
+        lastDeployment: ctx.releases.find((x: any) => !id || x.product_id === id)?.first_seen ?? null,
       };
     };
-    const products = await Promise.all([summarize(null, 'All products'), ...productsForPanel(a.panel).map((p) => summarize(p.id, p.displayName))]);
+    const products = await Promise.all([summarize(own, null, 'All products'), ...productsForPanel(a.panel).map((p) => summarize(own, p.id, p.displayName, p.targetOs))]);
+
+    // Lab-Admin also lists the LMS School products (read-only summary from LMS-Admin's data).
+    // Not for school-scoped roles: their scope is this admin's schools only.
+    if (a.panel === 'lab' && !a.schoolIds) {
+      const school = productsForPanel('lms').filter((p) => p.family === 'school');
+      const [lmsDevices, { data: lmsReleases }] = await Promise.all([
+        loadOps('lms').then((c) => loadDevices('lms', c)),
+        db().from('ops_releases').select('product_id, first_seen').eq('panel', 'lms').order('first_seen', { ascending: false }).limit(50),
+      ]);
+      const lms: Ctx = { panel: 'lms', devices: lmsDevices, releases: lmsReleases ?? [] };
+      products.push(...await Promise.all(school.map((p) => summarize(lms, p.id, p.displayName, p.targetOs))));
+    }
 
     return ok({ generatedAt: iso(now), product: prod, score: m.score, previousScore: prevScore.data?.value ?? null, products });
   });
@@ -131,36 +149,7 @@ export async function getOpsConfig(): Promise<ActionResult<any>> {
   });
 }
 
-// ── Schools + devices ────────────────────────────────────────────────────────
-export async function getSchools(product?: string | null): Promise<ActionResult<any[]>> {
-  return guard(async () => {
-    const a = await viewer();
-    const cfg = await loadOps(a.panel);
-    const prod = productOk(a, product);
-    const devs = (await loadDevices(a.panel, cfg)).filter((d) => inScope(a, d.entity) && (!prod || d.product === prod) && d.entity);
-    const since = iso(Date.now() - 86_400_000); // last 24 h — same window as Overview and Devices
-    const [{ data: errs }, { data: crs }] = await Promise.all([
-      db().from('diag_events').select('entity_id').eq('panel', a.panel).in('severity', ['ERROR', 'CRITICAL', 'FATAL']).gte('ts', since).limit(50_000),
-      db().from('diag_crashes').select('entity_id').eq('panel', a.panel).gte('ts', since).limit(20_000),
-    ]);
-    const countBy = (rows: any[] | null) => (rows ?? []).reduce((m: Map<string, number>, r: any) => m.set(r.entity_id, (m.get(r.entity_id) ?? 0) + 1), new Map<string, number>());
-    const e = countBy(errs), c = countBy(crs);
-    const groups = new Map<string, typeof devs>();
-    for (const d of devs) groups.set(d.entity!, [...(groups.get(d.entity!) ?? []), d]);
-    const names = await entityNames(a, [...groups.keys()]);
-    return ok([...groups.entries()].map(([id, ds]) => {
-      const online = ds.filter((d) => d.state === 'ONLINE').length;
-      const crashes = c.get(id) ?? 0, errors = e.get(id) ?? 0;
-      return {
-        id, name: names.get(id) ?? id, products: [...new Set(ds.map((d) => d.product).filter(Boolean))], devices: ds.length, online,
-        offline: ds.filter((d) => d.state === 'OFFLINE').length, lastSeen: ds.map((d) => d.lastSeen).filter(Boolean).sort().at(-1) ?? null,
-        errors, crashes, versions: versionDistribution(ds.map((d) => d.version)).rows,
-        health: crashes > 3 || errors > 100 ? 'CRITICAL' : crashes > 0 || errors > 20 ? 'WARNING' : online === 0 ? 'UNKNOWN' : 'HEALTHY',
-      };
-    }).sort((x, y) => y.crashes - x.crashes || y.errors - x.errors || x.name.localeCompare(y.name)));
-  });
-}
-
+// ── Devices ────────────────────────────────────────────────────────
 export async function getDevices(f: { school?: string; product?: string; state?: string; version?: string; page?: number }): Promise<ActionResult<{ rows: any[]; total: number }>> {
   return guard(async () => {
     const a = await viewer();
@@ -447,5 +436,161 @@ export async function saveOpsSettings(cfg: Record<string, unknown>): Promise<Act
     await db().from('ops_settings').upsert({ panel: a.panel, config: { ...(data?.config ?? {}), ...merged }, updated_by: a.email, updated_at: new Date().toISOString() });
     await audit(a, 'OPS_SETTINGS_SAVED', null, 'OK', merged);
     return ok(merged);
+  });
+}
+
+// ── Security / suspicious devices (category SECURITY — root, emulator, Frida, capture, tamper…) ──
+// Apps send each signal once per session plus repeat rows carrying data.occurrences, so a device's
+// count = per (session, type, signal) the highest occurrences seen, summed.
+export async function getSecurity(range: string, product?: string | null): Promise<ActionResult<{ devices: any[]; recent: any[]; total: number }>> {
+  return guard(async () => {
+    const a = await viewer();
+    const prod = productOk(a, product);
+    let q = db().from('diag_events').select('ts, machine_id, computer_name, entity_id, school_name, product_id, product_version, session_id, severity, event_type, message, data')
+      .eq('panel', a.panel).eq('category', 'SECURITY').gte('ts', iso(Date.now() - rangeMs(range))).order('ts', { ascending: false }).limit(5000);
+    if (prod) q = q.eq('product_id', prod);
+    if (a.schoolIds) q = q.in('entity_id', a.schoolIds.length ? a.schoolIds : ['-']);
+    const { data, error } = await q;
+    if (error) return fail(dbErrorMessage(error));
+    const rows = data ?? [];
+    const extra = (r: any) => (r.data?.extra ?? {}) as { signal?: string; occurrences?: number };
+    const peak = new Map<string, number>();
+    for (const r of rows) {
+      const k = `${r.machine_id}|${r.session_id}|${r.event_type}|${extra(r).signal ?? ''}`;
+      peak.set(k, Math.max(peak.get(k) ?? 0, Number(extra(r).occurrences) || 1));
+    }
+    const rank = (s: string) => ['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'FATAL'].indexOf(s);
+    const devs = new Map<string, any>();
+    for (const r of rows) {
+      const d = devs.get(r.machine_id) ?? { fp: r.machine_id, computer: r.computer_name, school: r.school_name ?? r.entity_id, product: r.product_id, version: r.product_version,
+        lastSeen: r.ts, firstSeen: r.ts, worst: r.severity, signals: {} as Record<string, number> };
+      if (rank(r.severity) > rank(d.worst)) d.worst = r.severity;
+      if (r.ts < d.firstSeen) d.firstSeen = r.ts;
+      devs.set(r.machine_id, d);
+    }
+    for (const [k, n] of peak) {
+      const [fp, , type] = k.split('|');
+      const d = devs.get(fp);
+      if (d) d.signals[type] = (d.signals[type] ?? 0) + n;
+    }
+    const devices = [...devs.values()].sort((x, y) => rank(y.worst) - rank(x.worst) || y.lastSeen.localeCompare(x.lastSeen));
+    const recent = rows.slice(0, 100).map((r: any) => ({ ts: r.ts, computer: r.computer_name ?? r.machine_id, school: r.school_name ?? r.entity_id, type: r.event_type,
+      signal: extra(r).signal ?? null, occurrences: Number(extra(r).occurrences) || 1, severity: r.severity, message: r.message }));
+    return ok({ devices, recent, total: rows.length });
+  });
+}
+
+// ── Active devices + key search (Lab-Admin sees LMS School AND Lab devices; LMS-Admin only its own) ──
+// Active = key status 'Active', bound to a device, and not past expires_at. School-scoped roles
+// only ever see their own panel's schools.
+const panelsFor = (a: Actor): Panel[] => (a.panel === 'lab' && !a.schoolIds ? ['lab', 'lms'] : [a.panel]);
+const PANEL_LABEL: Record<Panel, string> = { lms: 'LMS School', lab: 'Lab' };
+const maskKey = (k: string) => (k.length > 8 ? `${k.slice(0, 4)}…${k.slice(-4)}` : '••••');
+const KEY_COLS = 'id, key, status, expires_at, activated_at, device_fingerprint, device_model, device_os, product_id, school_id, vendor_id, parent_id, schools (name), vendors (vendor_name), parents (kid_name)';
+const likeSafe = (s: string) => s.replace(/[%_,()*\\]/g, '');
+function keyRow(p: Panel, k: any) {
+  return {
+    panel: p, panelLabel: PANEL_LABEL[p], keyId: k.id as string, key: maskKey(String(k.key ?? '')), status: k.status as string,
+    expiresAt: (k.expires_at ?? null) as string | null, activatedAt: k.activated_at ?? null,
+    fp: (k.device_fingerprint ?? null) as string | null, model: k.device_model ?? null, os: k.device_os ?? null,
+    product: k.product_id ? productDisplayName(k.product_id) : null, productId: k.product_id ?? null,
+    entity: (k.school_id ?? k.vendor_id ?? k.parent_id ?? null) as string | null, owner: k.schools?.name ?? k.vendors?.vendor_name ?? k.parents?.kid_name ?? null,
+  };
+}
+
+export async function getActiveDevices(f: { q?: string; panel?: string; page?: number }): Promise<ActionResult<{ rows: any[]; total: number; panels: Panel[] }>> {
+  return guard(async () => {
+    const a = await viewer();
+    const panels = panelsFor(a).filter((p) => !f.panel || p === f.panel);
+    const nowIso = iso(Date.now());
+    const cfg = await loadOps(a.panel);
+    let rows: ReturnType<typeof keyRow>[] = [];
+    for (const p of panels) {
+      const { data } = await fetchAllPages<any>((from, to) => panelDb(p).from('activation_keys').select(KEY_COLS)
+        .eq('status', 'Active').not('device_fingerprint', 'is', null).or(`expires_at.is.null,expires_at.gt.${nowIso}`)
+        .order('id').range(from, to));
+      rows.push(...data.map((k) => keyRow(p, k)).filter((r) => p !== a.panel || inScope(a, r.entity)));
+    }
+    const q = cleanLine(f.q, 80)?.toLowerCase();
+    if (q) rows = rows.filter((r) => [r.owner, r.model, r.product, r.fp].some((v) => v && String(v).toLowerCase().includes(q)));
+    const ds = new Map<string, any>();
+    for (const p of panels) {
+      const fps = rows.filter((r) => r.panel === p && r.fp).map((r) => r.fp!);
+      for (let i = 0; i < fps.length; i += 500) {
+        const { data } = await panelDb(p).from('device_status').select('device_fingerprint, app_version, last_seen').in('device_fingerprint', fps.slice(i, i + 500));
+        for (const d of data ?? []) ds.set(`${p}|${d.device_fingerprint}`, d);
+      }
+    }
+    const seen = (r: { panel: Panel; fp: string | null }) => ds.get(`${r.panel}|${r.fp}`)?.last_seen ?? '';
+    rows.sort((x, y) => seen(y).localeCompare(seen(x)));
+    const page = Math.max(0, Number(f.page) || 0);
+    const slice = rows.slice(page * 50, page * 50 + 50);
+    const since = iso(Date.now() - 86_400_000);
+    const { data: errs } = slice.length
+      ? await db().from('diag_events').select('panel, machine_id').in('panel', panels).in('machine_id', slice.map((r) => r.fp!))
+        .in('severity', ['ERROR', 'CRITICAL', 'FATAL']).gte('ts', since).limit(10_000)
+      : { data: [] as any[] };
+    const now = Date.now();
+    return ok({
+      total: rows.length, panels,
+      rows: slice.map((r) => {
+        const d = ds.get(`${r.panel}|${r.fp}`);
+        return { ...r, version: d?.app_version ?? null, lastSeen: d?.last_seen ?? null, state: heartbeatState(d?.last_seen, now, cfg.onlineMinutes, cfg.staleMinutes),
+          errors24h: (errs ?? []).filter((e: any) => e.panel === r.panel && e.machine_id === r.fp).length };
+      }),
+    });
+  });
+}
+
+/** Full activation key → its device (searched in every panel this admin may see). Audited. */
+export async function lookupKey(rawKey: string): Promise<ActionResult<any>> {
+  return guard(async () => {
+    const a = await requireActor('LOG_SEARCH');
+    if (!(await rateLimit(`keylookup:${a.email}`, 60_000, 30))) return fail('Too many lookups. Please wait a moment.');
+    const key = String(rawKey ?? '').trim().slice(0, 200);
+    if (key.length < 6) return fail('Enter the full activation key.');
+    for (const p of panelsFor(a)) {
+      for (const k of [...new Set([key, key.toUpperCase()])]) {
+        const { data } = await panelDb(p).from('activation_keys').select(KEY_COLS).eq('key', k).maybeSingle();
+        if (!data) continue;
+        const r = keyRow(p, data);
+        if (p === a.panel && !inScope(a, r.entity)) continue;
+        await audit(a, 'DEVICE_KEY_LOOKUP', r.keyId, 'OK', { panel: p });
+        return ok({ ...r, expired: !!r.expiresAt && Date.parse(r.expiresAt) < Date.now() });
+      }
+    }
+    await audit(a, 'DEVICE_KEY_LOOKUP', null, 'NOT_FOUND');
+    return fail('No device found for this key.');
+  });
+}
+
+/** Everything one device reported (events + crashes), newest first; an offline backlog keeps its real time. */
+export async function getDeviceLogs(f: { panel: string; keyId: string; category?: string; q?: string; page?: number }): Promise<ActionResult<{ rows: any[]; total: number; crashes: any[]; byCategory: Record<string, number> }>> {
+  return guard(async () => {
+    const a = await requireActor('LOG_SEARCH');
+    const p = panelsFor(a).find((x) => x === f.panel);
+    if (!p) return fail('Not allowed.');
+    // The device is resolved from the key id server-side — the client never names a fingerprint.
+    const { data: k } = await panelDb(p).from('activation_keys').select(KEY_COLS).eq('id', f.keyId).maybeSingle();
+    if (!k?.device_fingerprint) return fail('This key is not bound to a device.');
+    if (p === a.panel && !inScope(a, keyRow(p, k).entity)) return fail('Not allowed.');
+    const fp = k.device_fingerprint as string;
+    const page = Math.max(0, Number(f.page) || 0);
+    let q: any = db().from('diag_events').select('id, ts, received_at, severity, event_type, category, module, feature, action, result, message, product_version, session_id, data', { count: 'estimated' })
+      .eq('panel', p).eq('machine_id', fp);
+    const cat = cleanLine(f.category, 30);
+    if (cat) q = q.eq('category', cat);
+    const s = likeSafe(cleanLine(f.q, 80) ?? '');
+    if (s) q = q.or(`message.ilike.%${s}%,event_type.ilike.%${s}%,feature.ilike.%${s}%,action.ilike.%${s}%`);
+    const since30 = iso(Date.now() - 30 * 86_400_000);
+    const [{ data, count, error }, { data: crashes }, { data: cats }] = await Promise.all([
+      q.order('ts', { ascending: false }).range(page * 100, page * 100 + 99),
+      db().from('diag_crashes').select('id, code, ts, event_type, current_screen, actual_behavior, product_version').eq('panel', p).eq('machine_id', fp).order('ts', { ascending: false }).limit(20),
+      db().from('diag_events').select('category').eq('panel', p).eq('machine_id', fp).gte('ts', since30).limit(20_000),
+    ]);
+    if (error) return fail(dbErrorMessage(error));
+    const byCategory: Record<string, number> = {};
+    for (const c of cats ?? []) byCategory[c.category] = (byCategory[c.category] ?? 0) + 1;
+    return ok({ rows: data ?? [], total: count ?? 0, crashes: crashes ?? [], byCategory });
   });
 }

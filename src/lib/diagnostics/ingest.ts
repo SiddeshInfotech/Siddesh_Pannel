@@ -58,8 +58,9 @@ export type IngestBody = z.infer<typeof IngestSchema>;
 
 function parseTs(s: string, now: Date): Date {
   const d = new Date(s);
-  // Clamp nonsense clocks: future > 1 day or older than 30 days → server receive time.
-  if (Number.isNaN(d.getTime()) || d.getTime() > now.getTime() + 86_400_000 || d.getTime() < now.getTime() - 30 * 86_400_000) return now;
+  // Clamp nonsense clocks: future > 1 day or older than 180 days → server receive time.
+  // (Up to 180 days keeps the real action time of a device that was offline for a long while.)
+  if (Number.isNaN(d.getTime()) || d.getTime() > now.getTime() + 86_400_000 || d.getTime() < now.getTime() - 180 * 86_400_000) return now;
   return d;
 }
 
@@ -91,14 +92,18 @@ export function normalizeEvent(raw: unknown, b: IngestBody, id: DeviceIdentity, 
   const p = EventSchema.safeParse(raw);
   if (!p.success) return null;
   const e = p.data;
-  const eventType = ALL_EVENT_TYPES.includes(e.event_type) ? e.event_type : 'ERROR';
+  // Cleaner: an unknown INFO/DEBUG type is junk (dropped); unknown WARNING+ is kept as ERROR.
+  const known = ALL_EVENT_TYPES.includes(e.event_type);
+  if (!known && severityRank(e.severity) < severityRank('WARNING')) return null;
+  const eventType = known ? e.event_type : 'ERROR';
   const category = categoryOf(eventType) ?? 'ERROR';
   const ts = parseTs(e.timestamp, now);
   const exc = cleanException(e.exception);
   const stack = cleanBlock(e.exception?.stack, LIMITS.stackTrace);
   const base = common(b, id);
   const message = cleanBlock(e.message ?? e.exception?.message, LIMITS.message);
-  const groupable = severityRank(e.severity) >= severityRank('WARNING') || CRASH_TYPES.has(eventType);
+  // Security signals are attack reports, not bugs: they live on Health → Security, not in the issue tracker.
+  const groupable = category !== 'SECURITY' && (severityRank(e.severity) >= severityRank('WARNING') || CRASH_TYPES.has(eventType));
   const fingerprint = groupable
     ? fingerprintOf({ product_id: base.product_id, event_type: eventType, exception_type: exc?.type, message, stack, module: e.module, error_code: e.error_code ?? exc?.code })
     : null;
@@ -115,7 +120,8 @@ export function normalizeEvent(raw: unknown, b: IngestBody, id: DeviceIdentity, 
       expected_behavior: cleanBlock(e.expected_behavior, 1000), actual_behavior: cleanBlock(e.actual_behavior, 1000),
       exception: exc, stack_trace: stack, network: e.network, performance: e.performance, extra: e.data,
     }, LIMITS.eventData),
-    expires_at: eventExpiry(e.severity, ts, cfg).toISOString(),
+    // Retention counts from RECEIPT: an offline backlog uploaded late is kept as long as fresh data.
+    expires_at: eventExpiry(e.severity, now, cfg).toISOString(),
   };
   const touch: TouchSpec | null = fingerprint ? {
     fingerprint,

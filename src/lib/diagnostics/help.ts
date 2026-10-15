@@ -18,8 +18,9 @@ export const LOGS_TAB_HELP: Record<string, string> = {
 
 export const HEALTH_TAB_HELP: Record<string, string> = {
   overview: 'Overall Health, Activity (up to 3 years) and Products side by side. Pick a product to filter the score and the chart.',
-  schools: 'Per-school status: devices online/offline, errors and crashes in the last 24 hours, versions installed. “Diagnostics →” opens that school’s logs.',
+  active: 'Only licences that are Active and not expired (Lab-Admin: LMS School + Lab). Enter a full activation key to open everything that device did, including actions stored while it was offline.',
   devices: 'Every activated computer/tablet: heartbeat state, version, CPU/RAM/disk from the app, crashes and errors in the last 24 hours.',
+  security: 'Devices that tripped a security check: root, emulator, debugger, Frida/Xposed, re-signed APK, screen recording/casting, licence or clock tampering, modified videos and repeated decryption failures.',
   performance: 'How fast things are, as percentiles (P50 = typical, P95/P99 = slowest users). Plus per-endpoint API stats and per-module feature health.',
   incidents: 'Alerts are rule-based warnings (repeats grouped, auto-resolve on recovery). Serious ones become incidents, which you move through Detected → Investigating → … → Closed.',
   infrastructure: 'Backend providers (Supabase, Vercel, Render, health checks), database internals and storage buckets. Values show their source and age.',

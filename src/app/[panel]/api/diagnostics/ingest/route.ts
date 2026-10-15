@@ -4,6 +4,7 @@ import { authenticateDevice } from '@/lib/diagnostics/deviceAuth';
 import { diagDb, loadRetention, rateLimit } from '@/lib/diagnostics/server';
 import { IngestSchema, normalizeCrash, normalizeEvent, type TouchSpec } from '@/lib/diagnostics/ingest';
 import { LIMITS } from '@/lib/diagnostics/core';
+import { cleanBatch } from '@/lib/diagnostics/cleaner';
 
 // ============================================================================
 // POST /api/diagnostics/ingest — batched, offline-queue friendly diagnostics upload.
@@ -118,7 +119,17 @@ export async function POST(req: NextRequest) {
   }
   const stored = rows.filter((r) => r.event_type !== 'APP_HEARTBEAT');
   rows.length = 0;
-  rows.push(...stored);
+  // Cleaner (middle layer): drop noise + in-batch duplicates and cap this device's rows per day,
+  // counted by receive time so an offline backlog can't bypass it. Dropped rows are still acked.
+  if (stored.length) {
+    const today = (info: boolean) => {
+      const q = db.from('diag_events').select('id', { count: 'exact', head: true })
+        .eq('panel', identity.panel).eq('machine_id', identity.machineId).gte('received_at', dayStart.toISOString());
+      return info ? q.eq('severity', 'INFO') : q.neq('severity', 'INFO');
+    };
+    const [{ count: info }, { count: warn }] = await Promise.all([today(true), today(false)]);
+    rows.push(...cleanBatch(stored, { info: info ?? 0, warn: warn ?? 0 }).keep);
+  }
 
   const failed: string[] = [];
   if (rows.length) {

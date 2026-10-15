@@ -17,7 +17,7 @@ import * as A from './actions';
 /* eslint-disable @typescript-eslint/no-explicit-any -- action payloads */
 
 const TABS = [
-  ['overview', 'Overview'], ['schools', 'Schools'], ['devices', 'Devices'], ['performance', 'Performance'], ['incidents', 'Alerts & Incidents'],
+  ['overview', 'Overview'], ['active', 'Active devices'], ['devices', 'Devices'], ['security', 'Security'], ['performance', 'Performance'], ['incidents', 'Alerts & Incidents'],
   ['infrastructure', 'Infrastructure'], ['cost', 'Consumption & Cost'], ['deployments', 'Deployments'], ['settings', 'Settings'],
 ] as const;
 type Tab = (typeof TABS)[number][0];
@@ -56,29 +56,41 @@ export default function HealthClient({ products }: { products: { value: string; 
   const [tab, setTab] = useState<Tab>('overview');
   const [range, setRange] = useState('24h');
   const [product, setProduct] = useState<string>('');
+  // One refresh control for the whole page (right end of the tab row).
+  const [refresh, setRefresh] = useState(0);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30_000); return () => clearInterval(t); }, []);
   return (
     <div className="space-y-4 max-w-7xl mx-auto">
       <div className="h-10" />
       <div className="flex justify-between items-center flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-foreground flex items-center gap-2"><HeartPulse className="w-6 h-6" /> Operations Center</h2>
-        <div className="flex gap-2 text-xs">
-          <Sel w="w-72" value={product} onChange={setProduct} options={[{ value: '', label: 'All Products' }, ...products]} />
-          {tab === 'performance' && <Sel w="w-44" value={range} onChange={setRange} options={[['15m', 'Last 15 minutes'], ['1h', 'Last 1 hour'], ['6h', 'Last 6 hours'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days']].map(([value, label]) => ({ value, label }))} />}
+        <div className="flex flex-wrap gap-2 text-xs w-full sm:w-auto">
+          <Sel w="w-full sm:w-72" value={product} onChange={setProduct} options={[{ value: '', label: 'All Products' }, ...products]} />
+          {(tab === 'performance' || tab === 'security') && <Sel w="w-44" value={range} onChange={setRange} options={[['15m', 'Last 15 minutes'], ['1h', 'Last 1 hour'], ['6h', 'Last 6 hours'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days']].map(([value, label]) => ({ value, label }))} />}
         </div>
       </div>
-      <div className="flex flex-wrap border-b border-sidebar-border">
+      <div className="flex flex-wrap items-center border-b border-sidebar-border">
         {TABS.map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`filter-tab ${tab === k ? 'filter-tab-active' : ''}`}>{l}</button>)}
+        <div className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500 py-1 pl-2">
+          {tab === 'overview' && updatedAt && <span>Updated {ago(updatedAt)} · auto 30 s</span>}
+          <button type="button" className="icon-btn" title="Refresh" onClick={() => setRefresh((n) => n + 1)}><RefreshCw className="w-3.5 h-3.5" /></button>
+        </div>
       </div>
-      <p className="text-xs text-zinc-500 flex items-center gap-1"><InfoTip text={HEALTH_TAB_HELP[tab]} /> {HEALTH_TAB_HELP[tab]}</p>
-      {tab === 'overview' && <Overview product={product} onProduct={setProduct} />}
-      {tab === 'schools' && <Schools product={product} />}
+      {tab !== 'overview' && <p className="text-xs text-zinc-500 flex items-center gap-1"><InfoTip text={HEALTH_TAB_HELP[tab]} /> {HEALTH_TAB_HELP[tab]}</p>}
+      {tab === 'overview' && <Overview product={product} onProduct={setProduct} refresh={refresh} onUpdated={setUpdatedAt} />}
+      <div key={refresh} className="space-y-4">
+      {tab === 'active' && <ActiveDevices />}
       {tab === 'devices' && <Devices product={product} />}
+      {tab === 'security' && <Security range={range} product={product} />}
       {tab === 'performance' && <Performance range={range} product={product} />}
       {tab === 'incidents' && <div className="space-y-3"><Alerts /><Incidents /></div>}
       {tab === 'infrastructure' && <Infrastructure />}
       {tab === 'cost' && <Cost />}
       {tab === 'deployments' && <Deployments product={product} />}
       {tab === 'settings' && <Settings />}
+      </div>
     </div>
   );
 }
@@ -91,97 +103,225 @@ function Sel({ value, onChange, options, w = 'w-40' }: { value: string; onChange
 const opts = (xs: readonly string[]) => xs.map((x) => ({ value: x, label: x.replace(/_/g, ' ').toLowerCase().replace(/^w/, (c) => c.toUpperCase()) }));
 
 // ── Overview ────────────────────────────────────────────────────────────────
-// Three columns: Overall Health | Activity (own time filter, up to 3 years) | Products.
-// Picking a product in the Products column filters the Health score and the Activity chart too.
+// Products | Overall Health | Activity. Picking a product (or one of its platforms) filters the
+// health score and the activity chart; "All products" shows the whole panel.
 const ACTIVITY_WINDOWS = [['24h', '24 h'], ['7d', '7 d'], ['30d', '30 d'], ['90d', '90 d'], ['1y', '1 y'], ['3y', '3 y']] as const;
+const OS_LABEL: Record<string, string> = { ANDROID: 'Android', WINDOWS: 'Windows', LINUX: 'Linux' };
+const STATUS_BAR: Record<string, string> = { HEALTHY: 'bg-emerald-500', WARNING: 'bg-amber-500', DEGRADED: 'bg-amber-500', CRITICAL: 'bg-rose-500' };
+const SERIES = [['devices', 'Devices', '#38bdf8'], ['errors', 'Errors', '#fb7185'], ['crashes', 'Crashes', '#e11d48']] as const;
 const pctOf = (v: number | null) => (v === null ? '—' : `${v.toFixed(2)}%`);
-function Overview({ product, onProduct }: { product: string; onProduct: (p: string) => void }) {
-  const { data: d, err, reload } = useLoad<any>(() => A.getOverview(product || null), [product], 30_000);
+const Panel = ({ title, children, right }: { title: string; children: React.ReactNode; right?: React.ReactNode }) => (
+  <GlassCard className="h-full"><div className="text-xs flex flex-col gap-3 h-full">
+    <div className="flex flex-wrap items-center justify-between gap-2"><h4 className="font-semibold text-foreground text-sm flex items-center gap-1">{title}{HELP[title] && <InfoTip text={HELP[title]} />}</h4>{right}</div>
+    {children}
+  </div></GlassCard>
+);
+
+function Overview({ product, onProduct, refresh, onUpdated }: { product: string; onProduct: (p: string) => void; refresh: number; onUpdated: (at: string) => void }) {
+  const { data: d, err } = useLoad<any>(() => A.getOverview(product || null), [product, refresh], 30_000);
+  useEffect(() => { if (d?.generatedAt) onUpdated(d.generatedAt); }, [d?.generatedAt, onUpdated]);
   if (err) return <Err e={err} />;
   if (!d) return <p className="text-xs text-zinc-500">Loading…</p>;
-  const s = d.score;
-  const delta = s.score !== null && d.previousScore !== null ? s.score - d.previousScore : null;
-  const selected = d.products.find((p: any) => p.id === product) ?? d.products[0];
   return (
-    <div className="space-y-3">
-      <div className="flex justify-end text-[11px] text-zinc-500 gap-2 items-center">Updated {ago(d.generatedAt)} · auto-refresh 30 s<button className="filter-tab" onClick={reload}><RefreshCw className="w-3.5 h-3.5" /></button></div>
-      <div className="grid lg:grid-cols-3 gap-3 items-start">
-        <Card title="Overall Health">
-          {d.product && <div className="text-zinc-500">For {selected?.name}</div>}
-          <div className="text-3xl font-bold">{s.score === null ? '—' : `${s.score} / 100`}</div><St s={s.status} />
-          {delta !== null && <div className="text-zinc-500">{delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)} vs previous hour</div>}
-          <ul className="text-zinc-400 list-disc pl-4">{s.penalties.map((p: any) => <li key={p.reason}>−{p.points} {p.reason}</li>)}{!s.penalties.length && s.score !== null && <li>No deductions</li>}</ul>
-          {s.score === null && <p className="text-zinc-500">No telemetry yet — the score appears once devices report.</p>}
-          <details className="text-zinc-500"><summary className="cursor-pointer">How is this calculated?</summary>100 minus capped penalties: crash rate (10/1%, max 30), error rate (2/1%, max 20), API errors (max 10), API P95 over threshold (5), open incidents (max 30), open alerts (max 10), providers down/degraded (max 20), DB/storage over 80/90% of quota. Missing data is never penalised; no data at all = Unknown.</details>
-        </Card>
-        <Activity product={product} />
-        <Card title="Products">
-          <div className="grid grid-cols-5 gap-2">
-            <ul className="col-span-2 space-y-0.5 border-r border-sidebar-border pr-2">
-              {d.products.map((p: any) => (
-                <li key={p.id || 'all'}>
-                  <button type="button" onClick={() => onProduct(p.id)} title={p.id ? 'Show this product everywhere on the page' : 'Show all products'}
-                    className={`w-full text-left px-2 py-1 rounded-md flex items-center gap-1.5 hover:bg-white/5 ${p.id === (selected?.id ?? '') ? 'bg-white/10 text-foreground font-semibold' : 'text-zinc-400'}`}>
-                    <span>{DOT[p.status] ?? '⚪'}</span><span className="truncate">{p.name}</span>
-                  </button>
-                </li>))}
-            </ul>
-            {selected && (
-              <dl className="col-span-3 grid grid-cols-2 gap-x-2 gap-y-1">
-                <dt className="text-zinc-500">Status</dt><dd><St s={selected.status} /></dd>
-                <dt className="text-zinc-500">Version</dt><dd>{selected.version ?? '—'}</dd>
-                <dt className="text-zinc-500">Schools</dt><dd>{selected.schools}</dd>
-                <dt className="text-zinc-500">Devices</dt><dd>{selected.online} online / {selected.devices}</dd>
-                <dt className="text-zinc-500">Active users</dt><dd>{selected.activeUsers ?? '—'}</dd>
-                <dt className="text-zinc-500">Errors (24 h)</dt><dd>{num(selected.errors24h)} · {pctOf(selected.errorRate)}</dd>
-                <dt className="text-zinc-500">Crashes (24 h)</dt><dd>{num(selected.crashes24h)} · {pctOf(selected.crashRate)}</dd>
-                <dt className="text-zinc-500">Last deployment</dt><dd>{selected.lastDeployment ? fmt(selected.lastDeployment) : '—'}</dd>
-              </dl>)}
-          </div>
-        </Card>
-      </div>
+    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-3 items-stretch">
+      <div className="md:col-span-2 xl:col-span-5 min-w-0"><Products list={d.products} product={product} onProduct={onProduct} /></div>
+      <div className="xl:col-span-3 min-w-0"><OverallHealth d={d} /></div>
+      <div className="xl:col-span-4 min-w-0"><Activity product={product} refresh={refresh} /></div>
     </div>
   );
 }
 
-function Activity({ product }: { product: string }) {
+function Products({ list, product, onProduct }: { list: any[]; product: string; onProduct: (p: string) => void }) {
+  // Products of the other admin (LMS School on Lab-Admin) can be inspected but not used as a filter.
+  const [picked, setPicked] = useState<string | null>(null);
+  const all = list.find((p) => !p.id);
+  const active = picked ?? product;
+  const selected = list.find((p) => p.id && p.id === active) ?? all;
+  const groupsOf = (xs: any[]) => [...new Map(xs.map((p) => [p.group, xs.filter((x) => x.group === p.group)])).entries()];
+  const own = groupsOf(list.filter((p) => p.id && !p.external));
+  const external = groupsOf(list.filter((p) => p.id && p.external));
+  const choose = (p: any) => { if (p.external) setPicked(p.id); else { setPicked(null); onProduct(p.id); } };
+  const rows: [string, React.ReactNode][] = selected ? [
+    ['Status', <St key="s" s={selected.status} />], ['Version', selected.version ?? '—'], ['Schools', num(selected.schools) ?? '0'],
+    ['Devices', `${num(selected.online)} online / ${num(selected.devices)}`], ['Active users', selected.activeUsers ?? '—'],
+    ['Errors (24 h)', `${num(selected.errors24h)} · ${pctOf(selected.errorRate)}`], ['Crashes (24 h)', `${num(selected.crashes24h)} · ${pctOf(selected.crashRate)}`],
+    ['Last deployment', selected.lastDeployment ? fmt(selected.lastDeployment) : '—'],
+  ] : [];
+  const chip = (p: any) => (
+    <button key={p.id} type="button" onClick={() => choose(p)} title={p.name}
+      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[11px] ${p.id === active ? 'border-violet-500 bg-violet-500/10 text-foreground' : 'border-sidebar-border text-zinc-400 hover:text-foreground'}`}>
+      {DOT[p.status] ?? '⚪'} {OS_LABEL[p.os] ?? p.os}
+    </button>
+  );
+  const group = ([name, items]: [string, any[]]) => (
+    <div key={name} className="px-2 py-1.5 rounded-lg border border-sidebar-border space-y-1">
+      <div className="font-medium text-foreground leading-tight break-words">{name}</div>
+      <div className="flex flex-wrap gap-1">{items.map(chip)}</div>
+    </div>
+  );
+  return (
+    <Panel title="Products">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 flex-1 min-w-0">
+        <div className="space-y-1 max-h-60 sm:max-h-80 overflow-y-auto pr-1 min-w-0">
+          <button type="button" onClick={() => { setPicked(null); onProduct(''); }}
+            className={`w-full text-left px-2 py-1.5 rounded-lg flex items-center gap-1.5 ${!active ? 'bg-violet-500/10 text-foreground font-semibold' : 'text-zinc-400 hover:bg-white/5'}`}>
+            {DOT[all?.status] ?? '⚪'} All products
+          </button>
+          {own.map(group)}
+          {external.length > 0 && <>
+            <div className="pt-1 text-[10px] uppercase tracking-wide text-zinc-500">From LMS Admin</div>
+            {external.map(group)}
+          </>}
+        </div>
+        <div className="rounded-lg bg-white/5 p-2.5 self-start w-full min-w-0">
+          <div className="font-semibold text-foreground mb-1.5 leading-tight break-words">{selected?.name ?? '—'}</div>
+          {selected?.external && <div className="text-[11px] text-zinc-500 mb-1.5">From LMS Admin — for reference; the health score and activity here cover this admin’s products.</div>}
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5">
+            {rows.map(([k, v]) => <React.Fragment key={k}><dt className="text-zinc-500 whitespace-nowrap">{k}</dt><dd className="text-right text-foreground break-words">{v}</dd></React.Fragment>)}
+          </dl>
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+function OverallHealth({ d }: { d: any }) {
+  const s = d.score;
+  const delta = s.score !== null && d.previousScore !== null ? s.score - d.previousScore : null;
+  const name = d.products.find((p: any) => p.id === (d.product ?? ''))?.name;
+  return (
+    <Panel title="Overall Health" right={d.product ? <span className="text-zinc-500 truncate max-w-[50%]" title={name}>{name}</span> : null}>
+      <div className="flex items-end gap-2"><span className="text-4xl font-bold text-foreground leading-none">{s.score === null ? '—' : s.score}</span><span className="text-zinc-500 mb-0.5">/ 100</span></div>
+      <div className="h-2 rounded-full bg-white/10 overflow-hidden"><div className={`h-full rounded-full ${STATUS_BAR[s.status] ?? 'bg-zinc-500'}`} style={{ width: `${s.score ?? 0}%` }} /></div>
+      <div className="flex flex-wrap items-center justify-between gap-1"><St s={s.status} />{delta !== null && <span className={delta >= 0 ? 'text-emerald-500' : 'text-rose-500'}>{delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)} vs previous hour</span>}</div>
+      {s.score === null ? <p className="text-zinc-500">No telemetry yet — the score appears once devices report.</p> : (
+        <div className="space-y-1">
+          <div className="text-zinc-500">{s.penalties.length ? 'Points lost' : 'No deductions'}</div>
+          {s.penalties.map((p: any) => <div key={p.reason} className="flex justify-between gap-2 rounded-md bg-rose-500/5 px-2 py-1"><span className="text-zinc-400 min-w-0 break-words">{p.reason}</span><span className="text-rose-500 font-semibold">−{p.points}</span></div>)}
+        </div>)}
+      <details className="text-zinc-500 mt-auto"><summary className="cursor-pointer">How is this calculated?</summary>100 minus capped penalties: crash rate (10/1%, max 30), error rate (2/1%, max 20), API errors (max 10), API P95 over threshold (5), open incidents (max 30), open alerts (max 10), providers down/degraded (max 20), DB/storage over 80/90% of quota. Missing data is never penalised; no data at all = Unknown.</details>
+    </Panel>
+  );
+}
+
+function Activity({ product, refresh }: { product: string; refresh: number }) {
   const [win, setWin] = useState<string>('24h');
-  const { data, err } = useLoad<any>(() => A.getActivity(win, product || null), [win, product], 60_000);
+  const { data, err } = useLoad<any>(() => A.getActivity(win, product || null), [win, product, refresh], 60_000);
   const daily = data?.granularity === 'day';
   const label = (t: string) => daily
     ? new Date(t).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: win === '1y' || win === '3y' ? '2-digit' : undefined, timeZone: 'UTC' })
     : new Date(t).toLocaleTimeString('en-IN', { timeZone: IST, hour: '2-digit', minute: '2-digit' });
   const pts = data?.points ?? [];
   const sum = (k: string) => pts.reduce((t: number, x: any) => t + (x[k] ?? 0), 0);
+  const peak = pts.reduce((m: number, x: any) => Math.max(m, x.devices ?? 0), 0);
   return (
-    <Card title="Activity">
-      <div className="flex gap-1 flex-wrap">{ACTIVITY_WINDOWS.map(([k, l]) => <button key={k} type="button" className={`filter-tab !px-2 !py-0.5 ${win === k ? 'filter-tab-active' : ''}`} onClick={() => setWin(k)}>{l}</button>)}</div>
+    <Panel title="Activity" right={<div className="flex rounded-lg border border-sidebar-border overflow-hidden">{ACTIVITY_WINDOWS.map(([k, l]) => (
+      <button key={k} type="button" onClick={() => setWin(k)} className={`px-1.5 py-0.5 text-[11px] ${win === k ? 'bg-violet-500 text-white' : 'text-zinc-500 hover:text-foreground'}`}>{l}</button>))}</div>}>
+      <div className="grid grid-cols-3 gap-2">
+        {[['Peak devices', peak], ['Errors', sum('errors')], ['Crashes', sum('crashes')]].map(([k, v]) => (
+          <div key={k as string} className="rounded-lg bg-white/5 px-2 py-1.5"><div className="text-zinc-500 text-[11px]">{k}</div><div className="text-base font-bold text-foreground">{num(v as number)}</div></div>))}
+      </div>
       {err ? <p className="text-rose-400">{err}</p> : !data ? <p className="text-zinc-500">Loading…</p> : pts.some((x: any) => x.events || x.devices) ? (
-        <>
-          <div className="h-48"><ResponsiveContainer><AreaChart data={pts.map((x: any) => ({ ...x, t: label(x.t) }))}>
-            <CartesianGrid strokeOpacity={0.1} /><XAxis dataKey="t" fontSize={10} minTickGap={16} /><YAxis fontSize={10} width={32} /><Tooltip />
-            <Area dataKey="devices" stroke="#38bdf8" fill="#38bdf8" fillOpacity={0.15} /><Area dataKey="errors" stroke="#fb7185" fill="#fb7185" fillOpacity={0.15} /><Area dataKey="crashes" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.3} />
-          </AreaChart></ResponsiveContainer></div>
-          <div className="text-zinc-500">{num(sum('errors'))} errors · {num(sum('crashes'))} crashes in this period{daily && data.recordedSince ? ` · history since ${fmt(data.recordedSince).split(',')[0]}` : ''}</div>
-        </>) : <p className="text-zinc-500">No activity in this period.</p>}
-    </Card>
+        <div className="h-44"><ResponsiveContainer><AreaChart data={pts.map((x: any) => ({ ...x, t: label(x.t) }))} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
+          <CartesianGrid strokeOpacity={0.1} vertical={false} /><XAxis dataKey="t" fontSize={10} minTickGap={20} tickLine={false} /><YAxis fontSize={10} allowDecimals={false} tickLine={false} axisLine={false} /><Tooltip />
+          {SERIES.map(([k, n, c]) => <Area key={k} dataKey={k} name={n} stroke={c} fill={c} fillOpacity={k === 'devices' ? 0.12 : 0.25} />)}
+        </AreaChart></ResponsiveContainer></div>) : <p className="text-zinc-500 py-10 text-center">No activity in this period.</p>}
+      <div className="flex flex-wrap items-center justify-between gap-2 text-zinc-500 mt-auto">
+        <span className="flex flex-wrap gap-3">{SERIES.map(([k, n, c]) => <span key={k} className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: c }} />{n}</span>)}</span>
+        {daily && data?.recordedSince && <span>since {fmt(data.recordedSince).split(',')[0]}</span>}
+      </div>
+    </Panel>
   );
 }
 
-// ── Schools / devices ───────────────────────────────────────────────────────
-function Schools({ product }: { product: string }) {
-  const { data, err } = useLoad<any[]>(() => A.getSchools(product || null), [product]);
-  if (err) return <Err e={err} />;
+// ── Active devices + key search ────────────────────────────────────────────
+// Active = licence Active, bound to a device, not expired. Lab-Admin lists LMS School + Lab.
+type DevRef = { panel: string; keyId: string };
+function ActiveDevices() {
+  const [f, setF] = useState<{ q?: string; panel?: string; page: number }>({ page: 0 });
+  const [key, setKey] = useState('');
+  const [found, setFound] = useState<any>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [open, setOpen] = useState<DevRef | null>(null);
+  const { data, err } = useLoad<any>(() => A.getActiveDevices(f), [f], 60_000);
+  const search = async () => {
+    setMsg(null); setFound(null);
+    const r = await A.lookupKey(key);
+    if (r.ok) { setFound(r.data); setOpen({ panel: r.data.panel, keyId: r.data.keyId }); } else setMsg(r.error ?? 'Not found.');
+  };
+  if (open) return <DeviceLogs dev={open} info={found} onBack={() => { setOpen(null); setFound(null); }} />;
   return (
-    <Card title={`Schools (${data?.length ?? '…'})`}>
-      <Table head={['School', 'Health', 'Devices', 'Online', 'Offline', 'Last seen', 'Errors 24h', 'Crashes 24h', 'Versions', '']} rows={(data ?? []).map((s) => [
-        s.name, <St key="s" s={s.health} />, s.devices, s.online, s.offline, ago(s.lastSeen), s.errors, s.crashes,
-        s.versions.slice(0, 3).map((v: any) => `${v.version} ${v.pct}%`).join(' · '),
-        <Link key="l" href={`/logs?tab=all&school=${encodeURIComponent(s.id)}`} className="underline">Diagnostics →</Link>])} />
-    </Card>
+    <div className="space-y-3">
+      <Card title="Search by activation key">
+        <form className="flex gap-2 flex-wrap" onSubmit={(e) => { e.preventDefault(); search(); }}>
+          <input className="bare-input bg-transparent px-2 py-1 flex-1 min-w-[220px] font-mono" placeholder="Enter the full activation key" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" spellCheck={false} />
+          <button type="submit" className="filter-tab filter-tab-active" disabled={!key.trim()}>Show logs</button>
+        </form>
+        {msg && <p className="text-rose-400">{msg}</p>}
+        <p className="text-zinc-500">Opens everything that device reported: screens, actions, typed searches, security signals, errors and crashes. Lookups are audited.</p>
+      </Card>
+      {err ? <Err e={err} /> : (
+        <Card title={`Active devices (${data?.total ?? '…'})`}>
+          <div className="flex gap-2 flex-wrap">
+            {(data?.panels?.length ?? 0) > 1 && <Sel value={f.panel ?? ''} onChange={(v) => setF({ ...f, panel: v || undefined, page: 0 })} options={[{ value: '', label: 'LMS School + Lab' }, { value: 'lms', label: 'LMS School' }, { value: 'lab', label: 'Lab' }]} />}
+            <input className="bare-input bg-transparent px-2 py-1 w-56" placeholder="School, model, product…" onChange={(e) => setF({ ...f, q: e.target.value || undefined, page: 0 })} />
+          </div>
+          <Table head={['Panel', 'Product', 'School / owner', 'Device', 'Key', 'Version', 'Status', 'Last seen', 'Expires', 'Errors 24h', '']} rows={(data?.rows ?? []).map((r: any) => [
+            r.panelLabel, r.product ?? '—', r.owner ?? '—', <span key="d" title={r.fp ?? ''}>{r.model ?? `${(r.fp ?? '').slice(0, 12)}…`}</span>, <span key="k" className="font-mono">{r.key}</span>,
+            r.version ?? '—', <St key="s" s={r.state} />, ago(r.lastSeen), fmt(r.expiresAt), r.errors24h,
+            <button key="l" className="filter-tab" onClick={() => setOpen({ panel: r.panel, keyId: r.keyId })}>Logs</button>])} />
+          <div className="flex gap-2 justify-end">
+            <button className="filter-tab" disabled={!f.page} onClick={() => setF({ ...f, page: f.page - 1 })}>Prev</button>
+            <button className="filter-tab" disabled={!data || (f.page + 1) * 50 >= data.total} onClick={() => setF({ ...f, page: f.page + 1 })}>Next</button>
+          </div>
+        </Card>
+      )}
+    </div>
   );
 }
 
+const CATS = ['', 'NAVIGATION', 'USER_ACTION', 'SECURITY', 'AUTHENTICATION', 'APPLICATION', 'ERROR', 'CRASH', 'PERFORMANCE', 'API', 'FILE', 'UPDATE'];
+function DeviceLogs({ dev, info, onBack }: { dev: DevRef; info: any; onBack: () => void }) {
+  const [f, setF] = useState<{ category?: string; q?: string; page: number }>({ page: 0 });
+  const { data, err } = useLoad<any>(() => A.getDeviceLogs({ ...dev, ...f }), [dev, f], 60_000);
+  const detail = (r: any) => {
+    const x = r.data?.extra;
+    const extra = x && typeof x === 'object' ? Object.entries(x).map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ') : '';
+    return [r.message, extra].filter(Boolean).join(' — ') || '—';
+  };
+  // Uploaded > 10 min after it happened ⇒ the device was offline and sent its stored backlog.
+  const late = (r: any) => r.received_at && Date.parse(r.received_at) - Date.parse(r.ts) > 600_000;
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2"><button className="filter-tab" onClick={onBack}>← Back</button>
+        {info && <span className="text-xs text-zinc-400">{info.panelLabel} · {info.product ?? '—'} · {info.owner ?? '—'} · {info.model ?? '—'} · key {info.key} · {info.status}{info.expired ? ' (expired)' : ''} · expires {fmt(info.expiresAt)}</span>}</div>
+      {err ? <Err e={err} /> : (
+        <>
+          <Card title={`Device logs (${data?.total ?? '…'})`}>
+            <div className="flex gap-1 flex-wrap">{CATS.map((c) => (
+              <button key={c} className={`filter-tab ${(f.category ?? '') === c ? 'filter-tab-active' : ''}`} onClick={() => setF({ ...f, category: c || undefined, page: 0 })}>
+                {c ? `${c.replace(/_/g, ' ').toLowerCase()}${data?.byCategory?.[c] ? ` (${data.byCategory[c]})` : ''}` : 'All'}</button>))}
+              <input className="bare-input bg-transparent px-2 py-1 w-48" placeholder="Search…" onChange={(e) => setF({ ...f, q: e.target.value || undefined, page: 0 })} />
+            </div>
+            <Table head={['Time', 'Level', 'Type', 'Screen', 'Action', 'Detail']} rows={(data?.rows ?? []).map((r: any) => [
+              <span key="t" title={`Received ${fmt(r.received_at)}`}>{fmt(r.ts)}{late(r) && <span className="text-amber-400"> · offline</span>}</span>,
+              r.severity.toLowerCase(), r.event_type, r.feature ?? '—', r.action ?? '—', <span key="d" className="break-all">{detail(r)}</span>])} />
+            <div className="flex gap-2 justify-end">
+              <button className="filter-tab" disabled={!f.page} onClick={() => setF({ ...f, page: f.page - 1 })}>Prev</button>
+              <button className="filter-tab" disabled={!data || (f.page + 1) * 100 >= data.total} onClick={() => setF({ ...f, page: f.page + 1 })}>Next</button>
+            </div>
+            <p className="text-zinc-500">“offline” = the action happened while the device had no internet; it was stored on the device with its real time and uploaded later.</p>
+          </Card>
+          <Card title="Crashes">
+            <Table head={['Code', 'Time', 'Type', 'Screen', 'What happened', 'Version']} rows={(data?.crashes ?? []).map((c: any) => [c.code ?? '—', fmt(c.ts), c.event_type, c.current_screen ?? '—', c.actual_behavior ?? '—', c.product_version ?? '—'])} />
+          </Card>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Devices ───────────────────────────────────────────────────────
 function Devices({ product }: { product: string }) {
   const [f, setF] = useState<{ state?: string; version?: string; page: number }>({ page: 0 });
   const { data, err } = useLoad<any>(() => A.getDevices({ ...f, product: product || undefined }), [f, product]);
@@ -201,6 +341,34 @@ function Devices({ product }: { product: string }) {
       </div>
       <p className="text-zinc-500">CPU/RAM/Disk come from the app heartbeat (every 15 min); “—” means the device hasn’t reported it.</p>
     </Card>
+  );
+}
+
+// ── Security / suspicious devices ───────────────────────────────────────────
+const SEC_LABEL: Record<string, string> = {
+  ROOT_DETECTED: 'Root', EMULATOR_DETECTED: 'Emulator', DEBUGGER_DETECTED: 'Debugger', INSTRUMENTATION_DETECTED: 'Frida/Xposed',
+  APK_SIGNATURE_MISMATCH: 'Re-signed APK', INTEGRITY_CHECK_ERROR: 'Check error', SCREEN_CAPTURE_DETECTED: 'Screen capture',
+  LICENSE_TAMPERED: 'Licence tamper', CLOCK_ROLLBACK: 'Clock rollback', CONTENT_TAMPERED: 'Modified video', DECRYPTION_FAILED: 'Decrypt failed',
+  ADB_ENABLED: 'USB/ADB debugging', DEVELOPER_MODE_ENABLED: 'Developer mode', AUTOMATION_DETECTED: 'Automation', SUSPICIOUS_APP_INSTALLED: 'Tool installed', SUSPICIOUS_PROCESS: 'Tool running',
+};
+function Security({ range, product }: { range: string; product: string }) {
+  const { data, err } = useLoad<any>(() => A.getSecurity(range, product || undefined), [range, product], 60_000);
+  if (err) return <Err e={err} />;
+  const sev = (s: string) => <span className={s === 'CRITICAL' || s === 'FATAL' ? 'text-rose-400' : s === 'WARNING' ? 'text-amber-400' : ''}>{s.toLowerCase()}</span>;
+  return (
+    <div className="space-y-3">
+      <Card title={`Suspicious devices (${data?.devices.length ?? '…'})`}>
+        <Table head={['Device', 'School', 'Product', 'Version', 'Worst', 'Signals (count)', 'First', 'Last']} rows={(data?.devices ?? []).map((d: any) => [
+          <span key="c" title={d.fp ?? ''}>{d.computer ?? `${(d.fp ?? '').slice(0, 12)}…`}</span>, d.school ?? '—', d.product ?? '—', d.version ?? '—', sev(d.worst),
+          <span key="s" className="flex gap-1 flex-wrap">{Object.entries(d.signals as Record<string, number>).map(([t, n]) => <span key={t} className="rounded border border-sidebar-border px-1.5">{SEC_LABEL[t] ?? t} ×{n}</span>)}</span>,
+          fmt(d.firstSeen), ago(d.lastSeen)])} />
+      </Card>
+      <Card title="Recent security events">
+        <Table head={['Time', 'Device', 'School', 'Signal', 'Detail', 'Count', 'Level']} rows={(data?.recent ?? []).map((r: any) => [
+          fmt(r.ts), r.computer ?? '—', r.school ?? '—', SEC_LABEL[r.type] ?? r.type, <span key="m" title={r.message ?? ''}>{r.signal ?? '—'}</span>, r.occurrences, sev(r.severity)])} />
+        <p className="text-zinc-500">Each signal is sent once per app session; repeats only raise its count. Copying encrypted files to a PC or filming the screen with another camera cannot be detected by the app.</p>
+      </Card>
+    </div>
   );
 }
 

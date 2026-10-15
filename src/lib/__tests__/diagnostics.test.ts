@@ -80,10 +80,17 @@ describe('ingest normalization', () => {
     expect(normalizeEvent({ garbage: true }, body, ID, DEFAULT_RETENTION, now)).toBeNull();
     expect(normalizeEvent(null, body, ID, DEFAULT_RETENTION, now)).toBeNull();
   });
-  it('unknown event types are mapped, nonsense clocks clamped', () => {
-    const n = normalizeEvent(ev({ event_type: 'WHATEVER', timestamp: '2099-01-01T00:00:00Z' }), body, ID, DEFAULT_RETENTION, now)!;
+  it('unknown WARNING+ types are mapped to ERROR, unknown INFO is dropped as junk, nonsense clocks clamped', () => {
+    const n = normalizeEvent(ev({ severity: 'WARNING', event_type: 'WHATEVER', timestamp: '2099-01-01T00:00:00Z' }), body, ID, DEFAULT_RETENTION, now)!;
     expect(n.row.event_type).toBe('ERROR');
     expect(n.row.ts).toBe(now.toISOString());
+    expect(normalizeEvent(ev({ severity: 'INFO', event_type: 'WHATEVER' }), body, ID, DEFAULT_RETENTION, now)).toBeNull();
+  });
+  it('offline backlog keeps its real time; retention counts from receipt', () => {
+    const old = new Date(now.getTime() - 60 * 86_400_000).toISOString();
+    const n = normalizeEvent(ev({ timestamp: old }), body, ID, DEFAULT_RETENTION, now)!;
+    expect(n.row.ts).toBe(old);
+    expect(Date.parse(n.row.expires_at)).toBeGreaterThan(now.getTime());
   });
   it('expected vs actual behaviour is kept and redacted', () => {
     const n = normalizeEvent(ev({ severity: 'ERROR', event_type: 'ERROR', expected_behavior: 'Compile shows output', actual_behavior: 'died password=abc', result: 'FAIL' }), body, ID, DEFAULT_RETENTION, now)!;
