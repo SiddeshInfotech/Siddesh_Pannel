@@ -26,7 +26,7 @@
 --   • IDs contain no personal data (no names, cities, boards).
 --   • Bugs / crashes / incidents get an explicit `environment` field ('production' | 'test').
 --
--- Applied by the CI/CD pipeline (scripts/migrate.mjs) BEFORE the panel build that stops
+-- Applied by the CI/CD pipeline (db/migrate.mjs) BEFORE the panel build that stops
 -- sending IDs is deployed — see Documents/CICD.md. Idempotent, so a manual run in the
 -- Supabase SQL editor is also safe (then record it: `npm run db:migrate -- baseline <file>`).
 -- Requires: lab-admin-schema.sql, parents-schema.sql, diagnostics-schema.sql, ops-schema.sql.

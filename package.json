@@ -9,7 +9,9 @@
     "lint": "eslint",
     "seed-admin": "node scripts/seed-admin.js",
     "seed-admins": "node scripts/seed-admins.js",
-    "test": "vitest run"
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "node db/migrate.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.2",
@@ -35,6 +37,7 @@
     "@types/recharts": "^1.8.29",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "pg": "^8.16.3",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.2.4"
