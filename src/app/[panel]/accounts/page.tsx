@@ -36,7 +36,7 @@ async function getSchoolsData(keyCounts: KeyCounts) {
 
   return (schools ?? []).map(sch => ({
     dbId: sch.id,
-    id: sch.school_id || sch.id,
+    id: sch.school_id ?? '', // public SCH-YYYY-NNNN id only — never the internal UUID
     name: sch.name,
     board: sch.board,
     mediums: sch.mediums || [],
@@ -65,7 +65,7 @@ async function getVendorsData(keyCounts: KeyCounts) {
   return (vendors ?? []).map((vendor: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => ({
     id: vendor.vendor_id,
     dbId: vendor.vendor_id,
-    vendorId: vendor.vendor_id,
+    vendorId: vendor.vendor_id ?? '',
 
     vendorName: vendor.vendor_name,
     vendorType: vendor.vendor_type,
@@ -93,9 +93,9 @@ async function getParentsData(keyCounts: KeyCounts) {
   }
 
   return (parents ?? []).map((parent: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => ({
-    id: parent.parent_id,
+    id: parent.parent_id ?? '',
     dbId: parent.id,
-    parentId: parent.parent_id,
+    parentId: parent.parent_id ?? '', // public PAR-YYYY-NNNN id only — never the internal UUID
     parentName: parent.parent_name,
     kidName: parent.kid_name,
     email: parent.email,

@@ -256,12 +256,34 @@ export async function maybeEvaluate(panel: Panel, cfg: OpsConfig, metrics: Await
   await evaluateRules(panel, cfg, metrics);
 }
 
+// ── Activity history (ops_activity_daily, activity-history.sql) ───────────────
+/** Re-aggregate the last `days` UTC days of raw events into the compact daily table. */
+export async function refreshActivity(panel: Panel, days: number) {
+  await db().rpc('ops_activity_refresh', { p_panel: panel, p_days: days });
+}
+
+/**
+ * While the Overview is open (≤ once a minute per panel): store this hour's health score and
+ * bring today's activity row up to date. The daily cron alone runs too rarely for either.
+ */
+export async function maybeRecordActivity(panel: Panel, score: number | null) {
+  const { data } = await db().from('ops_settings').select('config').eq('panel', panel).maybeSingle();
+  const last = Number((data?.config as any)?._lastActivity ?? 0);
+  if (Date.now() - last < 60_000) return;
+  await db().from('ops_settings').upsert({ panel, config: { ...(data?.config ?? {}), _lastActivity: Date.now() } });
+  if (score !== null) {
+    await db().from('ops_rollups').upsert({ panel, granularity: 'hour', bucket: hourStart(Date.now()), product_id: '_all', metric: 'health_score', value: score });
+  }
+  await refreshActivity(panel, 1);
+}
+
 // ── Retention ────────────────────────────────────────────────────────────────
 export async function opsRetention(panel: Panel, cfg: OpsConfig) {
   const now = Date.now();
   await Promise.all([
     db().from('ops_rollups').delete().eq('panel', panel).eq('granularity', 'hour').lt('bucket', iso(now - cfg.hourlyDays * 86_400_000)),
     db().from('ops_rollups').delete().eq('panel', panel).eq('granularity', 'day').lt('bucket', iso(now - cfg.dailyDays * 86_400_000)),
+    db().from('ops_activity_daily').delete().eq('panel', panel).lt('day', iso(now - cfg.dailyDays * 86_400_000).slice(0, 10)),
     db().from('ops_rollups').delete().eq('panel', '_infra').lt('bucket', iso(now - cfg.hourlyDays * 86_400_000)),
     db().from('ops_device_metrics').delete().eq('panel', panel).lt('reported_at', iso(now - cfg.rawDays * 86_400_000)),
     db().from('ops_alerts').delete().eq('panel', panel).eq('status', 'RESOLVED').lt('resolved_at', iso(now - cfg.resolvedAlertDays * 86_400_000)),

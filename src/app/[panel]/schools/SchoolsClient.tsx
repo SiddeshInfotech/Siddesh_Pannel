@@ -118,7 +118,7 @@ export default function SchoolsClient({ initialSchools }: SchoolsClientProps) {
                           <h4 className="text-sm font-semibold text-white group-hover:text-accent-violet transition-colors">
                             {sch.name}
                           </h4>
-                          <p className="text-[10px] text-zinc-500 font-medium uppercase mt-0.5">ID: {sch.id}</p>
+                          <p className="text-[10px] text-zinc-500 font-medium uppercase mt-0.5">ID: {sch.id || 'pending'}</p>
                         </div>
                       </div>
                     </td>

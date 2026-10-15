@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'crypto';
-import { evaluateRules, loadOps, opsRetention, rollup, syncProviders } from '@/lib/ops/engine';
+import { evaluateRules, loadOps, opsRetention, refreshActivity, rollup, syncProviders } from '@/lib/ops/engine';
 
 // GET /api/ops/sync — scheduled Operations Center worker (Vercel Cron daily 21:30 UTC = 03:00 IST, Bearer CRON_SECRET).
 // Provider sync (each provider honours its own sync_minutes), hourly/daily rollups,
@@ -25,6 +25,8 @@ export async function GET(req: NextRequest) {
     try {
       const cfg = await loadOps(panel);
       await rollup(panel, cfg);
+      // Daily Activity history: the last rawDays days, so a missed cron run heals itself.
+      await refreshActivity(panel, cfg.rawDays);
       await evaluateRules(panel, cfg);
       await opsRetention(panel, cfg);
       out[panel] = 'ok';

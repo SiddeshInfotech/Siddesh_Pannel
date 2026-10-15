@@ -9,9 +9,9 @@ import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { panelDb } from '@/lib/panelTables';
 import { productsForPanel } from '@/lib/productIdentity';
 import { encryptAES } from '@/lib/crypto';
-import { computeMetrics, infraSnapshot, loadDevices, loadOps, maybeEvaluate, syncProviders } from '@/lib/ops/engine';
+import { computeMetrics, infraSnapshot, loadDevices, loadOps, maybeEvaluate, maybeRecordActivity, syncProviders } from '@/lib/ops/engine';
 import { PROVIDER_FIELDS } from '@/lib/ops/providers';
-import { RANGES, RULE_METRICS, bucketSeconds, freshness, mergeOps, regressionCheck, versionDistribution, type RangeKey } from '@/lib/ops/health';
+import { RANGES, RULE_METRICS, freshness, mergeOps, regressionCheck, versionDistribution, type RangeKey } from '@/lib/ops/health';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- dynamic Supabase rows */
 const db = () => diagDb();
@@ -44,82 +44,91 @@ async function entityNames(a: Actor, ids: string[]): Promise<Map<string, string>
   return out;
 }
 
-// ── Overview / product view ─────────────────────────────────────────────────
-export async function getOverview(range: string, product?: string | null): Promise<ActionResult<any>> {
+// ── Overview: health score + products ───────────────────────────────────────
+export async function getOverview(product?: string | null): Promise<ActionResult<any>> {
   return guard(async () => {
     const a = await viewer();
     const cfg = await loadOps(a.panel);
     const prod = productOk(a, product);
     const now = Date.now();
-    const span = rangeMs(range);
     // Fail loudly if the schema is missing instead of rendering zeros as "healthy".
     const [p1, p2] = await Promise.all([db().from('diag_events').select('id', { head: true }).limit(1), db().from('ops_alert_rules').select('id', { head: true }).limit(1)]);
     if (p1.error || p2.error) return fail(dbErrorMessage(p1.error ?? p2.error));
     const allDevices = (await loadDevices(a.panel, cfg)).filter((d) => inScope(a, d.entity));
     const m = await computeMetrics(a.panel, prod, cfg, allDevices);
-    if (!a.schoolIds) await maybeEvaluate(a.panel, cfg, m).catch(() => undefined);
-    const devs = m.devices;
+    if (!a.schoolIds) {
+      await maybeEvaluate(a.panel, cfg, m).catch(() => undefined);
+      // Hourly health snapshot (whole panel only) + today's Activity row.
+      await maybeRecordActivity(a.panel, prod ? null : m.score.score).catch(() => undefined);
+    }
 
-    const [series, prevScore, crashesTop, newFp, incidents, alerts, releases, sessions, users15] = await Promise.all([
-      db().rpc('ops_event_series', { p_panel: a.panel, p_from: iso(now - span), p_to: iso(now), p_bucket_s: bucketSeconds(span), p_product: prod }),
-      db().from('ops_rollups').select('value, bucket').eq('panel', a.panel).eq('granularity', 'hour').eq('product_id', '_all').eq('metric', 'health_score').order('bucket', { ascending: false }).limit(1).maybeSingle(),
-      (prod ? db().from('diag_issues').select('id, code, title, occurrence_count, affected_schools, affected_machines, status, product_id').eq('product_id', prod) : db().from('diag_issues').select('id, code, title, occurrence_count, affected_schools, affected_machines, status, product_id'))
-        .eq('panel', a.panel).eq('kind', 'CRASH').not('status', 'in', '(RESOLVED,DELETE_PENDING,DELETED)').order('occurrence_count', { ascending: false }).limit(5),
-      db().from('diag_issues').select('id', { count: 'exact', head: true }).eq('panel', a.panel).gte('first_seen_at', iso(now - 86_400_000)),
-      db().from('ops_incidents').select('id, code, title, severity, status, product_id, started_at, resolved_at').eq('panel', a.panel).order('started_at', { ascending: false }).limit(10),
-      db().from('ops_alerts').select('id, level, category, title, status, occurrences, first_at, last_at').eq('panel', a.panel).neq('status', 'RESOLVED').order('last_at', { ascending: false }).limit(20),
-      db().from('ops_releases').select('product_id, version, build_commit, environment, status, first_seen, source').in('panel', [a.panel, '_infra']).order('first_seen', { ascending: false }).limit(15),
-      panelDb(a.panel).from('device_timeline').select('event_type', { count: 'exact', head: false }).in('event_type', ['ONLINE', 'OFFLINE']).gte('created_at', iso(startOfIstDay(now))).limit(20_000),
-      db().rpc('ops_event_series', { p_panel: a.panel, p_from: iso(now - 15 * 60_000), p_to: iso(now), p_bucket_s: 900, p_product: prod }),
+    const hour = Math.floor(now / 3600_000) * 3600_000;
+    const [prevScore, releases] = await Promise.all([
+      // Exactly the previous hour's snapshot — no comparison when it wasn't recorded.
+      prod ? Promise.resolve({ data: null }) : db().from('ops_rollups').select('value').eq('panel', a.panel).eq('granularity', 'hour').eq('product_id', '_all')
+        .eq('metric', 'health_score').eq('bucket', iso(hour - 3600_000)).maybeSingle(),
+      db().from('ops_releases').select('product_id, first_seen').eq('panel', a.panel).order('first_seen', { ascending: false }).limit(50),
     ]);
 
-    // Product cards (only products of this panel; status UNKNOWN when there's no telemetry at all).
-    const products = await Promise.all(productsForPanel(a.panel).filter((p) => !prod || p.id === prod).map(async (p) => {
-      const pd = allDevices.filter((d) => d.product === p.id);
-      const { data: s24 } = await db().rpc('ops_event_series', { p_panel: a.panel, p_from: iso(now - 86_400_000), p_to: iso(now), p_bucket_s: 86_400, p_product: p.id });
+    // Every product of this panel with the same fields (24 h), plus an "All products" total.
+    const summarize = async (id: string | null, name: string) => {
+      const pd = allDevices.filter((d) => !id || d.product === id);
+      const { data: s24 } = await db().rpc('ops_event_series', { p_panel: a.panel, p_from: iso(now - 86_400_000), p_to: iso(now), p_bucket_s: 86_400, p_product: id });
       const r = (s24 ?? []).reduce((t: any, x: any) => ({ events: t.events + Number(x.events), errors: t.errors + Number(x.errors), crashes: t.crashes + Number(x.crashes), users: Math.max(t.users, Number(x.users)) }), { events: 0, errors: 0, crashes: 0, users: 0 });
       const active24 = pd.filter((d) => d.lastSeen && now - Date.parse(d.lastSeen) < 86_400_000).length;
-      const vd = versionDistribution(pd.map((d) => d.version));
-      const last = (releases.data ?? []).find((x: any) => x.product_id === p.id);
       const errorRate = r.events ? (r.errors / r.events) * 100 : null;
       const crashRate = active24 ? (r.crashes / active24) * 100 : null;
       const status = !pd.length && !r.events ? 'UNKNOWN' : (crashRate ?? 0) > 2 || (errorRate ?? 0) > 10 ? 'CRITICAL' : (crashRate ?? 0) > 0.5 || (errorRate ?? 0) > 3 ? 'WARNING' : 'HEALTHY';
       return {
-        id: p.id, name: p.displayName, status, version: vd.latest, devices: pd.length, online: pd.filter((d) => d.state === 'ONLINE').length,
-        schools: new Set(pd.map((d) => d.entity).filter(Boolean)).size, activeUsers: r.users || null, errorRate, crashRate,
-        crashes24h: r.crashes, errors24h: r.errors, lastDeployment: last?.first_seen ?? null,
+        id: id ?? '', name, status, version: id ? versionDistribution(pd.map((d) => d.version)).latest : null,
+        devices: pd.length, online: pd.filter((d) => d.state === 'ONLINE').length,
+        schools: new Set(pd.map((d) => d.entity).filter(Boolean)).size, activeUsers: r.users || null,
+        errors24h: r.errors, crashes24h: r.crashes, errorRate, crashRate,
+        lastDeployment: (releases.data ?? []).find((x: any) => !id || x.product_id === id)?.first_seen ?? null,
       };
-    }));
+    };
+    const products = await Promise.all([summarize(null, 'All products'), ...productsForPanel(a.panel).map((p) => summarize(p.id, p.displayName))]);
 
-    const online = devs.filter((d) => d.state === 'ONLINE');
-    const schoolIds = new Set(devs.map((d) => d.entity).filter(Boolean));
-    const onlineSchools = new Set(online.map((d) => d.entity).filter(Boolean));
-    const sess = sessions.data ?? [];
-    return ok({
-      generatedAt: iso(now), range, product: prod, config: cfg,
-      score: m.score, previousScore: prevScore.data?.value ?? null, values: m.values, counts: m.counts,
-      operational: {
-        devices: devs.length, onlineDevices: online.length, staleDevices: devs.filter((d) => d.state === 'STALE').length,
-        offlineDevices: devs.filter((d) => d.state === 'OFFLINE').length, schools: schoolIds.size, onlineSchools: onlineSchools.size,
-        activeUsers15m: (users15.data ?? []).reduce((s: number, x: any) => Math.max(s, Number(x.users)), 0) || null,
-        sessionsStartedToday: sess.filter((x: any) => x.event_type === 'ONLINE').length, sessionsEndedToday: sess.filter((x: any) => x.event_type === 'OFFLINE').length,
-      },
-      infrastructure: a.schoolIds ? null : { dbUsagePct: m.infra.dbUsagePct, storageUsagePct: m.infra.storageUsagePct, bandwidthUsagePct: m.infra.bandwidthUsagePct,
-        providers: m.infra.providers.map((p) => ({ id: p.id, name: p.name, kind: p.kind, status: p.last_status, lastSync: p.last_sync, fresh: freshness(p.last_sync, now, p.sync_minutes) })) },
-      series: series.data ?? [], products, topCrashes: (crashesTop.data ?? []).map((c: any) => ({ ...c, schools: c.affected_schools.length, machines: c.affected_machines.length, affected_schools: undefined, affected_machines: undefined })),
-      newFingerprints24h: newFp.count ?? 0, incidents: incidents.data ?? [], alerts: alerts.data ?? [], releases: releases.data ?? [],
-      timeline: buildTimeline(releases.data ?? [], incidents.data ?? [], alerts.data ?? [], now - Math.max(span, 86_400_000)),
-    });
+    return ok({ generatedAt: iso(now), product: prod, score: m.score, previousScore: prevScore.data?.value ?? null, products });
   });
 }
-function startOfIstDay(now: number) { const ist = now + 5.5 * 3600_000; return ist - (ist % 86_400_000) - 5.5 * 3600_000; }
-function buildTimeline(rel: any[], inc: any[], al: any[], since: number) {
-  const t = [
-    ...rel.map((r) => ({ at: r.first_seen, kind: 'DEPLOYMENT', text: `${r.product_id} ${r.version} ${r.environment}${r.source === 'field' ? ' first seen in field' : ` (${r.status ?? ''})`}` })),
-    ...inc.flatMap((i) => [{ at: i.started_at, kind: 'INCIDENT', text: `${i.code} ${i.title} detected` }, ...(i.resolved_at ? [{ at: i.resolved_at, kind: 'RESOLVED', text: `${i.code} resolved` }] : [])]),
-    ...al.map((x) => ({ at: x.first_at, kind: 'ALERT', text: `[${x.level}] ${x.title}` })),
-  ];
-  return t.filter((x) => Date.parse(x.at) >= since).sort((x, y) => Date.parse(y.at) - Date.parse(x.at)).slice(0, 40);
+
+// ── Activity: 24 h from raw events, longer windows from the compact daily table ─
+const ACTIVITY_DAYS = { '7d': 7, '30d': 30, '90d': 90, '1y': 365, '3y': 1095 } as const;
+export async function getActivity(window: string, product?: string | null): Promise<ActionResult<any>> {
+  return guard(async () => {
+    const a = await viewer();
+    const prod = productOk(a, product);
+    const now = Date.now();
+    if (!(window in ACTIVITY_DAYS)) {
+      const { data, error } = await db().rpc('ops_event_series', { p_panel: a.panel, p_from: iso(now - 86_400_000), p_to: iso(now), p_bucket_s: 3600, p_product: prod });
+      if (error) return fail(dbErrorMessage(error));
+      const points = (data ?? []).map((x: any) => ({ t: x.bucket, events: Number(x.events), errors: Number(x.errors), crashes: Number(x.crashes), devices: Number(x.machines) }));
+      return ok({ window: '24h', granularity: 'hour', points });
+    }
+    const days = ACTIVITY_DAYS[window as keyof typeof ACTIVITY_DAYS];
+    const first = new Date(now - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+    const { data, error } = await db().from('ops_activity_daily').select('day, events, errors, crashes, devices, health_score')
+      .eq('panel', a.panel).eq('product_id', prod ?? '_all').gte('day', first).order('day', { ascending: true }).limit(4000);
+    if (error) return fail(dbErrorMessage(error));
+    // One point per day, zero-filled, so gaps read as "no activity" rather than a broken axis.
+    const byDay = new Map((data ?? []).map((r: any) => [r.day, r]));
+    const points = [];
+    for (let d = Date.parse(first); d <= now; d += 86_400_000) {
+      const key = new Date(d).toISOString().slice(0, 10);
+      const r: any = byDay.get(key);
+      points.push({ t: key, events: r?.events ?? 0, errors: r?.errors ?? 0, crashes: r?.crashes ?? 0, devices: r?.devices ?? 0, health: r?.health_score ?? null });
+    }
+    return ok({ window, granularity: 'day', points, recordedSince: data?.[0]?.day ?? null });
+  });
+}
+
+/** Monitoring thresholds/retention for the Settings tab (no metrics computed). */
+export async function getOpsConfig(): Promise<ActionResult<any>> {
+  return guard(async () => {
+    const a = await viewer();
+    return ok(await loadOps(a.panel));
+  });
 }
 
 // ── Schools + devices ────────────────────────────────────────────────────────
@@ -129,7 +138,7 @@ export async function getSchools(product?: string | null): Promise<ActionResult<
     const cfg = await loadOps(a.panel);
     const prod = productOk(a, product);
     const devs = (await loadDevices(a.panel, cfg)).filter((d) => inScope(a, d.entity) && (!prod || d.product === prod) && d.entity);
-    const since = iso(startOfIstDay(Date.now()));
+    const since = iso(Date.now() - 86_400_000); // last 24 h — same window as Overview and Devices
     const [{ data: errs }, { data: crs }] = await Promise.all([
       db().from('diag_events').select('entity_id').eq('panel', a.panel).in('severity', ['ERROR', 'CRITICAL', 'FATAL']).gte('ts', since).limit(50_000),
       db().from('diag_crashes').select('entity_id').eq('panel', a.panel).gte('ts', since).limit(20_000),

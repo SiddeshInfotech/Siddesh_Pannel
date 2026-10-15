@@ -147,7 +147,7 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
                         <EntityAvatar name={sch.name || '?'} size={32} />
                         <div className="cursor-pointer" onClick={() => showKeys(sch)} title="Show licence keys">
                           <span className="block cell-strong">{sch.name}</span>
-                          <span className="block cell-sub">ID: {sch.id}</span>
+                          <span className="block cell-sub">ID: {sch.id || 'pending'}</span>
                         </div>
                       </div>
                     </td>

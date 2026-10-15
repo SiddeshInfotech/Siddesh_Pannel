@@ -19,7 +19,7 @@ async function getSchoolsData() {
 
   return (schools ?? []).map(sch => ({
     dbId: sch.id,
-    id: sch.school_id || sch.id,
+    id: sch.school_id ?? '',
     name: sch.name,
     board: sch.board,
     mediums: sch.mediums || [],

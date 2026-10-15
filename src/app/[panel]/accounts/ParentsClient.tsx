@@ -150,7 +150,7 @@ export default function ParentsClient({
                             {filteredParents.map((parent) => (
                                 <tr key={parent.dbId}>
                                     <td>
-                                        <span className="cell-mono cell-muted">{parent.parentId}</span>
+                                        <span className="cell-mono cell-muted">{parent.parentId || 'ID pending'}</span>
                                     </td>
                                     <td>
                                         <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => showKeys(parent)} title="Show licence keys">

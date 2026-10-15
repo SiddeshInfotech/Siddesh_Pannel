@@ -173,11 +173,12 @@ export type OpsConfig = {
 };
 export const DEFAULT_OPS: OpsConfig = {
   onlineMinutes: 6, staleMinutes: 30, apiP95ThresholdMs: 1500,
-  rawDays: 7, hourlyDays: 30, dailyDays: 365, resolvedAlertDays: 90, closedIncidentDays: 365,
+  rawDays: 7, hourlyDays: 30, dailyDays: 1095, resolvedAlertDays: 90, closedIncidentDays: 365,
 };
+// dailyDays (Activity history) is kept at least 3 years.
 const OPS_RANGES: Record<keyof OpsConfig, [number, number]> = {
   onlineMinutes: [1, 60], staleMinutes: [2, 1440], apiP95ThresholdMs: [50, 60_000],
-  rawDays: [1, 90], hourlyDays: [7, 365], dailyDays: [30, 3650], resolvedAlertDays: [7, 365], closedIncidentDays: [30, 3650],
+  rawDays: [1, 90], hourlyDays: [7, 365], dailyDays: [1095, 3650], resolvedAlertDays: [7, 365], closedIncidentDays: [30, 3650],
 };
 export function mergeOps(raw: unknown): OpsConfig {
   const out = { ...DEFAULT_OPS };

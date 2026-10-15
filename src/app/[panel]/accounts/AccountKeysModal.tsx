@@ -92,7 +92,7 @@ export default function AccountKeysModal({ target, onClose }: { target: KeysTarg
             <div>
               <h3 className="text-lg font-bold text-foreground">Licence keys</h3>
               <p className="text-xs text-zinc-500">
-                {target.name} · <span className="cell-mono">{target.publicId}</span>
+                {target.name} · <span className="cell-mono">{target.publicId || 'ID pending'}</span>
                 {rows && shown && (shown.length === rows.length
                   ? ` · ${rows.length} key${rows.length === 1 ? '' : 's'}`
                   : ` · ${shown.length} of ${rows.length} keys`)}

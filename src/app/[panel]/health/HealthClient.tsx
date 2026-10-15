@@ -17,8 +17,8 @@ import * as A from './actions';
 /* eslint-disable @typescript-eslint/no-explicit-any -- action payloads */
 
 const TABS = [
-  ['overview', 'Overview'], ['schools', 'Schools'], ['devices', 'Devices'], ['performance', 'Performance'], ['incidents', 'Incidents'],
-  ['alerts', 'Alerts'], ['infrastructure', 'Infrastructure'], ['cost', 'Consumption & Cost'], ['deployments', 'Deployments'], ['settings', 'Settings'],
+  ['overview', 'Overview'], ['schools', 'Schools'], ['devices', 'Devices'], ['performance', 'Performance'], ['incidents', 'Alerts & Incidents'],
+  ['infrastructure', 'Infrastructure'], ['cost', 'Consumption & Cost'], ['deployments', 'Deployments'], ['settings', 'Settings'],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 const IST = 'Asia/Kolkata';
@@ -63,19 +63,18 @@ export default function HealthClient({ products }: { products: { value: string; 
         <h2 className="text-2xl font-bold text-foreground flex items-center gap-2"><HeartPulse className="w-6 h-6" /> Operations Center</h2>
         <div className="flex gap-2 text-xs">
           <Sel w="w-72" value={product} onChange={setProduct} options={[{ value: '', label: 'All Products' }, ...products]} />
-          <Sel w="w-44" value={range} onChange={setRange} options={[['15m', 'Last 15 minutes'], ['1h', 'Last 1 hour'], ['6h', 'Last 6 hours'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days']].map(([value, label]) => ({ value, label }))} />
+          {tab === 'performance' && <Sel w="w-44" value={range} onChange={setRange} options={[['15m', 'Last 15 minutes'], ['1h', 'Last 1 hour'], ['6h', 'Last 6 hours'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days']].map(([value, label]) => ({ value, label }))} />}
         </div>
       </div>
       <div className="flex flex-wrap border-b border-sidebar-border">
         {TABS.map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`filter-tab ${tab === k ? 'filter-tab-active' : ''}`}>{l}</button>)}
       </div>
       <p className="text-xs text-zinc-500 flex items-center gap-1"><InfoTip text={HEALTH_TAB_HELP[tab]} /> {HEALTH_TAB_HELP[tab]}</p>
-      {tab === 'overview' && <Overview range={range} product={product} onProduct={setProduct} onTab={setTab} />}
+      {tab === 'overview' && <Overview product={product} onProduct={setProduct} />}
       {tab === 'schools' && <Schools product={product} />}
       {tab === 'devices' && <Devices product={product} />}
       {tab === 'performance' && <Performance range={range} product={product} />}
-      {tab === 'incidents' && <Incidents />}
-      {tab === 'alerts' && <Alerts />}
+      {tab === 'incidents' && <div className="space-y-3"><Alerts /><Incidents /></div>}
       {tab === 'infrastructure' && <Infrastructure />}
       {tab === 'cost' && <Cost />}
       {tab === 'deployments' && <Deployments product={product} />}
@@ -92,75 +91,80 @@ function Sel({ value, onChange, options, w = 'w-40' }: { value: string; onChange
 const opts = (xs: readonly string[]) => xs.map((x) => ({ value: x, label: x.replace(/_/g, ' ').toLowerCase().replace(/^w/, (c) => c.toUpperCase()) }));
 
 // ── Overview ────────────────────────────────────────────────────────────────
-function Overview({ range, product, onProduct, onTab }: { range: string; product: string; onProduct: (p: string) => void; onTab: (t: Tab) => void }) {
-  const { data: d, err, reload } = useLoad<any>(() => A.getOverview(range, product || null), [range, product], 30_000);
+// Three columns: Overall Health | Activity (own time filter, up to 3 years) | Products.
+// Picking a product in the Products column filters the Health score and the Activity chart too.
+const ACTIVITY_WINDOWS = [['24h', '24 h'], ['7d', '7 d'], ['30d', '30 d'], ['90d', '90 d'], ['1y', '1 y'], ['3y', '3 y']] as const;
+const pctOf = (v: number | null) => (v === null ? '—' : `${v.toFixed(2)}%`);
+function Overview({ product, onProduct }: { product: string; onProduct: (p: string) => void }) {
+  const { data: d, err, reload } = useLoad<any>(() => A.getOverview(product || null), [product], 30_000);
   if (err) return <Err e={err} />;
   if (!d) return <p className="text-xs text-zinc-500">Loading…</p>;
-  const s = d.score, o = d.operational, v = d.values, c = d.counts, inf = d.infrastructure;
+  const s = d.score;
   const delta = s.score !== null && d.previousScore !== null ? s.score - d.previousScore : null;
-  const crashHref = '/logs?tab=crashes';
+  const selected = d.products.find((p: any) => p.id === product) ?? d.products[0];
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex justify-end text-[11px] text-zinc-500 gap-2 items-center">Updated {ago(d.generatedAt)} · auto-refresh 30 s<button className="filter-tab" onClick={reload}><RefreshCw className="w-3.5 h-3.5" /></button></div>
-      {/* Row 1 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid lg:grid-cols-3 gap-3 items-start">
         <Card title="Overall Health">
+          {d.product && <div className="text-zinc-500">For {selected?.name}</div>}
           <div className="text-3xl font-bold">{s.score === null ? '—' : `${s.score} / 100`}</div><St s={s.status} />
-          {delta !== null && <div className="text-zinc-500">{delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)} vs last hour</div>}
+          {delta !== null && <div className="text-zinc-500">{delta >= 0 ? '▲' : '▼'} {Math.abs(delta).toFixed(1)} vs previous hour</div>}
           <ul className="text-zinc-400 list-disc pl-4">{s.penalties.map((p: any) => <li key={p.reason}>−{p.points} {p.reason}</li>)}{!s.penalties.length && s.score !== null && <li>No deductions</li>}</ul>
+          {s.score === null && <p className="text-zinc-500">No telemetry yet — the score appears once devices report.</p>}
           <details className="text-zinc-500"><summary className="cursor-pointer">How is this calculated?</summary>100 minus capped penalties: crash rate (10/1%, max 30), error rate (2/1%, max 20), API errors (max 10), API P95 over threshold (5), open incidents (max 30), open alerts (max 10), providers down/degraded (max 20), DB/storage over 80/90% of quota. Missing data is never penalised; no data at all = Unknown.</details>
         </Card>
-        <Kpi label="Active incidents" value={d.incidents.filter((i: any) => !['RESOLVED', 'CLOSED'].includes(i.status)).length} sub={`${d.alerts.length} open alerts`} />
-        <Kpi label="Active users (15 min)" value={o.activeUsers15m ?? NA} sub="distinct users reporting telemetry" />
-        <Kpi label="Online devices" value={`${num(o.onlineDevices)} / ${num(o.devices)}`} sub={`${o.staleDevices} stale · ${o.offlineDevices} offline`} />
-      </div>
-      {/* Row 2: health by area */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi label="Products" value={`${d.products.filter((p: any) => p.status === 'HEALTHY').length} healthy / ${d.products.length}`} sub={`${d.products.filter((p: any) => p.status === 'WARNING').length} warning · ${d.products.filter((p: any) => p.status === 'CRITICAL').length} critical`} />
-        <Kpi label="API health (1 h)" value={c.apiCalls1h ? show(v.api_error_rate_pct, '% errors', 2) : NA} sub={v.api_p95_ms !== null ? `P95 ${num(v.api_p95_ms)} ms` : 'no API telemetry'} />
-        <Kpi label="Database" value={inf ? show(inf.dbUsagePct, '% of quota') : NA} sub={inf ? <span onClick={() => onTab('infrastructure')} className="cursor-pointer underline">details</span> : null} />
-        <Kpi label="Infrastructure" value={inf?.providers.length ? `${inf.providers.filter((p: any) => p.status === 'HEALTHY').length} / ${inf.providers.length} healthy` : NA} sub={inf?.providers.some((p: any) => p.fresh === 'STALE') ? '⚠ Data may be stale' : inf?.providers.length ? 'synced by backend' : 'no providers configured'} />
-      </div>
-      {/* Row 3: errors / crashes / latency / users */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi label="Errors (24 h)" value={num(c.errors24h)} sub={v.error_rate_pct !== null ? `${num(v.error_rate_pct, 2)}% of events` : 'no events'} href="/logs?tab=errors" />
-        <Kpi label="Crashes (24 h)" value={num(c.crashes24h)} sub={v.crash_rate_pct !== null ? `${num(v.crash_rate_pct, 2)}% of active devices · ${d.newFingerprints24h} new fingerprints` : 'no active devices'} href={crashHref} />
-        <Kpi label="Schools online" value={`${o.onlineSchools} / ${o.schools}`} sub={`${o.sessionsStartedToday} sessions started today · ${o.sessionsEndedToday} ended`} />
-        <Kpi label="Device disk / RAM P95" value={v.fleet_disk_p95 !== null ? `${num(v.fleet_disk_p95)}% / ${num(v.fleet_ram_p95)}%` : NA} sub={v.fleet_cpu_p95 !== null ? `CPU P95 ${num(v.fleet_cpu_p95)}%` : 'from app heartbeats'} />
-      </div>
-      <Card title={`Activity — ${range}`}>
-        {d.series.length ? (
-          <div className="h-56"><ResponsiveContainer><AreaChart data={d.series.map((x: any) => ({ t: new Date(x.bucket).toLocaleTimeString('en-IN', { timeZone: IST, hour: '2-digit', minute: '2-digit', day: range.endsWith('d') ? '2-digit' : undefined }), events: +x.events, errors: +x.errors, crashes: +x.crashes, devices: +x.machines }))}>
-            <CartesianGrid strokeOpacity={0.1} /><XAxis dataKey="t" fontSize={10} /><YAxis fontSize={10} /><Tooltip />
-            <Area dataKey="devices" stroke="#38bdf8" fill="#38bdf8" fillOpacity={0.15} /><Area dataKey="errors" stroke="#fb7185" fill="#fb7185" fillOpacity={0.15} /><Area dataKey="crashes" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.3} />
-          </AreaChart></ResponsiveContainer></div>) : <p className="text-zinc-500">No telemetry in this range.</p>}
-      </Card>
-      {/* Products */}
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {d.products.map((p: any) => (
-          <GlassCard key={p.id} interactive><div className="text-xs space-y-1" onClick={() => onProduct(p.id)}>
-            <div className="flex justify-between"><b className="text-sm text-foreground">{p.name}</b><St s={p.status} /></div>
-            <div className="grid grid-cols-2 gap-x-3 text-zinc-400">
-              <span>Version</span><span>{p.version ?? '—'}</span><span>Schools</span><span>{p.schools}</span>
-              <span>Devices</span><span>{p.online} online / {p.devices}</span><span>Active users</span><span>{p.activeUsers ?? '—'}</span>
-              <span>Error rate</span><span>{p.errorRate === null ? '—' : `${p.errorRate.toFixed(2)}%`}</span><span>Crash rate</span><span>{p.crashRate === null ? '—' : `${p.crashRate.toFixed(2)}%`}</span>
-              <span>Uptime</span><span>Not available</span><span>Last deployment</span><span>{p.lastDeployment ? fmt(p.lastDeployment) : '—'}</span>
-            </div></div></GlassCard>
-        ))}
-      </div>
-      <div className="grid lg:grid-cols-2 gap-3">
-        <Card title="Top crash issues">
-          <Table head={['Bug', 'Issue', 'Occurrences', 'Schools', 'Machines']} rows={d.topCrashes.map((x: any) => [
-            <Link key="l" href={`/logs?tab=crashes&issue=${x.id}`} className="underline font-mono">{x.code}</Link>, x.title, num(x.occurrence_count), x.schools, x.machines])} />
+        <Activity product={product} />
+        <Card title="Products">
+          <div className="grid grid-cols-5 gap-2">
+            <ul className="col-span-2 space-y-0.5 border-r border-sidebar-border pr-2">
+              {d.products.map((p: any) => (
+                <li key={p.id || 'all'}>
+                  <button type="button" onClick={() => onProduct(p.id)} title={p.id ? 'Show this product everywhere on the page' : 'Show all products'}
+                    className={`w-full text-left px-2 py-1 rounded-md flex items-center gap-1.5 hover:bg-white/5 ${p.id === (selected?.id ?? '') ? 'bg-white/10 text-foreground font-semibold' : 'text-zinc-400'}`}>
+                    <span>{DOT[p.status] ?? '⚪'}</span><span className="truncate">{p.name}</span>
+                  </button>
+                </li>))}
+            </ul>
+            {selected && (
+              <dl className="col-span-3 grid grid-cols-2 gap-x-2 gap-y-1">
+                <dt className="text-zinc-500">Status</dt><dd><St s={selected.status} /></dd>
+                <dt className="text-zinc-500">Version</dt><dd>{selected.version ?? '—'}</dd>
+                <dt className="text-zinc-500">Schools</dt><dd>{selected.schools}</dd>
+                <dt className="text-zinc-500">Devices</dt><dd>{selected.online} online / {selected.devices}</dd>
+                <dt className="text-zinc-500">Active users</dt><dd>{selected.activeUsers ?? '—'}</dd>
+                <dt className="text-zinc-500">Errors (24 h)</dt><dd>{num(selected.errors24h)} · {pctOf(selected.errorRate)}</dd>
+                <dt className="text-zinc-500">Crashes (24 h)</dt><dd>{num(selected.crashes24h)} · {pctOf(selected.crashRate)}</dd>
+                <dt className="text-zinc-500">Last deployment</dt><dd>{selected.lastDeployment ? fmt(selected.lastDeployment) : '—'}</dd>
+              </dl>)}
+          </div>
         </Card>
-        <Card title="Health timeline">
-          <ul className="space-y-1 max-h-64 overflow-y-auto">{d.timeline.map((t: any, i: number) => <li key={i}><span className="text-zinc-500">{fmt(t.at)}</span> <b>{t.kind}</b> {t.text}</li>)}
-            {!d.timeline.length && <li className="text-zinc-500">No deployments, incidents or alerts in this period.</li>}</ul>
-        </Card>
-        <Card title="Recent incidents"><Table head={['Incident', 'Title', 'Severity', 'Status', 'Started']} rows={d.incidents.slice(0, 5).map((i: any) => [i.code, i.title, i.severity, i.status, fmt(i.started_at)])} /></Card>
-        <Card title="Recent deployments"><Table head={['Product', 'Version', 'Env', 'Status', 'When']} rows={d.releases.slice(0, 6).map((r: any) => [r.product_id, r.version, r.environment, r.status ?? '—', fmt(r.first_seen)])} /></Card>
       </div>
     </div>
+  );
+}
+
+function Activity({ product }: { product: string }) {
+  const [win, setWin] = useState<string>('24h');
+  const { data, err } = useLoad<any>(() => A.getActivity(win, product || null), [win, product], 60_000);
+  const daily = data?.granularity === 'day';
+  const label = (t: string) => daily
+    ? new Date(t).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: win === '1y' || win === '3y' ? '2-digit' : undefined, timeZone: 'UTC' })
+    : new Date(t).toLocaleTimeString('en-IN', { timeZone: IST, hour: '2-digit', minute: '2-digit' });
+  const pts = data?.points ?? [];
+  const sum = (k: string) => pts.reduce((t: number, x: any) => t + (x[k] ?? 0), 0);
+  return (
+    <Card title="Activity">
+      <div className="flex gap-1 flex-wrap">{ACTIVITY_WINDOWS.map(([k, l]) => <button key={k} type="button" className={`filter-tab !px-2 !py-0.5 ${win === k ? 'filter-tab-active' : ''}`} onClick={() => setWin(k)}>{l}</button>)}</div>
+      {err ? <p className="text-rose-400">{err}</p> : !data ? <p className="text-zinc-500">Loading…</p> : pts.some((x: any) => x.events || x.devices) ? (
+        <>
+          <div className="h-48"><ResponsiveContainer><AreaChart data={pts.map((x: any) => ({ ...x, t: label(x.t) }))}>
+            <CartesianGrid strokeOpacity={0.1} /><XAxis dataKey="t" fontSize={10} minTickGap={16} /><YAxis fontSize={10} width={32} /><Tooltip />
+            <Area dataKey="devices" stroke="#38bdf8" fill="#38bdf8" fillOpacity={0.15} /><Area dataKey="errors" stroke="#fb7185" fill="#fb7185" fillOpacity={0.15} /><Area dataKey="crashes" stroke="#f43f5e" fill="#f43f5e" fillOpacity={0.3} />
+          </AreaChart></ResponsiveContainer></div>
+          <div className="text-zinc-500">{num(sum('errors'))} errors · {num(sum('crashes'))} crashes in this period{daily && data.recordedSince ? ` · history since ${fmt(data.recordedSince).split(',')[0]}` : ''}</div>
+        </>) : <p className="text-zinc-500">No activity in this period.</p>}
+    </Card>
   );
 }
 
@@ -170,7 +174,7 @@ function Schools({ product }: { product: string }) {
   if (err) return <Err e={err} />;
   return (
     <Card title={`Schools (${data?.length ?? '…'})`}>
-      <Table head={['School', 'Health', 'Devices', 'Online', 'Offline', 'Last seen', 'Errors today', 'Crashes today', 'Versions', '']} rows={(data ?? []).map((s) => [
+      <Table head={['School', 'Health', 'Devices', 'Online', 'Offline', 'Last seen', 'Errors 24h', 'Crashes 24h', 'Versions', '']} rows={(data ?? []).map((s) => [
         s.name, <St key="s" s={s.health} />, s.devices, s.online, s.offline, ago(s.lastSeen), s.errors, s.crashes,
         s.versions.slice(0, 3).map((v: any) => `${v.version} ${v.pct}%`).join(' · '),
         <Link key="l" href={`/logs?tab=all&school=${encodeURIComponent(s.id)}`} className="underline">Diagnostics →</Link>])} />
@@ -263,6 +267,8 @@ function Alerts() {
 }
 
 // ── Infrastructure / cost ───────────────────────────────────────────────────
+// Derived from the same catalog query as the Database / Storage cards — shown there, not twice.
+const SHOWN_BELOW = new Set(['db_bytes', 'storage_bytes']);
 function Infrastructure() {
   const { data: d, err } = useLoad<any>(() => A.getInfrastructure(), []);
   if (err) return <Err e={err} />;
@@ -280,7 +286,7 @@ function Infrastructure() {
             <div className="text-zinc-500">{p.kind} · {p.service ?? '—'} · {p.environment} · synced {ago(p.last_sync)} {p.fresh === 'STALE' && <span className="text-amber-400">⚠ Data may be stale</span>}</div>
             {p.last_error && <div className="text-rose-400">Last sync error: {p.last_error}</div>}
             {p.uptime30d !== null && <div>Uptime (30 d checks): <b>{p.uptime30d.toFixed(2)}%</b></div>}
-            <table className="w-full"><tbody>{p.metrics.map((m: any) => (
+            <table className="w-full"><tbody>{p.metrics.filter((m: any) => !SHOWN_BELOW.has(m.metric)).map((m: any) => (
               <tr key={m.metric}><td className="text-zinc-400">{m.metric}</td>
                 <td>{m.text_value ?? (m.unit === 'bytes' ? bytes(m.value) : num(m.value, 2) ?? '—')}{m.quota ? <> / {m.unit === 'bytes' ? bytes(m.quota) : num(m.quota)} ({((m.value / m.quota) * 100).toFixed(1)}%)</> : null}</td>
                 <td className="text-[10px] text-zinc-500">{m.source === 'manual' ? 'Manual estimate' : m.source} · {ago(m.fetched_at)}</td></tr>))}</tbody></table>
@@ -391,7 +397,7 @@ function Settings() {
       <ConfirmDialog open={!!remove} danger title={`Remove provider ${remove?.name ?? ''}?`} body="Its stored credential and cached metrics are deleted. Monitoring for this service stops." confirmLabel="Remove"
         onConfirm={async () => { if (remove) done(await A.deleteProvider(remove.id), prov.reload); }} onClose={() => setRemove(null)} />
       <Card title="Infrastructure providers">
-        {prov.err ? <p className="text-rose-400">{prov.err}</p> : <Table head={['Name', 'Type', 'Service', 'Env', 'Credential', 'Status', 'Last sync', '']} rows={(prov.data ?? []).map((x) => [x.name, x.kind, x.service ?? '—', x.environment, x.hasCredential ? '•••••• (saved)' : 'none', <St key="s" s={x.last_status} />, ago(x.last_sync),
+        {prov.err ? <p className="text-rose-400">{prov.err}</p> : <Table head={['Name', 'Type', 'Service', 'Env', 'Credential', '']} rows={(prov.data ?? []).map((x) => [x.name, x.kind, x.service ?? '—', x.environment, x.hasCredential ? '•••••• (saved)' : 'none',
           <button key="d" className="filter-tab text-rose-400" onClick={() => setRemove({ id: x.id, name: x.name })}>Remove</button>])} />}
         <div className="flex flex-wrap gap-2 items-center">
           <Sel w="w-36" value={p.kind} onChange={(v) => setP({ ...p, kind: v, config: {} })} options={[{ value: 'supabase', label: 'Supabase' }, { value: 'vercel', label: 'Vercel' }, { value: 'render', label: 'Render' }, { value: 'http', label: 'HTTP health check' }, { value: 'manual', label: 'Manual / other' }]} />
@@ -403,7 +409,7 @@ function Settings() {
           <button className="filter-tab filter-tab-active" onClick={saveP}>Add provider</button>
           <button className="filter-tab" onClick={async () => done(await A.syncNow(), prov.reload)}><RefreshCw className="w-3.5 h-3.5" /> Sync now</button>
         </div>
-        <p className="text-zinc-500">Use least-privilege tokens (read-only where the provider supports it). Tokens are encrypted (AES-256-GCM), used only by the backend sync job, and never shown again.</p>
+        <p className="text-zinc-500">Live status and last sync of each provider: Infrastructure tab. Use least-privilege tokens (read-only where the provider supports it). Tokens are encrypted (AES-256-GCM), used only by the backend sync job, and never shown again.</p>
       </Card>
       <Card title="Alert rules">
         <Table head={['Rule', 'Condition', 'For', 'Level', 'Incident', 'Enabled', '']} rows={(rules.data?.rules ?? []).map((x: any) => [x.name, `${x.metric} ${x.op} ${x.threshold}`, `${x.for_minutes} min`, x.level, x.create_incident ? 'yes' : 'no', x.enabled ? 'yes' : 'no',
@@ -428,11 +434,11 @@ function Settings() {
 
 function OpsConfigCard({ onMsg }: { onMsg: (m: string) => void }) {
   const [edits, setEdits] = useState<Record<string, number>>({});
-  const { data } = useLoad<any>(() => A.getOverview('15m', null), []);
+  const { data } = useLoad<any>(() => A.getOpsConfig(), []);
   if (!data) return null;
-  const c = { ...data.config, ...edits };
+  const c = { ...data, ...edits };
   const setC = (x: Record<string, number>) => setEdits(x);
-  const L: [string, string][] = [['onlineMinutes', 'Online if heartbeat within (min)'], ['staleMinutes', 'Stale until (min), then offline'], ['apiP95ThresholdMs', 'API P95 threshold (ms)'], ['rawDays', 'Device metrics retention (days)'], ['hourlyDays', 'Hourly aggregates (days)'], ['dailyDays', 'Daily summaries (days)'], ['resolvedAlertDays', 'Resolved alerts (days)'], ['closedIncidentDays', 'Closed incidents (days)']];
+  const L: [string, string][] = [['onlineMinutes', 'Online if heartbeat within (min)'], ['staleMinutes', 'Stale until (min), then offline'], ['apiP95ThresholdMs', 'API P95 threshold (ms)'], ['rawDays', 'Device metrics retention (days)'], ['hourlyDays', 'Hourly aggregates (days)'], ['dailyDays', 'Activity history (days, min 1095 = 3 y)'], ['resolvedAlertDays', 'Resolved alerts (days)'], ['closedIncidentDays', 'Closed incidents (days)']];
   return (
     <Card title="Monitoring configuration">
       <div className="grid md:grid-cols-2 gap-2">{L.map(([k, l]) => <label key={k} className="flex justify-between gap-2"><span className="text-zinc-400">{l}</span><input type="number" className="bare-input bg-transparent px-2 py-1 w-24" value={c[k]} onChange={(e) => setC({ ...c, [k]: Number(e.target.value) })} /></label>)}</div>

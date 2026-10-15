@@ -203,7 +203,7 @@ const [vendorToDelete, setVendorToDelete] =
                                                 <EntityAvatar name={vendor.vendorName || '?'} size={32} />
                                                 <div className="cursor-pointer" onClick={() => showKeys(vendor)} title="Show licence keys">
                                                     <span className="block cell-strong">{vendor.vendorName}</span>
-                                                    <span className="block cell-sub">ID: {vendor.vendorId}</span>
+                                                    <span className="block cell-sub">ID: {vendor.vendorId || 'pending'}</span>
                                                 </div>
                                             </div>
                                         </td>
