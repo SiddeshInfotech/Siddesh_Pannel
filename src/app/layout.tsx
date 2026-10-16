@@ -5,6 +5,7 @@ import Sidebar from '@/components/Sidebar';
 import { ToastProvider } from '@/components/Toast';
 import AuthWrapper from '@/components/AuthWrapper';
 import { getAdminSession } from '@/lib/auth';
+import { Analytics } from '@vercel/analytics/next';
 
 export const metadata: Metadata = {
   title: 'Siddesh Tech — Admin Console',
@@ -41,6 +42,7 @@ export default async function RootLayout({
             </div>
           </AuthWrapper>
         </ToastProvider>
+        <Analytics />
       </body>
     </html>
   );
