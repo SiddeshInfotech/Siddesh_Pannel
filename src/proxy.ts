@@ -4,7 +4,8 @@
  * Security model:
  * - Runs on EVERY request before any page/API handler
  * - Decodes URL and normalizes paths to prevent middleware bypass attempts
- * - Reads the HttpOnly 'admin_token' cookie
+ * - Reads the HttpOnly session cookie of the panel in the URL (each panel's cookie is scoped
+ *   to Path=/lms-admin or /lab-admin, so both panels can be signed in in two tabs at once)
  * - Verifies JWT signature + expiry using jose (edge-compatible)
  * - Enforces the admin allowlist by checking the payload email exists in admin_users (multi-admin)
  * - Checks session revocation in Supabase 'admin_sessions'
@@ -29,7 +30,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify, importSPKI } from 'jose';
 import { checkSessionInDb, COOKIE_NAME } from './lib/auth';
 import { isSessionLiveCached } from './lib/sessionCache';
-import { PANEL_SLUG, panelFromSlug, panelPath, type PanelSlug } from './lib/appPanel';
+import { panelFromSlug, type PanelSlug } from './lib/appPanel';
 import { logger } from './lib/logger';
 
 // Must match auth.ts: admin JWTs are verified with the admin signing key
@@ -239,6 +240,7 @@ export async function proxy(req: NextRequest) {
   // From here on `pathname` is the in-panel route ('/keys', '/api/auth/login', '/').
   pathname = pathname.slice(urlSlug.length + 1) || '/';
   const panelHome = new URL(`/${urlSlug}`, req.url);
+  const cookiePath = `/${urlSlug}`; // this panel's session cookie lives here (auth.ts sessionCookiePath)
 
   // Always allow public API routes (login, device endpoints) under either prefix
   if (PUBLIC_ROUTES.some(route => pathname.startsWith(route))) {
@@ -291,7 +293,7 @@ export async function proxy(req: NextRequest) {
         ? NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
         : NextResponse.redirect(panelHome);
       response.cookies.set(COOKIE_NAME, '', {
-        maxAge: 0, path: '/', secure: isProd, httpOnly: true, sameSite: 'strict',
+        maxAge: 0, path: cookiePath, secure: isProd, httpOnly: true, sameSite: 'strict',
       });
       return injectSecurityHeaders(response, true);
     }
@@ -306,22 +308,21 @@ export async function proxy(req: NextRequest) {
         ? NextResponse.json({ error: 'Session revoked or expired.' }, { status: 401 })
         : NextResponse.redirect(panelHome);
       response.cookies.set(COOKIE_NAME, '', {
-        maxAge: 0, path: '/', secure: isProd, httpOnly: true, sameSite: 'strict',
+        maxAge: 0, path: cookiePath, secure: isProd, httpOnly: true, sameSite: 'strict',
       });
       return injectSecurityHeaders(response, true);
     }
 
     // ── Panel prefix must match the signed panel claim (defense in depth) ──
-    // A Lab-Admin session on /lms-admin/* (or the reverse) is sent to the same route under its
-    // own prefix; an API call under the wrong prefix is refused outright.
+    // Cookies are path-scoped per panel, so another panel's token here means a copied/forged
+    // cookie: drop it and treat the request as signed out of THIS panel.
     if (tokenPanel !== urlPanel) {
       logger.warn({ event: 'PANEL_PREFIX_MISMATCH', tokenPanel, urlPanel, path: pathname });
-      if (pathname.startsWith('/api/')) {
-        return injectSecurityHeaders(NextResponse.json({ error: 'Forbidden.' }, { status: 403 }), true);
-      }
-      const target = new URL(panelPath(PANEL_SLUG[tokenPanel], pathname), req.url);
-      target.search = req.nextUrl.search;
-      return injectSecurityHeaders(NextResponse.redirect(target), true);
+      const response = pathname.startsWith('/api/')
+        ? NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
+        : pageNext();
+      response.cookies.set(COOKIE_NAME, '', { maxAge: 0, path: cookiePath, secure: isProd, httpOnly: true, sameSite: 'strict' });
+      return injectSecurityHeaders(response, true);
     }
 
     return injectSecurityHeaders(pageNext(), true);
@@ -341,7 +342,7 @@ export async function proxy(req: NextRequest) {
     const response = pageNext();
     response.cookies.set(COOKIE_NAME, '', {
       maxAge: 0,
-      path: '/',
+      path: cookiePath,
       secure: isProd,
       httpOnly: true,
       sameSite: 'strict',

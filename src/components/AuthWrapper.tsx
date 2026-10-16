@@ -15,6 +15,7 @@
 import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import { usePanelSlug } from '@/lib/usePanelPath';
+import { SESSION_PANEL_HEADER } from '@/lib/appPanel';
 import { AuthProvider } from '@/context/AuthContext';
 import {
   Mail,
@@ -64,6 +65,14 @@ export default function AuthWrapper({
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [copiedSecret, setCopiedSecret] = useState(false);
   const isSubmitting = React.useRef(false);
+  // Universal sign-in: the account may belong to the OTHER panel. Its session cookie is scoped to
+  // that panel's prefix, so open that panel instead of reloading this one (which has no session).
+  const sessionPanel = React.useRef<string | null>(null);
+  const openSignedInPanel = () => {
+    const target = sessionPanel.current;
+    if (target && target !== panelSlug && (target === 'lms-admin' || target === 'lab-admin')) window.location.assign(`/${target}`);
+    else window.location.reload();
+  };
 
   // Generate QR Code
   useEffect(() => {
@@ -148,6 +157,7 @@ export default function AuthWrapper({
       });
 
       const data = await response.json();
+      sessionPanel.current = response.headers.get(SESSION_PANEL_HEADER);
 
       if (response.status === 429) {
         setRateLimitMsg(data.error || 'Too many attempts. Please wait.');
@@ -164,7 +174,7 @@ export default function AuthWrapper({
           // Sign in succeeded. Do NOT clear states here to prevent UI flash.
           // The page will reload and the session will be read from the cookie.
           isLoginSuccessful = true;
-          window.location.reload();
+          openSignedInPanel();
         }
       } else if (data.mfaRequired) {
         setMfaRequired(true);
@@ -261,7 +271,7 @@ export default function AuthWrapper({
                   setChallengeToken('');
                   setMfaRequired(false);
                   setMfaSetupRequired(false);
-                  window.location.reload();
+                  openSignedInPanel();
                 }}
                 className="w-full py-3.5 bg-gradient-to-r from-emerald-500 to-teal-600 text-xs font-extrabold uppercase tracking-wider text-white rounded-2xl shadow-[0_0_15px_rgba(16,185,129,0.25)] hover:shadow-[0_0_20px_rgba(16,185,129,0.4)] transition-all active:scale-[0.98]"
               >

@@ -286,7 +286,7 @@ export async function POST(req: NextRequest) {
           user: { email: matchedUser.email, role: 'administrator' },
           mfaDisabled: true,
         });
-        return setAuthCookie(res, token);
+        return setAuthCookie(res, token, authPanel);
       }
 
       // Case B: OTP Verification
@@ -382,7 +382,7 @@ export async function POST(req: NextRequest) {
 
         const token = await signAdminToken(matchedUser.email, sessionId, authPanel);
         const res = NextResponse.json(responsePayload);
-        return setAuthCookie(res, token);
+        return setAuthCookie(res, token, authPanel);
       }
     }
 

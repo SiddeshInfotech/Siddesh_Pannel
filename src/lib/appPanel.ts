@@ -12,6 +12,9 @@ export type PanelSlug = 'lms-admin' | 'lab-admin';
 
 export const PANEL_SLUG: Record<Panel, PanelSlug> = { lms: 'lms-admin', lab: 'lab-admin' };
 
+/** Login response header naming the panel slug the new session belongs to (see auth.ts setAuthCookie). */
+export const SESSION_PANEL_HEADER = 'x-admin-panel';
+
 /** Where the universal login lives (any panel prefix shows it; this is the canonical one). */
 export const LOGIN_SLUG: PanelSlug = 'lms-admin';
 

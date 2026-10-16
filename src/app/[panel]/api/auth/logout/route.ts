@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { COOKIE_NAME, clearAuthCookie, verifyAdminToken } from '@/lib/auth';
 import { invalidateSession } from '@/lib/sessionCache';
 import { supabaseFor } from '@/lib/supabase';
+import { panelFromSlug } from '@/lib/appPanel';
 
 /**
  * POST /api/auth/logout
@@ -36,7 +37,10 @@ function isSameOrigin(req: NextRequest, origin: string): boolean {
   return false;
 }
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest, ctx: { params: Promise<{ panel: string }> }) {
+  // Each panel has its own path-scoped cookie: this logs out ONLY the panel in the URL.
+  const urlPanel = panelFromSlug((await ctx.params).panel);
+  if (!urlPanel) return NextResponse.json({ error: 'Not found.' }, { status: 404 });
   // ── CSRF: Validate Origin header ─────────────────────────────────────────
   // Browsers always send an Origin header on cross-origin POST requests.
   // Same-origin requests from the panel itself match (or omit the header, which
@@ -70,5 +74,5 @@ export async function POST(req: NextRequest) {
 
   // ── Clear the auth cookie ─────────────────────────────────────────────────
   const res = NextResponse.json({ success: true, message: 'Logged out successfully.' });
-  return clearAuthCookie(res);
+  return clearAuthCookie(res, urlPanel);
 }

@@ -18,12 +18,21 @@ import { cache } from 'react';
 import { supabaseFor, type Panel } from './supabase';
 import { logger } from './logger';
 import { isSessionLiveCached, type SessionKey } from './sessionCache';
+import { PANEL_SLUG, SESSION_PANEL_HEADER } from './appPanel';
 
 const isProd = process.env.NODE_ENV === 'production';
-// One app serves both panels: a single session cookie whose signed `panel` claim picks
-// LMS-Admin or Lab-Admin. LMS-Admin keeps its original cookie name.
-const COOKIE_BASE = 'admin_token';
-export const COOKIE_NAME = isProd ? `__Host-${COOKIE_BASE}` : COOKIE_BASE;
+// One app serves both panels, each with its OWN session cookie scoped to its URL prefix
+// (Path=/lms-admin or Path=/lab-admin). The browser only sends a panel its own cookie, so an
+// admin can be signed in to LMS-Admin and Lab-Admin in two tabs at once. Same name for both:
+// the paths never overlap, so a request carries at most one. `__Secure-` (not `__Host-`,
+// which forces Path=/) keeps the Secure + host-only guarantees.
+const COOKIE_BASE = 'admin_session';
+export const COOKIE_NAME = isProd ? `__Secure-${COOKIE_BASE}` : COOKIE_BASE;
+/** Pre-split single cookie (Path=/). Only ever cleared now; a new sign-in replaces it. */
+const LEGACY_COOKIE_NAME = isProd ? '__Host-admin_token' : 'admin_token';
+/** Cookie path of a panel's session: its URL prefix. */
+export const sessionCookiePath = (panel: Panel) => `/${PANEL_SLUG[panel]}`;
+
 const EXPIRY_SECONDS = 8 * 60 * 60; // 8 hours
 // Only ES256 is ever accepted — pinned so no other algorithm can be negotiated by a token header.
 const JWT_ALG = 'ES256';
@@ -242,30 +251,33 @@ export const getAdminPanel = cache(async (): Promise<Panel | null> => {
  * Cookie flags: HttpOnly, Secure, SameSite=Strict — XSS + CSRF proof.
  * Uses __Host- prefix which requires secure: true, path: '/' and no domain.
  */
-export function setAuthCookie(res: NextResponse, token: string): NextResponse {
+export function setAuthCookie(res: NextResponse, token: string, panel: Panel): NextResponse {
   const isProd = process.env.NODE_ENV === 'production';
   res.cookies.set(COOKIE_NAME, token, {
     httpOnly: true,
-    secure: isProd, // Must be true for __Host- cookie
+    secure: isProd, // Must be true for __Secure- cookie
     sameSite: 'strict',
-    path: '/',
+    path: sessionCookiePath(panel),
     maxAge: EXPIRY_SECONDS,
   });
+  res.cookies.set(LEGACY_COOKIE_NAME, '', { httpOnly: true, secure: isProd, sameSite: 'strict', path: '/', maxAge: 0 });
+  res.headers.set(SESSION_PANEL_HEADER, PANEL_SLUG[panel]);
   return res;
 }
 
 /**
  * Clear the auth cookie (logout).
  */
-export function clearAuthCookie(res: NextResponse): NextResponse {
+export function clearAuthCookie(res: NextResponse, panel: Panel): NextResponse {
   const isProd = process.env.NODE_ENV === 'production';
   res.cookies.set(COOKIE_NAME, '', {
     httpOnly: true,
     secure: isProd,
     sameSite: 'strict',
-    path: '/',
+    path: sessionCookiePath(panel),
     maxAge: 0,
   });
+  res.cookies.set(LEGACY_COOKIE_NAME, '', { httpOnly: true, secure: isProd, sameSite: 'strict', path: '/', maxAge: 0 });
   return res;
 }
 
