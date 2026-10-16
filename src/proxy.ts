@@ -28,7 +28,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify, importSPKI } from 'jose';
-import { checkSessionInDb, COOKIE_NAME } from './lib/auth';
+import { checkSessionInDb, COOKIE_NAME, LEGACY_COOKIE_NAME } from './lib/auth';
 import { isSessionLiveCached } from './lib/sessionCache';
 import { panelFromSlug, type PanelSlug } from './lib/appPanel';
 import { logger } from './lib/logger';
@@ -187,6 +187,9 @@ export async function proxy(req: NextRequest) {
   // methods get a plain pass-through identical to the pre-CSP behavior, so rewriting
   // request headers can NEVER interfere with Next's Server-Action origin validation
   // (which was returning 500 on POST /keys and /payments).
+  // `migrated` (set below) = a pre-split session being moved into this panel's scoped cookie on
+  // this request; the page render must already see it under the new name.
+  let migrated: string | null = null;
   const pageNext = (): NextResponse => {
     if (req.method !== 'GET') {
       return NextResponse.next();
@@ -194,6 +197,10 @@ export async function proxy(req: NextRequest) {
     const requestHeaders = new Headers(req.headers);
     requestHeaders.set('x-nonce', nonce);
     requestHeaders.set('Content-Security-Policy', csp);
+    if (migrated) {
+      const rest = (req.headers.get('cookie') ?? '').split(/;\s*/).filter((c) => c && !c.startsWith(`${COOKIE_NAME}=`));
+      requestHeaders.set('cookie', [...rest, `${COOKIE_NAME}=${migrated}`].join('; '));
+    }
     return NextResponse.next({ request: { headers: requestHeaders } });
   };
 
@@ -247,8 +254,34 @@ export async function proxy(req: NextRequest) {
     return injectSecurityHeaders(NextResponse.next(), false);
   }
 
-  // Read the JWT from HttpOnly cookie
-  const token = req.cookies.get(COOKIE_NAME)?.value;
+  // Read the JWT from this panel's (path-scoped) HttpOnly cookie. Without one, adopt a pre-split
+  // shared cookie ONLY if its signed panel claim is this panel; another panel's old cookie is left
+  // untouched so that panel can adopt it in its own tab.
+  let token = req.cookies.get(COOKIE_NAME)?.value;
+  const legacy = req.cookies.get(LEGACY_COOKIE_NAME)?.value;
+  if (!token && legacy) {
+    try {
+      const { payload } = await jwtVerify(legacy, await keyPromise, { issuer: JWT_ISSUER, audience: JWT_AUDIENCE, algorithms: ['ES256'] });
+      if (payload.panel === urlPanel) { token = legacy; migrated = legacy; }
+    } catch { /* expired/invalid: ignored here; it is never read and expires on its own */ }
+  }
+  // Moves an adopted pre-split session into the scoped cookie (same token, remaining lifetime).
+  const adopt = (res: NextResponse, exp: unknown): NextResponse => {
+    if (!migrated) return res;
+    const left = typeof exp === 'number' ? Math.max(0, Math.floor(exp - Date.now() / 1000)) : 0;
+    res.cookies.set(COOKIE_NAME, migrated, { httpOnly: true, secure: isProd, sameSite: 'strict', path: cookiePath, maxAge: left });
+    res.cookies.set(LEGACY_COOKIE_NAME, '', { httpOnly: true, secure: isProd, sameSite: 'strict', path: '/', maxAge: 0 });
+    return res;
+  };
+  // Rejects the token: builds the response WITHOUT adopting it, then clears whichever cookie carried it.
+  const reject = (make: () => NextResponse): NextResponse => {
+    const fromLegacy = !!migrated;
+    migrated = null;
+    const res = make();
+    if (fromLegacy) res.cookies.set(LEGACY_COOKIE_NAME, '', { maxAge: 0, path: '/', secure: isProd, httpOnly: true, sameSite: 'strict' });
+    else res.cookies.set(COOKIE_NAME, '', { maxAge: 0, path: cookiePath, secure: isProd, httpOnly: true, sameSite: 'strict' });
+    return res;
+  };
   logger.info({ event: 'MIDDLEWARE_AUTH_CHECK', path: pathname, hasToken: !!token });
 
   // No token — reject
@@ -289,13 +322,9 @@ export async function proxy(req: NextRequest) {
     // Require an explicit admin-session token. Fail closed.
     if (purpose !== 'admin-session' || role !== 'administrator' || !sid || !tokenPanel || typeof email !== 'string' || !email) {
       console.error('[proxy] Access blocked: token is not a valid admin session.');
-      const response = pathname.startsWith('/api/')
+      return injectSecurityHeaders(reject(() => pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
-        : NextResponse.redirect(panelHome);
-      response.cookies.set(COOKIE_NAME, '', {
-        maxAge: 0, path: cookiePath, secure: isProd, httpOnly: true, sameSite: 'strict',
-      });
-      return injectSecurityHeaders(response, true);
+        : NextResponse.redirect(panelHome)), true);
     }
 
     // ── Live-session check (admin allowlist + admin_sessions row; fail closed) ──
@@ -304,13 +333,9 @@ export async function proxy(req: NextRequest) {
     // still verified on every request.
     if (!(await isSessionLiveCached({ panel: tokenPanel, sid, email }, checkSessionInDb))) {
       console.error('[proxy] Session revoked, expired, removed, or unverifiable.');
-      const response = pathname.startsWith('/api/')
+      return injectSecurityHeaders(reject(() => pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Session revoked or expired.' }, { status: 401 })
-        : NextResponse.redirect(panelHome);
-      response.cookies.set(COOKIE_NAME, '', {
-        maxAge: 0, path: cookiePath, secure: isProd, httpOnly: true, sameSite: 'strict',
-      });
-      return injectSecurityHeaders(response, true);
+        : NextResponse.redirect(panelHome)), true);
     }
 
     // ── Panel prefix must match the signed panel claim (defense in depth) ──
@@ -318,14 +343,12 @@ export async function proxy(req: NextRequest) {
     // cookie: drop it and treat the request as signed out of THIS panel.
     if (tokenPanel !== urlPanel) {
       logger.warn({ event: 'PANEL_PREFIX_MISMATCH', tokenPanel, urlPanel, path: pathname });
-      const response = pathname.startsWith('/api/')
+      return injectSecurityHeaders(reject(() => pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Forbidden.' }, { status: 403 })
-        : pageNext();
-      response.cookies.set(COOKIE_NAME, '', { maxAge: 0, path: cookiePath, secure: isProd, httpOnly: true, sameSite: 'strict' });
-      return injectSecurityHeaders(response, true);
+        : pageNext()), true);
     }
 
-    return injectSecurityHeaders(pageNext(), true);
+    return injectSecurityHeaders(adopt(pageNext(), payload.exp), true);
   } catch (err) {
     console.error('❌ verifyAdminToken in proxy failed:', err);
     // Expired or tampered token
@@ -339,15 +362,7 @@ export async function proxy(req: NextRequest) {
       );
     }
     // Clear the bad cookie and continue
-    const response = pageNext();
-    response.cookies.set(COOKIE_NAME, '', {
-      maxAge: 0,
-      path: cookiePath,
-      secure: isProd,
-      httpOnly: true,
-      sameSite: 'strict',
-    });
-    return injectSecurityHeaders(response, true);
+    return injectSecurityHeaders(reject(pageNext), true);
   }
 }
 

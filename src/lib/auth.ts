@@ -28,8 +28,12 @@ const isProd = process.env.NODE_ENV === 'production';
 // which forces Path=/) keeps the Secure + host-only guarantees.
 const COOKIE_BASE = 'admin_session';
 export const COOKIE_NAME = isProd ? `__Secure-${COOKIE_BASE}` : COOKIE_BASE;
-/** Pre-split single cookie (Path=/). Only ever cleared now; a new sign-in replaces it. */
-const LEGACY_COOKIE_NAME = isProd ? '__Host-admin_token' : 'admin_token';
+/**
+ * Pre-split single cookie (Path=/). The proxy moves it into the scoped cookie of the panel its
+ * signed claim names (and only then deletes it), so a session from before the split survives
+ * and signing in to one panel never deletes the other panel's old session.
+ */
+export const LEGACY_COOKIE_NAME = isProd ? '__Host-admin_token' : 'admin_token';
 /** Cookie path of a panel's session: its URL prefix. */
 export const sessionCookiePath = (panel: Panel) => `/${PANEL_SLUG[panel]}`;
 
@@ -260,7 +264,6 @@ export function setAuthCookie(res: NextResponse, token: string, panel: Panel): N
     path: sessionCookiePath(panel),
     maxAge: EXPIRY_SECONDS,
   });
-  res.cookies.set(LEGACY_COOKIE_NAME, '', { httpOnly: true, secure: isProd, sameSite: 'strict', path: '/', maxAge: 0 });
   res.headers.set(SESSION_PANEL_HEADER, PANEL_SLUG[panel]);
   return res;
 }
@@ -277,7 +280,6 @@ export function clearAuthCookie(res: NextResponse, panel: Panel): NextResponse {
     path: sessionCookiePath(panel),
     maxAge: 0,
   });
-  res.cookies.set(LEGACY_COOKIE_NAME, '', { httpOnly: true, secure: isProd, sameSite: 'strict', path: '/', maxAge: 0 });
   return res;
 }
 
