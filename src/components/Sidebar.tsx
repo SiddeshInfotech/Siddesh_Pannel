@@ -31,9 +31,9 @@ const MENU_ITEMS: MenuItem[] = [
   { label: 'Accounts', icon: School, path: '/accounts' },
   { label: 'Payments', icon: CreditCard, path: '/payments' },
   { label: 'Keys', icon: Key, path: '/keys' },
-  { label: 'Health', icon: HeartPulse, path: '/health' },
   { label: 'Monitoring', icon: Activity, path: '/monitoring' },
   { label: 'Update', icon: DownloadCloud, path: '/update' },
+  { label: 'Health', icon: HeartPulse, path: '/health' },
   { label: 'Logs', icon: ScrollText, path: '/logs' },
 ];
 

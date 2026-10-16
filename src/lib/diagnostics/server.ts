@@ -6,10 +6,13 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { getAdminSession } from '@/lib/auth';
 import { getClientIp } from '@/lib/sanitize';
 import { ROLES, hasPermission, mergeRetention, type Permission, type RetentionConfig, type Role } from './core';
+import { col } from './mongo';
 
 export type Panel = 'lms' | 'lab';
 export type Actor = { email: string; panel: Panel; role: Role; schoolIds: string[] | null; ip: string };
 
+/** Supabase — only for the artifact file bucket, the shared login rate limiter and the code counters.
+ *  Every Health/Logs table lives in MongoDB (./mongo.ts). */
 export const diagDb = () => supabaseAdmin;
 
 /** Bootstrap Super Admins (comma-separated emails) — needed once to grant the first roles. */
@@ -25,7 +28,7 @@ export async function resolveActor(): Promise<Actor | null> {
   let ip = '0.0.0.0';
   try { ip = getClientIp(await headers()); } catch { /* not in a request scope */ }
   if (bootstrapSuperAdmins().has(email)) return { email, panel: session.panel, role: 'SUPER_ADMIN', schoolIds: null, ip };
-  const { data } = await diagDb().from('diag_roles').select('role, school_ids').eq('panel', session.panel).eq('email', email).maybeSingle();
+  const data = await (await col('diag_roles')).findOne({ panel: session.panel, email }, { projection: { role: 1, school_ids: 1 } });
   if (!data || !(ROLES as readonly string[]).includes(data.role)) return null; // authenticated ≠ authorized
   return { email, panel: session.panel, role: data.role as Role, schoolIds: data.school_ids ?? null, ip };
 }
@@ -45,7 +48,7 @@ export async function requireActor(perm: Permission, resourceId?: string): Promi
 
 export async function audit(actor: Pick<Actor, 'email' | 'panel' | 'ip'>, action: string, resourceId: string | null, result: string, detail?: Record<string, unknown>) {
   try {
-    await diagDb().from('diag_audit').insert({ panel: actor.panel, actor: actor.email, action, resource_id: resourceId, result, ip: actor.ip, detail: detail ?? null });
+    await (await col('diag_audit')).insertOne({ panel: actor.panel, at: new Date(), actor: actor.email, action, resource_id: resourceId, result, ip: actor.ip, detail: detail ?? null });
   } catch { /* audit failure must never break the request */ }
 }
 
@@ -58,29 +61,29 @@ export async function rateLimit(key: string, windowMs: number, max: number, fail
 }
 
 export async function loadRetention(panel: Panel): Promise<RetentionConfig> {
-  const { data } = await diagDb().from('diag_settings').select('config').eq('panel', panel).maybeSingle();
+  const data = await (await col('diag_settings')).findOne({ _id: panel as never }, { projection: { config: 1 } });
   return mergeRetention(data?.config);
 }
 
-/** School/tenant scope applied server-side to every query (frontend filtering is not security). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function scoped<Q extends { eq: any; in: any }>(q: Q, actor: Actor, col = 'entity_id'): Q {
-  let out = q.eq('panel', actor.panel);
-  if (actor.schoolIds) out = out.in(col, actor.schoolIds.length ? actor.schoolIds : ['__none__']);
-  return out;
+/**
+ * Panels whose Logs/Health data this actor sees. A full (unscoped) admin of EITHER login sees
+ * LMS-Admin and Lab-Admin data together; a school-scoped role only its own panel (its school ids
+ * belong to that panel).
+ */
+export function visiblePanels(actor: Pick<Actor, 'panel' | 'schoolIds'>): Panel[] {
+  return actor.schoolIds ? [actor.panel] : ['lms', 'lab'];
+}
+
+/** School/tenant scope applied server-side to every query (frontend filtering is not security): a filter to spread into a MongoDB query. */
+export function scoped(actor: Actor, field = 'entity_id'): Record<string, unknown> {
+  const panel = { $in: visiblePanels(actor) };
+  return actor.schoolIds ? { panel, [field]: { $in: actor.schoolIds } } : { panel };
 }
 
 export function canSeeIssue(actor: Actor, issue: { panel: string; affected_schools?: string[] | null }): boolean {
-  if (issue.panel !== actor.panel) return false;
+  if (!visiblePanels(actor).includes(issue.panel as Panel)) return false;
   if (!actor.schoolIds) return true;
   return (issue.affected_schools ?? []).some((s) => actor.schoolIds!.includes(s));
 }
 
-/** User-facing message for a DB error: a missing table/function means the SQL migration hasn't run. */
-export function dbErrorMessage(error: { code?: string; message?: string } | null | undefined): string {
-  const code = error?.code ?? '';
-  if (['42P01', 'PGRST205', 'PGRST202', '42883'].includes(code) || /does not exist|could not find the (table|function)/i.test(error?.message ?? '')) {
-    return 'Logs/Health database is not set up yet. Run diagnostics-schema.sql, then ops-schema.sql, in the Supabase SQL editor.';
-  }
-  return 'Something went wrong. Please try again.';
-}
+export { logsDbErrorMessage as dbErrorMessage } from './mongo';

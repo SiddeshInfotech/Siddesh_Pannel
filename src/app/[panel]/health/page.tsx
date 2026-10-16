@@ -11,5 +11,8 @@ export const dynamic = 'force-dynamic';
 export default async function HealthPage() {
   const session = await getAdminSession();
   if (!session) return null;
-  return <HealthClient products={productOptionsFor(session.panel)} />;
+  // Health shows LMS-Admin + Lab-Admin data together, so the product filter lists both (own panel first).
+  // School-scoped roles still only get their own panel's data: the server ignores other products for them.
+  const other = session.panel === 'lab' ? 'lms' : 'lab';
+  return <HealthClient products={[...productOptionsFor(session.panel), ...productOptionsFor(other)]} />;
 }

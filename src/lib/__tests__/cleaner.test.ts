@@ -18,7 +18,7 @@ describe('ingest cleaner', () => {
     expect(keep).toHaveLength(2);
     expect((keep[0].data as { collapsed?: number }).collapsed).toBe(3);
     expect((keep[1].data as { collapsed?: number }).collapsed).toBeUndefined();
-    expect(stats).toEqual({ debug: 1, collapsed: 2, quota: 0 });
+    expect(stats).toEqual({ debug: 1, collapsed: 2, quota: 0, pressure: 0 });
   });
 
   it('enforces the per-device daily quota separately for INFO and WARNING+', () => {
@@ -28,5 +28,14 @@ describe('ingest cleaner', () => {
     expect(r.stats.quota).toBe(7);
     const w = cleanBatch([row({ severity: 'CRITICAL' }), row({ severity: 'WARNING', feature: 'x' })], { info: CLEANER.infoPerDevicePerDay, warn: CLEANER.warnPerDevicePerDay - 1 });
     expect(w.keep.map((x) => x.severity)).toEqual(['CRITICAL']);
+  });
+
+  it('keeps only important rows when the logs database is nearly full', () => {
+    const batch = [row(), row({ severity: 'WARNING', feature: 'w' }), row({ severity: 'ERROR', feature: 'e' }), row({ severity: 'CRITICAL', feature: 'c' })];
+    expect(cleanBatch(batch, { info: 0, warn: 0 }, 50).keep).toHaveLength(4);
+    const warn = cleanBatch(batch, { info: 0, warn: 0 }, CLEANER.pressureWarnPct);
+    expect(warn.keep.map((x) => x.severity)).toEqual(['WARNING', 'ERROR', 'CRITICAL']);
+    expect(warn.stats.pressure).toBe(1);
+    expect(cleanBatch(batch, { info: 0, warn: 0 }, CLEANER.pressureCriticalPct).keep.map((x) => x.severity)).toEqual(['CRITICAL']);
   });
 });

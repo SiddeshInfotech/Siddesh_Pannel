@@ -10,6 +10,7 @@ import { resolveEffectiveProductId } from '@/lib/product';
 import { PRODUCT_ID_ENUM, isProductId } from '@/lib/productIdentity';
 import { isPanelKey } from '@/lib/deviceClass';
 import { createPopChallenge, evaluatePop, nextPopVerdict } from '@/lib/panelPop';
+import { col } from '@/lib/diagnostics/mongo';
 
 // ============================================================================
 // POST /api/device/ping  — device online heartbeat (Telemetry, Phase 1)
@@ -343,6 +344,16 @@ export async function POST(req: NextRequest) {
     updated_at: new Date(now).toISOString(),
   }, { onConflict: 'device_fingerprint' });
   if (upErr) logger.error({ event: 'PING_STATUS_UPSERT_ERROR', error: upErr.message });
+
+  // Per-KEY presence for Health → Active devices. device_status is one row per DEVICE, so when
+  // several apps/keys share a device it cannot tell which of them is running. Best-effort:
+  // a logs-storage problem never affects the heartbeat.
+  try {
+    await (await col('ops_key_presence')).updateOne({ _id: `${tables.panel}:${key.id}` as never },
+      { $set: { panel: tables.panel, key_id: key.id, device_fingerprint, app_version: app_version ?? null, last_seen: new Date(now) } }, { upsert: true });
+  } catch (e) {
+    logger.warn({ event: 'PING_KEY_PRESENCE_FAILED', error: e instanceof Error ? e.message : String(e) });
+  }
 
   // Per-day online-duration bucket (device_daily_online — run add-device-daily-online.sql
   // to add the table). Same credit as total_online_seconds above, bucketed by the IST

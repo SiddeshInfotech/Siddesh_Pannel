@@ -1,7 +1,13 @@
 # Siddesh Logs: setup and operations
 
 ## Setup (one time)
-1. Run `diagnostics-schema.sql` in the Supabase SQL editor. It creates the `diag_*` tables, the RPCs and the private `diagnostics` storage bucket.
+1. Storage: all Logs + Health data lives in **MongoDB Atlas** (free M0, 512 MB). Create the cluster, a database user and
+   Network Access `0.0.0.0/0` (Vercel IPs change), then set `MONGODB_URI` (and optionally `MONGODB_DB`, `MONGODB_QUOTA_MB`).
+   Collections and indexes (incl. the TTL that expires raw events) are created by the app on first use.
+   Supabase still holds the private `diagnostics` file bucket (`diagnostics-schema.sql` creates it), the login rate limiter and
+   the BUG-/CR-/INC- counters (`standard-ids.sql`). Moving old data: `node --env-file=.env scripts/migrate-logs-to-mongo.mjs`
+   (re-runnable); afterwards `drop-logs-from-supabase.sql` frees the old tables.
+   Local dev only: if the connection fails with `querySrv ECONNREFUSED`, set `MONGODB_DNS_SERVERS=8.8.8.8,1.1.1.1`.
 2. Set the env vars (Vercel):
    - `DIAG_SUPER_ADMINS=you@siddesh.com`: bootstrap Super Admins. They grant the other roles in **Logs → Diagnostics → Logs access**.
    - `CRON_SECRET=<random 32+ chars>`: protects `/lms-admin/api/diagnostics/cleanup`. It is called by the hourly cron in `vercel.json`.

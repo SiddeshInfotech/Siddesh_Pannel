@@ -2,31 +2,12 @@
 // UI, so cards/sections look up their own explanation (one place to edit wording).
 
 export const LOGS_TAB_HELP: Record<string, string> = {
-  live: 'Newest events from all apps. Refreshes every 10 seconds. Use it while reproducing a problem at a school.',
-  all: 'Every diagnostic event uploaded by the apps (Windows, Android, Linux). Search, filter and sort; click a row for full details and the events just before it.',
-  errors: 'Only ERROR, CRITICAL and FATAL events — things that went wrong.',
   crashes: 'Crash issues. Identical crashes are grouped into one issue by fingerprint, showing how many times, on how many schools and machines it happened.',
-  exceptions: 'Exceptions and crash-type events reported by the apps, including handled exceptions.',
-  performance: 'Slow operations, UI freezes, high memory/CPU and low disk warnings.',
-  api: 'Network/API calls reported by the apps: failures, timeouts, retries and their durations.',
-  user: 'What users did: screens opened, buttons clicked, forms submitted. Helps reproduce the steps before a failure.',
-  system: 'App start/stop, login, database and file/asset events.',
   bugs: 'All grouped issues (crashes, errors, warnings, user “Report a Problem” submissions) with their lifecycle status.',
-  dumps: 'Binary evidence (Windows minidumps, screenshots, log files) stored privately. Downloads use 60-second links and are audited.',
-  diagnostics: 'Storage used by logs, automatic cleanup history, retention policy, Logs access roles and the security audit trail.',
 };
 
 export const HEALTH_TAB_HELP: Record<string, string> = {
   overview: 'Overall Health, Activity (up to 3 years) and Products side by side. Pick a product to filter the score and the chart.',
-  active: 'Only licences that are Active and not expired (Lab-Admin: LMS School + Lab). Enter a full activation key to open everything that device did, including actions stored while it was offline.',
-  devices: 'Every activated computer/tablet: heartbeat state, version, CPU/RAM/disk from the app, crashes and errors in the last 24 hours.',
-  security: 'Devices that tripped a security check: root, emulator, debugger, Frida/Xposed, re-signed APK, screen recording/casting, licence or clock tampering, modified videos and repeated decryption failures.',
-  performance: 'How fast things are, as percentiles (P50 = typical, P95/P99 = slowest users). Plus per-endpoint API stats and per-module feature health.',
-  incidents: 'Alerts are rule-based warnings (repeats grouped, auto-resolve on recovery). Serious ones become incidents, which you move through Detected → Investigating → … → Closed.',
-  infrastructure: 'Backend providers (Supabase, Vercel, Render, health checks), database internals and storage buckets. Values show their source and age.',
-  cost: 'Monthly infrastructure cost. Providers don’t expose billing APIs, so amounts are entered manually and labelled as estimates.',
-  deployments: 'Releases (web deploys + app versions seen in the field), version spread, update success, and “Potential Regression” warnings after a release.',
-  settings: 'Connect providers (tokens stored encrypted, never shown again), define alert rules, and set heartbeat/retention thresholds.',
 };
 
 export const HELP: Record<string, string> = {

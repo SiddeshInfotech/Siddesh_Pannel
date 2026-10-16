@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getClientIp } from '@/lib/sanitize';
 import { authenticateDevice } from '@/lib/diagnostics/deviceAuth';
-import { diagDb, loadRetention, rateLimit } from '@/lib/diagnostics/server';
+import { loadRetention, rateLimit } from '@/lib/diagnostics/server';
 import { IngestSchema, normalizeCrash, normalizeEvent, type TouchSpec } from '@/lib/diagnostics/ingest';
 import { LIMITS } from '@/lib/diagnostics/core';
 import { cleanBatch } from '@/lib/diagnostics/cleaner';
+import { col, toDoc } from '@/lib/diagnostics/mongo';
+import { allocCode, storagePressure, touchIssue } from '@/lib/diagnostics/mongoOps';
 
 // ============================================================================
 // POST /api/diagnostics/ingest — batched, offline-queue friendly diagnostics upload.
@@ -40,8 +42,8 @@ export async function POST(req: NextRequest) {
   const identity = await authenticateDevice(body.activation_key, body.device_fingerprint, body.product_id);
   if (!identity) return bad(401, 'Request rejected.');
 
-  const db = diagDb();
   const now = new Date();
+  const [evCol, crCol] = await Promise.all([col('diag_events'), col('diag_crashes')]);
   const cfg = await loadRetention(identity.panel);
   const rejected: { id: string | null; reason: string }[] = [];
 
@@ -57,11 +59,11 @@ export async function POST(req: NextRequest) {
   }).filter((x): x is NonNullable<typeof x> => !!x);
 
   // Duplicate prevention BEFORE any counter is touched.
-  const [{ data: seenEv }, { data: seenCr }] = await Promise.all([
-    events.length ? db.from('diag_events').select('id').in('id', events.map((e) => e.row.id)) : Promise.resolve({ data: [] }),
-    crashes.length ? db.from('diag_crashes').select('id').in('id', crashes.map((c) => c.row.id)) : Promise.resolve({ data: [] }),
+  const [seenEv, seenCr] = await Promise.all([
+    events.length ? evCol.distinct('_id', { _id: { $in: events.map((e) => e.row.id) as never[] } }) : [],
+    crashes.length ? crCol.distinct('_id', { _id: { $in: crashes.map((c) => c.row.id) as never[] } }) : [],
   ]);
-  const dup = new Set([...(seenEv ?? []), ...(seenCr ?? [])].map((r: { id: string }) => r.id));
+  const dup = new Set([...seenEv, ...seenCr].map(String));
   const freshEvents = events.filter((e) => !dup.has(e.row.id));
   const freshCrashes = crashes.filter((c) => !dup.has(c.row.id));
 
@@ -75,14 +77,14 @@ export async function POST(req: NextRequest) {
   }
   const issueByFp = new Map<string, string>();
   for (const [fp, g] of groups) {
-    const { data, error } = await db.rpc('diag_touch_issue', {
-      p_panel: identity.panel, p_fingerprint: fp, p_kind: g.t.kind, p_severity: g.t.severity, p_title: g.t.title,
-      p_product: identity.productId, p_exc_type: g.t.exc_type, p_message: g.t.message, p_stack: g.t.stack,
-      p_expected: g.t.expected, p_actual: g.t.actual, p_school: identity.entityId, p_machine: identity.machineId,
-      p_version: g.version, p_module: g.t.module, p_count: g.n, p_seen: g.seen,
-      p_environment: body.environment ?? 'production',
-    });
-    if (!error && data) issueByFp.set(fp, data as string);
+    try {
+      issueByFp.set(fp, await touchIssue({
+        panel: identity.panel, fingerprint: fp, kind: g.t.kind, severity: g.t.severity, title: g.t.title,
+        product: identity.productId, excType: g.t.exc_type, message: g.t.message, stack: g.t.stack,
+        expected: g.t.expected, actual: g.t.actual, school: identity.entityId, machine: identity.machineId,
+        version: g.version, module: g.t.module, count: g.n, seen: g.seen, environment: body.environment ?? 'production',
+      }));
+    } catch (e) { console.error('[ingest] issue upsert failed:', e instanceof Error ? e.message : e); }
   }
 
   // Sampling: non-error repeats beyond N/day per fingerprint are counted (above) but not stored.
@@ -93,9 +95,8 @@ export async function POST(req: NextRequest) {
     if (e.row.fingerprint) e.row.issue_id = issueByFp.get(e.row.fingerprint) ?? null;
     if (e.row.fingerprint && e.row.severity === 'WARNING') {
       if (!budget.has(e.row.fingerprint)) {
-        const { count } = await db.from('diag_events').select('id', { count: 'exact', head: true })
-          .eq('panel', identity.panel).eq('fingerprint', e.row.fingerprint).gte('ts', dayStart.toISOString());
-        budget.set(e.row.fingerprint, Math.max(0, cfg.samplePerFingerprintPerDay - (count ?? 0)));
+        const count = await evCol.countDocuments({ panel: identity.panel, fingerprint: e.row.fingerprint, ts: { $gte: dayStart } });
+        budget.set(e.row.fingerprint, Math.max(0, cfg.samplePerFingerprintPerDay - count));
       }
       const left = budget.get(e.row.fingerprint)!;
       if (left <= 0) continue;
@@ -111,46 +112,51 @@ export async function POST(req: NextRequest) {
     const last = beats.reduce((a, b) => (b.ts > a.ts ? b : a));
     const x = ((last.data as { extra?: Record<string, unknown> } | null)?.extra ?? {}) as Record<string, unknown>;
     const n = (v: unknown, max: number) => (typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= max ? v : null);
-    await db.from('ops_device_metrics').upsert({
-      panel: identity.panel, machine_id: identity.machineId, product_id: last.product_id, version: last.product_version,
+    await (await col('ops_device_metrics')).updateOne({ panel: identity.panel, machine_id: identity.machineId }, { $set: toDoc({
+      product_id: last.product_id, version: last.product_version,
       computer_name: last.computer_name, entity_id: identity.entityId, cpu_pct: n(x.cpu_pct, 100), ram_pct: n(x.ram_pct, 100),
       disk_pct: n(x.disk_pct, 100), uptime_s: n(x.uptime_s, 1e9), session_count: n(x.session_count, 1e6), status: 'RUNNING', reported_at: last.ts,
-    });
+    }) }, { upsert: true });
   }
   const stored = rows.filter((r) => r.event_type !== 'APP_HEARTBEAT');
   rows.length = 0;
   // Cleaner (middle layer): drop noise + in-batch duplicates and cap this device's rows per day,
-  // counted by receive time so an offline backlog can't bypass it. Dropped rows are still acked.
+  // counted by receive time so an offline backlog can't bypass it; near the MongoDB free-tier
+  // limit it keeps only the important rows. Dropped rows are still acked.
   if (stored.length) {
-    const today = (info: boolean) => {
-      const q = db.from('diag_events').select('id', { count: 'exact', head: true })
-        .eq('panel', identity.panel).eq('machine_id', identity.machineId).gte('received_at', dayStart.toISOString());
-      return info ? q.eq('severity', 'INFO') : q.neq('severity', 'INFO');
-    };
-    const [{ count: info }, { count: warn }] = await Promise.all([today(true), today(false)]);
-    rows.push(...cleanBatch(stored, { info: info ?? 0, warn: warn ?? 0 }).keep);
+    const today = (info: boolean) => evCol.countDocuments({ panel: identity.panel, machine_id: identity.machineId,
+      received_at: { $gte: dayStart }, severity: info ? 'INFO' : { $ne: 'INFO' } });
+    const [info, warn, pressure] = await Promise.all([today(true), today(false), storagePressure()]);
+    rows.push(...cleanBatch(stored, { info, warn }, pressure).keep);
   }
 
   const failed: string[] = [];
   if (rows.length) {
-    const { error } = await db.from('diag_events').upsert(rows, { onConflict: 'id', ignoreDuplicates: true });
-    if (error) failed.push(...rows.map((r) => r.id));
+    try {
+      await evCol.insertMany(rows.map((r) => toDoc({ ...r, received_at: now.toISOString() })), { ordered: false });
+    } catch (e: unknown) {
+      // Duplicate ids (a retried batch raced us) are fine; anything else must be retried by the device.
+      const errs = (e as { writeErrors?: { code: number; index: number }[] }).writeErrors;
+      if (!errs) failed.push(...rows.map((r) => r.id));
+      else for (const w of errs) if (w.code !== 11000) failed.push(rows[w.index].id);
+    }
   }
   const crashAck: { crash_id: string; code: string }[] = [];
   for (const c of freshCrashes) {
     const issueId = issueByFp.get(c.touch.fingerprint);
     if (!issueId) { failed.push(c.row.id); continue; }
-    // `code` (CR-YYYYMMDD-NNNN) is assigned by the database (standard-ids.sql), never here.
-    const { data: ins, error } = await db.from('diag_crashes')
-      .upsert({ ...c.row, issue_id: issueId }, { onConflict: 'id', ignoreDuplicates: true })
-      .select('code');
-    let code = (ins?.[0]?.code as string | undefined) ?? null;
-    if (!error && !code) {
+    // `code` (CR-YYYYMMDD-NNNN) is always allocated server-side from the shared counter, never by the client.
+    let code: string | null = null;
+    try {
+      code = await allocCode('CR', new Date(c.row.ts));
+      await crCol.insertOne(toDoc({ ...c.row, issue_id: issueId, code, received_at: now.toISOString() }));
+    } catch (e: unknown) {
       // Stored concurrently by a retry of the same batch → report the code it already has.
-      const { data: prev } = await db.from('diag_crashes').select('code').eq('id', c.row.id).maybeSingle();
-      code = (prev?.code as string | undefined) ?? null;
+      code = (e as { code?: number }).code === 11000
+        ? ((await crCol.findOne({ _id: c.row.id as never }, { projection: { code: 1 } }))?.code as string | undefined) ?? null
+        : null;
     }
-    if (error || !code) failed.push(c.row.id); else crashAck.push({ crash_id: c.row.id, code });
+    if (!code) failed.push(c.row.id); else crashAck.push({ crash_id: c.row.id, code });
   }
 
   const failedSet = new Set(failed);

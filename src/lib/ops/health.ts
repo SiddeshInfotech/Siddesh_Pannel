@@ -139,6 +139,7 @@ export const RULE_METRICS = {
   fleet_ram_p95: 'Device RAM P95 %',
   fleet_disk_p95: 'Device disk P95 %',
   providers_down: 'Providers down (count)',
+  logs_storage_pct: 'Health/Logs storage (MongoDB) % of quota',
   health_score: 'Overall health score',
 } as const;
 export type RuleMetric = keyof typeof RULE_METRICS;
@@ -156,6 +157,8 @@ export function evaluateRule(rule: { op: string; threshold: number; for_minutes:
   return { action: now - Date.parse(since) >= rule.for_minutes * 60_000 ? 'fire' : 'pending', breachSince: since };
 }
 
+/** At 80 % the ingest cleaner already stores WARNING+ only — this tells the admins why. */
+export const LOGS_STORAGE_RULE = { name: 'Logs storage (MongoDB) nearly full', metric: 'logs_storage_pct' as const, op: '>=', threshold: 80, for_minutes: 0, level: 'WARNING', create_incident: false };
 export const DEFAULT_RULES: { name: string; metric: RuleMetric; op: string; threshold: number; for_minutes: number; level: string; create_incident: boolean }[] = [
   { name: 'Crash rate high', metric: 'crash_rate_pct', op: '>', threshold: 2, for_minutes: 5, level: 'CRITICAL', create_incident: true },
   { name: 'API errors high', metric: 'api_error_rate_pct', op: '>', threshold: 5, for_minutes: 5, level: 'CRITICAL', create_incident: true },
@@ -164,6 +167,7 @@ export const DEFAULT_RULES: { name: string; metric: RuleMetric; op: string; thre
   { name: 'Bandwidth usage high', metric: 'bandwidth_usage_pct', op: '>', threshold: 80, for_minutes: 0, level: 'WARNING', create_incident: false },
   { name: 'Device disk nearly full', metric: 'fleet_disk_p95', op: '>', threshold: 85, for_minutes: 0, level: 'WARNING', create_incident: false },
   { name: 'Provider down', metric: 'providers_down', op: '>=', threshold: 1, for_minutes: 10, level: 'CRITICAL', create_incident: true },
+  LOGS_STORAGE_RULE,
 ];
 
 // ── Settings ─────────────────────────────────────────────────────────────────

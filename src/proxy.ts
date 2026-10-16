@@ -226,6 +226,7 @@ export async function proxy(req: NextRequest) {
   const STATIC_EXT = /\.(?:png|jpe?g|svg|ico|webp|gif|css|js|map|woff2?|ttf|eot|txt|json)$/i;
   if (
     pathname.startsWith('/_next') ||
+    pathname.startsWith('/_vercel/insights/') || // Vercel Web Analytics script + beacons (served by Vercel)
     pathname.startsWith('/favicon') ||
     pathname.startsWith('/siddesh_logo') ||
     pathname === '/icon.png' ||

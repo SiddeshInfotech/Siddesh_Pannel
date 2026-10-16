@@ -4,21 +4,20 @@
 // "Not available" — never a placeholder value. Polls one summary action every 30 s (no
 // per-browser provider calls; providers are synced by the backend cron).
 import React, { useCallback, useEffect, useState } from 'react';
-import Link from '@/components/PanelLink';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { HeartPulse, RefreshCw, ShieldAlert } from 'lucide-react';
+import { HeartPulse, RefreshCw, Search, ShieldAlert, X } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import GlassCard from '@/components/GlassCard';
 import CustomSelect from '@/components/CustomSelect';
 import InfoTip from '@/components/InfoTip';
-import ConfirmDialog from '@/components/ConfirmDialog';
+import FormModal from '@/components/FormModal';
 import { HEALTH_TAB_HELP, HELP } from '@/lib/diagnostics/help';
 import * as A from './actions';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- action payloads */
 
 const TABS = [
-  ['overview', 'Overview'], ['active', 'Active devices'], ['devices', 'Devices'], ['security', 'Security'], ['performance', 'Performance'], ['incidents', 'Alerts & Incidents'],
-  ['infrastructure', 'Infrastructure'], ['cost', 'Consumption & Cost'], ['deployments', 'Deployments'], ['settings', 'Settings'],
+  ['overview', 'Overview'], ['active', 'Active devices'], ['infrastructure', 'Infrastructure'],
 ] as const;
 type Tab = (typeof TABS)[number][0];
 const IST = 'Asia/Kolkata';
@@ -26,17 +25,12 @@ const NA = <span className="text-zinc-500">Not available</span>;
 const fmt = (s?: string | null) => (s ? new Date(s).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: IST }) : '—');
 const ago = (s?: string | null) => { if (!s) return 'never'; const m = Math.round((Date.now() - Date.parse(s)) / 60_000); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 const num = (v: any, d = 0) => (typeof v === 'number' && Number.isFinite(v) ? v.toLocaleString('en-IN', { maximumFractionDigits: d }) : null);
-const show = (v: any, suffix = '', d = 1) => { const s = num(v, d); return s === null ? NA : <>{s}{suffix}</>; };
-const bytes = (v: any) => { const n = Number(v); if (!Number.isFinite(n)) return NA; return n > 1e9 ? `${(n / 1e9).toFixed(2)} GB` : n > 1e6 ? `${(n / 1e6).toFixed(1)} MB` : `${(n / 1e3).toFixed(0)} KB`; };
+const bytes = (v: any) => { const n = Number(v); if (!Number.isFinite(n)) return NA; const K = 1024, M = K * K, G = M * K; return n >= G ? `${(n / G).toFixed(2)} GB` : n >= M ? `${(n / M).toFixed(1)} MB` : `${(n / K).toFixed(0)} KB`; };
 const DOT: Record<string, string> = { HEALTHY: '🟢', WARNING: '🟡', DEGRADED: '🟡', CRITICAL: '🔴', DOWN: '🔴', OFFLINE: '🔴', ONLINE: '🟢', STALE: '🟡', UNKNOWN: '⚪' };
 const St = ({ s }: { s?: string | null }) => <span className="whitespace-nowrap">{DOT[s ?? 'UNKNOWN'] ?? '⚪'} {(s ?? 'UNKNOWN').toLowerCase()}</span>;
-const Card = ({ title, children, className = '' }: { title: React.ReactNode; children: React.ReactNode; className?: string }) => (
-  <GlassCard className={className}><div className="text-xs space-y-2"><h4 className="font-semibold text-foreground text-sm flex items-center gap-1">{title}{typeof title === 'string' && HELP[title] && <InfoTip text={HELP[title]} />}</h4>{children}</div></GlassCard>
+const Card = ({ title, children, className = '', right }: { title: React.ReactNode; children: React.ReactNode; className?: string; right?: React.ReactNode }) => (
+  <GlassCard className={className}><div className="text-xs space-y-2"><div className="flex items-center justify-between gap-2 flex-wrap"><h4 className="font-semibold text-foreground text-sm flex items-center gap-1">{title}{typeof title === 'string' && HELP[title] && <InfoTip text={HELP[title]} />}</h4>{right}</div>{children}</div></GlassCard>
 );
-const Kpi = ({ label, value, href, sub }: { label: string; value: React.ReactNode; href?: string; sub?: React.ReactNode }) => {
-  const body = <div className="rounded-xl border border-sidebar-border p-3 hover:bg-white/5"><div className="text-[11px] text-zinc-500 flex items-center gap-1">{label}{HELP[label] && <InfoTip text={HELP[label]} />}</div><div className="text-lg font-bold text-foreground">{value}</div>{sub && <div className="text-[11px] text-zinc-500">{sub}</div>}</div>;
-  return href ? <Link href={href}>{body}</Link> : body;
-};
 function useLoad<T>(fn: () => Promise<{ ok: boolean; data?: T; error?: string } | any>, deps: unknown[], pollMs = 0) {
   const [data, setData] = useState<T | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -47,14 +41,21 @@ function useLoad<T>(fn: () => Promise<{ ok: boolean; data?: T; error?: string } 
   return { data, err, reload: load };
 }
 const Err = ({ e }: { e: string | null }) => (e ? <GlassCard><p className="text-xs text-rose-400 flex items-center gap-2"><ShieldAlert className="w-4 h-4" />{e}</p></GlassCard> : null);
-const Table = ({ head, rows }: { head: string[]; rows: React.ReactNode[][] }) => (
-  <div className="overflow-x-auto"><table className="data-table text-xs w-full"><thead><tr>{head.map((h) => <th key={h}>{h}</th>)}</tr></thead>
-    <tbody>{rows.length ? rows.map((r, i) => <tr key={i}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>) : <tr><td colSpan={head.length} className="text-center text-zinc-500 py-4">No data</td></tr>}</tbody></table></div>
+const Table = ({ head, rows, onRow, rowClass }: { head: string[]; rows: React.ReactNode[][]; onRow?: (i: number) => void; rowClass?: (i: number) => string }) => (
+  <div className="overflow-x-auto"><table className="data-table text-xs w-full"><thead><tr>{head.map((h, k) => <th key={`${h}${k}`}>{h}</th>)}</tr></thead>
+    <tbody>{rows.length ? rows.map((r, i) => <tr key={i} onClick={onRow && (() => onRow(i))} className={`${onRow ? 'cursor-pointer hover:bg-white/5' : ''} ${rowClass?.(i) ?? ''}`}>{r.map((c, j) => <td key={j}>{c}</td>)}</tr>) : <tr><td colSpan={head.length} className="text-center text-zinc-500 py-4">No data</td></tr>}</tbody></table></div>
 );
 
 export default function HealthClient({ products }: { products: { value: string; label: string; group?: string }[] }) {
-  const [tab, setTab] = useState<Tab>('overview');
-  const [range, setRange] = useState('24h');
+  // The open tab lives in the URL (?tab=…) so a refresh keeps it.
+  const params = useSearchParams();
+  const [tab, setTabState] = useState<Tab>(() => TABS.find(([k]) => k === params.get('tab'))?.[0] ?? 'overview');
+  const setTab = (t: Tab) => {
+    setTabState(t);
+    const u = new URL(window.location.href);
+    if (t === 'overview') u.searchParams.delete('tab'); else u.searchParams.set('tab', t);
+    window.history.replaceState(null, '', u);
+  };
   const [product, setProduct] = useState<string>('');
   // One refresh control for the whole page (right end of the tab row).
   const [refresh, setRefresh] = useState(0);
@@ -68,28 +69,21 @@ export default function HealthClient({ products }: { products: { value: string; 
         <h2 className="text-2xl font-bold text-foreground flex items-center gap-2"><HeartPulse className="w-6 h-6" /> Operations Center</h2>
         <div className="flex flex-wrap gap-2 text-xs w-full sm:w-auto">
           <Sel w="w-full sm:w-72" value={product} onChange={setProduct} options={[{ value: '', label: 'All Products' }, ...products]} />
-          {(tab === 'performance' || tab === 'security') && <Sel w="w-44" value={range} onChange={setRange} options={[['15m', 'Last 15 minutes'], ['1h', 'Last 1 hour'], ['6h', 'Last 6 hours'], ['24h', 'Last 24 hours'], ['7d', 'Last 7 days'], ['30d', 'Last 30 days']].map(([value, label]) => ({ value, label }))} />}
         </div>
       </div>
-      <div className="flex flex-wrap items-center border-b border-sidebar-border">
+      {/* items-end: tabs sit on the gray line (active = purple underline on it) even though the refresh button is taller. */}
+      <div className="flex flex-wrap items-end border-b border-sidebar-border">
         {TABS.map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`filter-tab ${tab === k ? 'filter-tab-active' : ''}`}>{l}</button>)}
-        <div className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500 py-1 pl-2">
+        <div className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500 pb-1.5 pl-2">
           {tab === 'overview' && updatedAt && <span>Updated {ago(updatedAt)} · auto 30 s</span>}
           <button type="button" className="icon-btn" title="Refresh" onClick={() => setRefresh((n) => n + 1)}><RefreshCw className="w-3.5 h-3.5" /></button>
         </div>
       </div>
-      {tab !== 'overview' && <p className="text-xs text-zinc-500 flex items-center gap-1"><InfoTip text={HEALTH_TAB_HELP[tab]} /> {HEALTH_TAB_HELP[tab]}</p>}
+      {tab !== 'overview' && HEALTH_TAB_HELP[tab] && <p className="text-xs text-zinc-500 flex items-center gap-1"><InfoTip text={HEALTH_TAB_HELP[tab]} /> {HEALTH_TAB_HELP[tab]}</p>}
       {tab === 'overview' && <Overview product={product} onProduct={setProduct} refresh={refresh} onUpdated={setUpdatedAt} />}
       <div key={refresh} className="space-y-4">
       {tab === 'active' && <ActiveDevices />}
-      {tab === 'devices' && <Devices product={product} />}
-      {tab === 'security' && <Security range={range} product={product} />}
-      {tab === 'performance' && <Performance range={range} product={product} />}
-      {tab === 'incidents' && <div className="space-y-3"><Alerts /><Incidents /></div>}
       {tab === 'infrastructure' && <Infrastructure />}
-      {tab === 'cost' && <Cost />}
-      {tab === 'deployments' && <Deployments product={product} />}
-      {tab === 'settings' && <Settings />}
       </div>
     </div>
   );
@@ -98,9 +92,9 @@ export default function HealthClient({ products }: { products: { value: string; 
 
 /** Panel-styled dropdown (CustomSelect) — replaces native <select> so menus match the panel theme. */
 function Sel({ value, onChange, options, w = 'w-40' }: { value: string; onChange: (v: string) => void; options: { value: string; label: string; group?: string }[]; w?: string }) {
-  return <CustomSelect size="sm" className={w} value={value} onChange={onChange} options={options} />;
+  // CustomSelect is `w-full` by design; the wrapper gives it the intended width.
+  return <div className={`${w} shrink-0`}><CustomSelect size="sm" value={value} onChange={onChange} options={options} /></div>;
 }
-const opts = (xs: readonly string[]) => xs.map((x) => ({ value: x, label: x.replace(/_/g, ' ').toLowerCase().replace(/^w/, (c) => c.toUpperCase()) }));
 
 // ── Overview ────────────────────────────────────────────────────────────────
 // Products | Overall Health | Activity. Picking a product (or one of its platforms) filters the
@@ -118,14 +112,14 @@ const Panel = ({ title, children, right }: { title: string; children: React.Reac
 );
 
 function Overview({ product, onProduct, refresh, onUpdated }: { product: string; onProduct: (p: string) => void; refresh: number; onUpdated: (at: string) => void }) {
-  const { data: d, err } = useLoad<any>(() => A.getOverview(product || null), [product, refresh], 30_000);
+  const { data: d, err, reload } = useLoad<any>(() => A.getOverview(product || null), [product, refresh], 30_000);
   useEffect(() => { if (d?.generatedAt) onUpdated(d.generatedAt); }, [d?.generatedAt, onUpdated]);
   if (err) return <Err e={err} />;
   if (!d) return <p className="text-xs text-zinc-500">Loading…</p>;
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-3 items-stretch">
       <div className="md:col-span-2 xl:col-span-5 min-w-0"><Products list={d.products} product={product} onProduct={onProduct} /></div>
-      <div className="xl:col-span-3 min-w-0"><OverallHealth d={d} /></div>
+      <div className="xl:col-span-3 min-w-0"><OverallHealth d={d} onChanged={reload} /></div>
       <div className="xl:col-span-4 min-w-0"><Activity product={product} refresh={refresh} /></div>
     </div>
   );
@@ -185,7 +179,70 @@ function Products({ list, product, onProduct }: { list: any[]; product: string; 
   );
 }
 
-function OverallHealth({ d }: { d: any }) {
+/** Open incidents + alerts behind "Points lost": details and Resolve (with a note for incidents). */
+function OpenOpsModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
+  const { data, err, reload } = useLoad<any>(() => A.listOpenOps(), []);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const run = async (id: string, p: Promise<{ ok: boolean; error?: string }>) => {
+    setBusy(id); setMsg(null);
+    const r = await p;
+    setBusy(null);
+    if (!r.ok) { setMsg(r.error ?? 'Could not resolve.'); return; }
+    reload(); onChanged();
+  };
+  const affected = (x: any) => (x && typeof x === 'object' ? Object.entries(x).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${typeof v === 'number' ? num(v, 2) : String(v)}`).join(' · ') : null);
+  const incidents: any[] = data?.incidents ?? [], alerts: any[] = data?.alerts ?? [];
+  return (
+    <div className="text-xs space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="text-base font-semibold text-foreground">Open incidents &amp; alerts</h3>
+        <button type="button" className="icon-btn" title="Close" onClick={onClose}><X className="w-4 h-4" /></button>
+      </div>
+      {err && <p className="text-rose-400">{err}</p>}
+      {msg && <p className="text-rose-400">{msg}</p>}
+      {!data ? <p className="text-zinc-500">Loading…</p> : !incidents.length && !alerts.length ? <p className="text-zinc-500 py-6 text-center">Nothing open — no points lost to incidents or alerts.</p> : <>
+        {incidents.length > 0 && <section className="space-y-2">
+          <h4 className="text-[11px] uppercase tracking-wider text-zinc-500">Incidents ({incidents.length})</h4>
+          {incidents.map((i) => (
+            <div key={i.id} className="rounded-xl border border-sidebar-border p-3 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-mono text-zinc-400">{i.code}</span>
+                <span className="font-semibold text-foreground">{i.title}</span>
+                <span className={`rounded-full px-1.5 text-[10px] font-semibold border ${i.severity === 'CRITICAL' ? 'border-rose-500/40 text-rose-400' : 'border-amber-500/40 text-amber-400'}`}>{i.severity}</span>
+                <span className="text-zinc-500">{i.panelLabel} · {i.status.toLowerCase()} · started {fmt(i.started_at)}</span>
+              </div>
+              {affected(i.affected) && <p className="text-zinc-400">{affected(i.affected)}</p>}
+              {(i.updates ?? []).length > 0 && <ol className="space-y-0.5 text-zinc-500">{(i.updates as any[]).map((u, k) => <li key={k}>{fmt(u.at)} · {u.by} · {String(u.status).toLowerCase()}{u.note ? ` — ${u.note}` : ''}</li>)}</ol>}
+              <div className="flex flex-wrap items-center gap-2">
+                <input className="bare-input bg-transparent px-2 py-1.5 flex-1 min-w-[200px]" placeholder="What was done (optional)" value={notes[i.id] ?? ''}
+                  onChange={(e) => setNotes((n) => ({ ...n, [i.id]: e.target.value }))} />
+                <button type="button" className="filter-tab filter-tab-active" disabled={busy === i.id} onClick={() => run(i.id, A.resolveIncident(i.id, notes[i.id] ?? ''))}>
+                  {busy === i.id ? 'Resolving…' : 'Resolve incident'}</button>
+              </div>
+            </div>
+          ))}
+        </section>}
+        {alerts.length > 0 && <section className="space-y-2">
+          <h4 className="text-[11px] uppercase tracking-wider text-zinc-500">Alerts ({alerts.length})</h4>
+          {alerts.map((a) => (
+            <div key={a.id} className="rounded-xl border border-sidebar-border p-3 flex flex-wrap items-center gap-2">
+              <span className="font-semibold text-foreground">{a.title}</span>
+              <span className="rounded-full px-1.5 text-[10px] font-semibold border border-sidebar-border">{a.level}</span>
+              <span className="text-zinc-500">{a.panelLabel} · ×{a.occurrences} · first {fmt(a.first_at)} · last {ago(a.last_at)}</span>
+              <button type="button" className="filter-tab ml-auto" disabled={busy === a.id} onClick={() => run(a.id, A.resolveAlert(a.id))}>{busy === a.id ? 'Resolving…' : 'Resolve'}</button>
+            </div>
+          ))}
+        </section>}
+        <p className="text-zinc-500">If the cause is still there (the rule is still breached), the next check opens a new alert/incident.</p>
+      </>}
+    </div>
+  );
+}
+
+function OverallHealth({ d, onChanged }: { d: any; onChanged: () => void }) {
+  const [openOps, setOpenOps] = useState(false);
   const s = d.score;
   const delta = s.score !== null && d.previousScore !== null ? s.score - d.previousScore : null;
   const name = d.products.find((p: any) => p.id === (d.product ?? ''))?.name;
@@ -197,8 +254,16 @@ function OverallHealth({ d }: { d: any }) {
       {s.score === null ? <p className="text-zinc-500">No telemetry yet — the score appears once devices report.</p> : (
         <div className="space-y-1">
           <div className="text-zinc-500">{s.penalties.length ? 'Points lost' : 'No deductions'}</div>
-          {s.penalties.map((p: any) => <div key={p.reason} className="flex justify-between gap-2 rounded-md bg-rose-500/5 px-2 py-1"><span className="text-zinc-400 min-w-0 break-words">{p.reason}</span><span className="text-rose-500 font-semibold">−{p.points}</span></div>)}
+          {s.penalties.map((p: any) => /open (incident|alert)/.test(p.reason)
+            // Incidents/alerts can be handled from here: opens their details with Resolve.
+            ? <button key={p.reason} type="button" onClick={() => setOpenOps(true)} title="Show and resolve"
+                className="w-full flex justify-between gap-2 rounded-md bg-rose-500/5 hover:bg-rose-500/10 px-2 py-1 text-left cursor-pointer">
+                <span className="text-zinc-400 min-w-0 break-words underline decoration-dotted underline-offset-2">{p.reason}</span><span className="text-rose-500 font-semibold">−{p.points}</span></button>
+            : <div key={p.reason} className="flex justify-between gap-2 rounded-md bg-rose-500/5 px-2 py-1"><span className="text-zinc-400 min-w-0 break-words">{p.reason}</span><span className="text-rose-500 font-semibold">−{p.points}</span></div>)}
         </div>)}
+      <FormModal open={openOps} onClose={() => setOpenOps(false)} panelClassName="glass-interactive w-full max-w-3xl max-h-[90vh] overflow-y-auto relative animate-slide-up rounded-2xl p-5">
+        {openOps && <OpenOpsModal onClose={() => setOpenOps(false)} onChanged={onChanged} />}
+      </FormModal>
       <details className="text-zinc-500 mt-auto"><summary className="cursor-pointer">How is this calculated?</summary>100 minus capped penalties: crash rate (10/1%, max 30), error rate (2/1%, max 20), API errors (max 10), API P95 over threshold (5), open incidents (max 30), open alerts (max 10), providers down/degraded (max 20), DB/storage over 80/90% of quota. Missing data is never penalised; no data at all = Unknown.</details>
     </Panel>
   );
@@ -234,383 +299,271 @@ function Activity({ product, refresh }: { product: string; refresh: number }) {
   );
 }
 
-// ── Active devices + key search ────────────────────────────────────────────
+// ── Active devices ──────────────────────────────────────────────────────────
 // Active = licence Active, bound to a device, not expired. Lab-Admin lists LMS School + Lab.
-type DevRef = { panel: string; keyId: string };
-function ActiveDevices() {
-  const [f, setF] = useState<{ q?: string; panel?: string; page: number }>({ page: 0 });
-  const [key, setKey] = useState('');
-  const [found, setFound] = useState<any>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [open, setOpen] = useState<DevRef | null>(null);
-  const { data, err } = useLoad<any>(() => A.getActiveDevices(f), [f], 60_000);
-  const search = async () => {
-    setMsg(null); setFound(null);
-    const r = await A.lookupKey(key);
-    if (r.ok) { setFound(r.data); setOpen({ panel: r.data.panel, keyId: r.data.keyId }); } else setMsg(r.error ?? 'Not found.');
-  };
-  if (open) return <DeviceLogs dev={open} info={found} onBack={() => { setOpen(null); setFound(null); }} />;
+// The search also matches the activation key; clicking a row opens that device's logs.
+function useDebounced(value: string, ms = 300) {
+  const [v, setV] = useState(value);
+  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);
+  return v;
+}
+/** Page number that resets to 0 whenever [filterKey] changes (no effect needed). */
+function usePageFor(filterKey: string): [number, (n: number) => void] {
+  const [pg, setPg] = useState({ key: filterKey, page: 0 });
+  return [pg.key === filterKey ? pg.page : 0, (n) => setPg({ key: filterKey, page: n })];
+}
+const SearchBox = ({ value, onChange, placeholder, w = 'w-64' }: { value: string; onChange: (v: string) => void; placeholder: string; w?: string }) => (
+  <div className={`relative ${w}`}>
+    <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2 top-1/2 -translate-y-1/2" />
+    <input className="bare-input bg-transparent pl-7 pr-2 py-1 w-full text-xs font-normal" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)} autoComplete="off" spellCheck={false} />
+  </div>
+);
+
+/** "Showing 1–10 of 31" · rows per page · Prev 1 … 3 4 5 … 9 Next. Pages are 0-based internally. */
+const PAGE_SIZES = [10, 25, 50];
+function Pager({ page, size, total, onPage, onSize }: { page: number; size: number; total: number; onPage: (p: number) => void; onSize: (s: number) => void }) {
+  if (!total) return null;
+  const pages = Math.ceil(total / size);
+  const cur = Math.min(Math.max(0, page), pages - 1);
+  const nums = [...new Set([0, cur - 1, cur, cur + 1, pages - 1])].filter((p) => p >= 0 && p < pages).sort((a, b) => a - b);
+  const btn = 'min-w-8 h-8 px-2 rounded-lg border border-sidebar-border text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
   return (
-    <div className="space-y-3">
-      <Card title="Search by activation key">
-        <form className="flex gap-2 flex-wrap" onSubmit={(e) => { e.preventDefault(); search(); }}>
-          <input className="bare-input bg-transparent px-2 py-1 flex-1 min-w-[220px] font-mono" placeholder="Enter the full activation key" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" spellCheck={false} />
-          <button type="submit" className="filter-tab filter-tab-active" disabled={!key.trim()}>Show logs</button>
-        </form>
-        {msg && <p className="text-rose-400">{msg}</p>}
-        <p className="text-zinc-500">Opens everything that device reported: screens, actions, typed searches, security signals, errors and crashes. Lookups are audited.</p>
-      </Card>
-      {err ? <Err e={err} /> : (
-        <Card title={`Active devices (${data?.total ?? '…'})`}>
-          <div className="flex gap-2 flex-wrap">
-            {(data?.panels?.length ?? 0) > 1 && <Sel value={f.panel ?? ''} onChange={(v) => setF({ ...f, panel: v || undefined, page: 0 })} options={[{ value: '', label: 'LMS School + Lab' }, { value: 'lms', label: 'LMS School' }, { value: 'lab', label: 'Lab' }]} />}
-            <input className="bare-input bg-transparent px-2 py-1 w-56" placeholder="School, model, product…" onChange={(e) => setF({ ...f, q: e.target.value || undefined, page: 0 })} />
-          </div>
-          <Table head={['Panel', 'Product', 'School / owner', 'Device', 'Key', 'Version', 'Status', 'Last seen', 'Expires', 'Errors 24h', '']} rows={(data?.rows ?? []).map((r: any) => [
-            r.panelLabel, r.product ?? '—', r.owner ?? '—', <span key="d" title={r.fp ?? ''}>{r.model ?? `${(r.fp ?? '').slice(0, 12)}…`}</span>, <span key="k" className="font-mono">{r.key}</span>,
-            r.version ?? '—', <St key="s" s={r.state} />, ago(r.lastSeen), fmt(r.expiresAt), r.errors24h,
-            <button key="l" className="filter-tab" onClick={() => setOpen({ panel: r.panel, keyId: r.keyId })}>Logs</button>])} />
-          <div className="flex gap-2 justify-end">
-            <button className="filter-tab" disabled={!f.page} onClick={() => setF({ ...f, page: f.page - 1 })}>Prev</button>
-            <button className="filter-tab" disabled={!data || (f.page + 1) * 50 >= data.total} onClick={() => setF({ ...f, page: f.page + 1 })}>Next</button>
-          </div>
-        </Card>
+    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+      <div className="flex items-center gap-2 text-zinc-500">
+        <span>Showing <b className="text-foreground">{cur * size + 1}–{Math.min(total, (cur + 1) * size)}</b> of <b className="text-foreground">{total}</b></span>
+        <span className="hidden sm:inline">·</span>
+        <span className="flex items-center gap-1" role="group" aria-label="Rows per page">Rows
+          {PAGE_SIZES.map((s) => (
+            <button key={s} type="button" aria-pressed={s === size} onClick={() => onSize(s)}
+              className={`${btn} ${s === size ? 'bg-sky-500/15 border-sky-500/40 text-sky-400 font-semibold' : 'hover:bg-white/5'}`}>{s}</button>
+          ))}
+        </span>
+      </div>
+      {pages > 1 && (
+        <nav className="flex items-center gap-1" aria-label="Pagination">
+          <button type="button" className={`${btn} hover:bg-white/5`} disabled={cur === 0} onClick={() => onPage(cur - 1)}>Prev</button>
+          {nums.map((p, i) => (
+            <React.Fragment key={p}>
+              {i > 0 && p - nums[i - 1] > 1 && <span className="px-1 text-zinc-500">…</span>}
+              <button type="button" aria-current={p === cur ? 'page' : undefined} onClick={() => onPage(p)}
+                className={`${btn} ${p === cur ? 'bg-sky-500/15 border-sky-500/40 text-sky-400 font-semibold' : 'hover:bg-white/5'}`}>{p + 1}</button>
+            </React.Fragment>
+          ))}
+          <button type="button" className={`${btn} hover:bg-white/5`} disabled={cur >= pages - 1} onClick={() => onPage(cur + 1)}>Next</button>
+        </nav>
       )}
     </div>
   );
 }
 
-const CATS = ['', 'NAVIGATION', 'USER_ACTION', 'SECURITY', 'AUTHENTICATION', 'APPLICATION', 'ERROR', 'CRASH', 'PERFORMANCE', 'API', 'FILE', 'UPDATE'];
-function DeviceLogs({ dev, info, onBack }: { dev: DevRef; info: any; onBack: () => void }) {
-  const [f, setF] = useState<{ category?: string; q?: string; page: number }>({ page: 0 });
-  const { data, err } = useLoad<any>(() => A.getDeviceLogs({ ...dev, ...f }), [dev, f], 60_000);
-  const detail = (r: any) => {
-    const x = r.data?.extra;
-    const extra = x && typeof x === 'object' ? Object.entries(x).map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ') : '';
-    return [r.message, extra].filter(Boolean).join(' — ') || '—';
-  };
-  // Uploaded > 10 min after it happened ⇒ the device was offline and sent its stored backlog.
-  const late = (r: any) => r.received_at && Date.parse(r.received_at) - Date.parse(r.ts) > 600_000;
+function ActiveDevices() {
+  const [text, setText] = useState('');
+  const q = useDebounced(text.trim());
+  const [size, setSize] = useState(10);
+  const [page, setPage] = usePageFor(`${q}|${size}`);
+  const [open, setOpen] = useState<any>(null);
+  const { data, err } = useLoad<any>(() => A.getActiveDevices({ q: q || undefined, page, pageSize: size }), [q, page, size], 60_000);
+  const shownPage = data?.page ?? page;
+  if (err) return <Err e={err} />;
+  const rows: any[] = data?.rows ?? [];
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2"><button className="filter-tab" onClick={onBack}>← Back</button>
-        {info && <span className="text-xs text-zinc-400">{info.panelLabel} · {info.product ?? '—'} · {info.owner ?? '—'} · {info.model ?? '—'} · key {info.key} · {info.status}{info.expired ? ' (expired)' : ''} · expires {fmt(info.expiresAt)}</span>}</div>
-      {err ? <Err e={err} /> : (
+    <>
+      <Card title={`Active devices (${data?.total ?? '…'})`} right={
+        <div className="flex gap-2 items-center flex-wrap justify-end">
+          <SearchBox value={text} onChange={setText} placeholder="Search key, school, device…" />
+        </div>}>
+        <Table onRow={(i) => setOpen(rows[i])} head={['Panel', 'Product', 'School / owner', 'Device', 'Key', 'Version', 'Status', 'Last seen', 'Expires', 'Errors 24h', '']} rows={rows.map((r) => [
+          r.panelLabel, r.product ?? '—', r.owner ?? '—', <span key="d" title={r.fp ?? ''}>{r.model ?? `${(r.fp ?? '').slice(0, 12)}…`}</span>, <span key="k" className="font-mono">{r.key}</span>,
+          r.version ?? '—', <St key="s" s={r.state} />, ago(r.lastSeen), fmt(r.expiresAt), r.errors24h,
+          <span key="l" className="text-sky-400 whitespace-nowrap">Logs ›</span>])} />
+        <Pager page={shownPage} size={size} total={data?.total ?? 0} onPage={setPage} onSize={setSize} />
+      </Card>
+      <FormModal open={!!open} onClose={() => setOpen(null)} panelClassName="glass-interactive w-full max-w-5xl max-h-[90vh] overflow-y-auto relative animate-slide-up rounded-2xl p-5">
+        {open && <DeviceLogs dev={open} onClose={() => setOpen(null)} />}
+      </FormModal>
+    </>
+  );
+}
+
+// ── Day-wise timeline (device popup) ────────────────────────────────────────
+// Neutral by design: the ONLY colour is green, for entries whose bug is already fixed.
+type Entry = { id: string; ts: string; late: boolean; title: string; crash: boolean; severity: string; screen?: string | null; action?: string | null;
+  detail: string; bug: any };
+const FIXED = 'RESOLVED';
+const human = (t: string) => t.replace(/_/g, ' ').toLowerCase().replace(/^\w/, (c) => c.toUpperCase());
+function toEntry(r: any): Entry {
+  const x = r.data?.extra;
+  const extra = x && typeof x === 'object' ? Object.entries(x).filter(([k]) => k !== 'occurrences' || Number(x[k]) > 1)
+    .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join(' · ') : '';
+  return {
+    id: r.id, ts: r.ts, late: !!r.received_at && Date.parse(r.received_at) - Date.parse(r.ts) > 600_000, title: human(r.event_type), crash: false,
+    severity: r.severity, screen: r.feature, action: r.action && r.action !== r.event_type ? r.action : null,
+    detail: [r.message, extra].filter(Boolean).join(' — '), bug: r.bug,
+  };
+}
+const crashEntry = (c: any): Entry => ({
+  id: c.id, ts: c.ts, late: false, title: `Crash${c.code ? ` ${c.code}` : ''} · ${human(c.event_type)}`, crash: true, severity: 'FATAL',
+  screen: c.current_screen, action: null, detail: [c.actual_behavior, c.product_version && `v${c.product_version}`].filter(Boolean).join(' — '), bug: c.bug,
+});
+const dayKey = (ts: string) => new Date(ts).toLocaleDateString('en-CA', { timeZone: IST });
+function dayLabel(key: string) {
+  const today = dayKey(new Date().toISOString());
+  const yesterday = dayKey(new Date(Date.now() - 86_400_000).toISOString());
+  if (key === today) return 'Today';
+  if (key === yesterday) return 'Yesterday';
+  return new Date(`${key}T12:00:00+05:30`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', timeZone: IST });
+}
+const clock = (ts: string) => new Date(ts).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true, timeZone: IST });
+
+function Timeline({ entries, empty = 'Nothing recorded yet.' }: { entries: Entry[]; empty?: string }) {
+  if (!entries.length) return <p className="text-zinc-500 py-6 text-center">{empty}</p>;
+  const days: [string, Entry[]][] = [];
+  for (const e of entries) {
+    const k = dayKey(e.ts);
+    if (days.at(-1)?.[0] === k) days.at(-1)![1].push(e); else days.push([k, [e]]);
+  }
+  return (
+    <div className="space-y-5">
+      {days.map(([k, items]) => (
+        <section key={k}>
+          <div className="sticky top-0 z-10 -mx-1 px-1 py-2 flex items-center gap-3 bg-background/90 backdrop-blur">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-foreground">{dayLabel(k)}</span>
+            <span className="text-[11px] text-zinc-500">{items.length} {items.length === 1 ? 'entry' : 'entries'}</span>
+            <div className="flex-1 h-px bg-sidebar-border" />
+          </div>
+          <ol className="relative ml-[5.5rem] border-l border-sidebar-border">
+            {items.map((e) => {
+              const fixed = e.bug?.status === FIXED;
+              return (
+                <li key={e.id} className="relative pl-5 py-1">
+                  <time className="absolute -left-[5.5rem] top-2.5 w-[4.75rem] text-right text-[11px] tabular-nums text-zinc-500" dateTime={e.ts}>{clock(e.ts)}</time>
+                  <span className={`absolute -left-[5px] top-3 w-2.5 h-2.5 rounded-full ring-4 ring-background ${fixed ? 'bg-emerald-400' : e.crash ? 'bg-foreground' : 'bg-zinc-500'}`} />
+                  <div className={`rounded-xl border px-3 py-2 transition-colors ${fixed ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-400' : 'border-sidebar-border/60 hover:bg-white/5'}`}>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className={`font-semibold ${fixed ? '' : 'text-foreground'}`}>{e.title}</span>
+                      {e.severity !== 'INFO' && <span className="rounded-full border border-sidebar-border px-1.5 text-[10px] uppercase tracking-wide">{e.severity.toLowerCase()}</span>}
+                      {e.screen && <span className="rounded-full bg-white/5 px-1.5 text-[10px]">{e.screen}</span>}
+                      {e.action && <span className="rounded-full bg-white/5 px-1.5 text-[10px]">{e.action}</span>}
+                      {e.late && <span className="text-[10px] text-zinc-500" title="Happened offline, uploaded later">offline</span>}
+                      {e.bug && <span className="ml-auto text-[10px] whitespace-nowrap">{e.bug.code}{fixed ? ` · fixed${e.bug.fixedIn ? ` in ${e.bug.fixedIn}` : ''}` : ''}</span>}
+                    </div>
+                    {e.detail && <p className={`mt-0.5 break-all ${fixed ? '' : 'text-zinc-500'}`}>{e.detail}</p>}
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+const CATS = ['', 'NAVIGATION', 'USER_ACTION', 'SECURITY', 'AUTHENTICATION', 'APPLICATION', 'ERROR', 'CRASH', 'PERFORMANCE', 'API', 'FILE', 'UPDATE'];
+function DeviceLogs({ dev, onClose }: { dev: any; onClose: () => void }) {
+  const [category, setCategory] = useState('');
+  const [text, setText] = useState('');
+  const q = useDebounced(text.trim());
+  const [more, setMore] = usePageFor(`${q}|${category}`); // extra pages of 100 loaded via "Load older"
+  const limit = (more + 1) * 100;
+  const { data, err } = useLoad<any>(() => A.getDeviceLogs({ panel: dev.panel, keyId: dev.keyId, category: category || undefined, q: q || undefined, limit }), [dev.panel, dev.keyId, category, q, limit], 60_000);
+  const rows: any[] = data?.rows ?? [];
+  const hasMore = (data?.total ?? 0) > rows.length;
+  // Crashes join the timeline when they fall inside the loaded window (all of them once everything is loaded).
+  const oldest = rows.at(-1)?.ts ?? '';
+  const crashes: any[] = (category && category !== 'CRASH') || q ? [] : (data?.crashes ?? []).filter((c: any) => !hasMore || c.ts >= oldest);
+  const entries = [...rows.map(toEntry), ...crashes.map(crashEntry)].sort((x, y) => y.ts.localeCompare(x.ts));
+  return (
+    <div className="text-xs space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-foreground">{dev.owner ?? 'Device'} · {dev.model ?? `${(dev.fp ?? '').slice(0, 12)}…`}</h3>
+          <p className="text-zinc-500">{dev.panelLabel} · {dev.product ?? '—'} · key <span className="font-mono">{dev.key}</span>{dev.version ? ` · v${dev.version}` : ''}{dev.lastSeen ? ` · last seen ${ago(dev.lastSeen)}` : ''} · expires {fmt(dev.expiresAt)}</p>
+        </div>
+        <button type="button" className="icon-btn" title="Close" onClick={onClose}><X className="w-4 h-4" /></button>
+      </div>
+      <div className="flex gap-1 flex-wrap items-center">
+        {CATS.map((c) => (
+          <button key={c} className={`filter-tab ${category === c ? 'filter-tab-active' : ''}`} onClick={() => setCategory(c)}>
+            {c ? `${human(c)}${data?.byCategory?.[c] ? ` (${data.byCategory[c]})` : ''}` : 'All'}</button>))}
+        <div className="ml-auto"><SearchBox value={text} onChange={setText} placeholder="Search logs…" w="w-56" /></div>
+      </div>
+      {err ? <Err e={err} /> : !data ? <p className="text-zinc-500 py-6 text-center">Loading…</p> : (
         <>
-          <Card title={`Device logs (${data?.total ?? '…'})`}>
-            <div className="flex gap-1 flex-wrap">{CATS.map((c) => (
-              <button key={c} className={`filter-tab ${(f.category ?? '') === c ? 'filter-tab-active' : ''}`} onClick={() => setF({ ...f, category: c || undefined, page: 0 })}>
-                {c ? `${c.replace(/_/g, ' ').toLowerCase()}${data?.byCategory?.[c] ? ` (${data.byCategory[c]})` : ''}` : 'All'}</button>))}
-              <input className="bare-input bg-transparent px-2 py-1 w-48" placeholder="Search…" onChange={(e) => setF({ ...f, q: e.target.value || undefined, page: 0 })} />
-            </div>
-            <Table head={['Time', 'Level', 'Type', 'Screen', 'Action', 'Detail']} rows={(data?.rows ?? []).map((r: any) => [
-              <span key="t" title={`Received ${fmt(r.received_at)}`}>{fmt(r.ts)}{late(r) && <span className="text-amber-400"> · offline</span>}</span>,
-              r.severity.toLowerCase(), r.event_type, r.feature ?? '—', r.action ?? '—', <span key="d" className="break-all">{detail(r)}</span>])} />
-            <div className="flex gap-2 justify-end">
-              <button className="filter-tab" disabled={!f.page} onClick={() => setF({ ...f, page: f.page - 1 })}>Prev</button>
-              <button className="filter-tab" disabled={!data || (f.page + 1) * 100 >= data.total} onClick={() => setF({ ...f, page: f.page + 1 })}>Next</button>
-            </div>
-            <p className="text-zinc-500">“offline” = the action happened while the device had no internet; it was stored on the device with its real time and uploaded later.</p>
-          </Card>
-          <Card title="Crashes">
-            <Table head={['Code', 'Time', 'Type', 'Screen', 'What happened', 'Version']} rows={(data?.crashes ?? []).map((c: any) => [c.code ?? '—', fmt(c.ts), c.event_type, c.current_screen ?? '—', c.actual_behavior ?? '—', c.product_version ?? '—'])} />
-          </Card>
+          <Timeline entries={entries} empty={q || category ? 'No logs match.' : 'This device has not reported anything yet.'} />
+          {hasMore && <div className="flex justify-center"><button className="filter-tab" onClick={() => setMore(more + 1)}>Load older</button></div>}
+          <p className="text-zinc-500 text-center"><span className="text-emerald-400">Green</span> = the bug behind that entry is already fixed · times in IST</p>
         </>
       )}
     </div>
   );
 }
 
-// ── Devices ───────────────────────────────────────────────────────
-function Devices({ product }: { product: string }) {
-  const [f, setF] = useState<{ state?: string; version?: string; page: number }>({ page: 0 });
-  const { data, err } = useLoad<any>(() => A.getDevices({ ...f, product: product || undefined }), [f, product]);
-  if (err) return <Err e={err} />;
+// ── Infrastructure: storage utilisation of the services the panel runs on ────
+// Live from Supabase (Postgres catalog) and MongoDB Atlas (dbStats). Vercel hosts no data for the
+// panel and has no public usage API, so it is not shown (usage + analytics: Vercel dashboard).
+const growthText = (g: { bytes: number; days: number } | null | undefined) =>
+  !g ? 'growth shows after 2 days of snapshots' : `${g.bytes >= 0 ? '+' : '−'}${bytes(Math.abs(g.bytes))} in ${Math.max(1, Math.round(g.days))} d`;
+function Usage({ label, used, quota, growth }: { label: string; used: number | null | undefined; quota: number; growth?: { bytes: number; days: number } | null }) {
+  const pct = typeof used === 'number' ? (used / quota) * 100 : null;
+  const tone = pct === null ? 'bg-zinc-600' : pct >= 90 ? 'bg-rose-500' : pct >= 75 ? 'bg-amber-500' : 'bg-emerald-500';
   return (
-    <Card title={`Devices (${data?.total ?? '…'})`}>
-      <div className="flex gap-2">
-        <Sel value={f.state ?? ''} onChange={(v) => setF({ ...f, state: v || undefined, page: 0 })} options={[{ value: '', label: 'All states' }, ...opts(['ONLINE', 'STALE', 'OFFLINE', 'UNKNOWN'])]} />
-        <input className="bare-input bg-transparent px-2 py-1 w-28" placeholder="Version" onChange={(e) => setF({ ...f, version: e.target.value || undefined, page: 0 })} />
+    <div className="space-y-1">
+      <div className="flex justify-between gap-2">
+        <span className="text-zinc-400">{label}</span>
+        <span className="font-semibold text-foreground">{pct === null ? NA : <>{bytes(used)} <span className="font-normal text-zinc-500">/ {bytes(quota)}</span></>}</span>
       </div>
-      <Table head={['Computer / machine', 'School', 'Product', 'Version', 'Status', 'Last heartbeat', 'CPU', 'RAM', 'Disk', 'Crashes 24h', 'Errors 24h']} rows={(data?.rows ?? []).map((x: any) => [
-        <span key="c" title={x.fp}>{x.computer ?? `${x.fp.slice(0, 12)}…`}</span>, x.school ?? '—', x.product ?? '—', x.version ?? '—', <St key="s" s={x.state} />, ago(x.lastSeen),
-        x.cpu === null ? '—' : `${num(x.cpu)}%`, x.ram === null ? '—' : `${num(x.ram)}%`, x.disk === null ? '—' : `${num(x.disk)}%`, x.crashes24h, x.errors24h])} />
-      <div className="flex gap-2 justify-end">
-        <button className="filter-tab" disabled={!f.page} onClick={() => setF({ ...f, page: f.page - 1 })}>Prev</button>
-        <button className="filter-tab" disabled={!data || (f.page + 1) * 50 >= data.total} onClick={() => setF({ ...f, page: f.page + 1 })}>Next</button>
-      </div>
-      <p className="text-zinc-500">CPU/RAM/Disk come from the app heartbeat (every 15 min); “—” means the device hasn’t reported it.</p>
-    </Card>
-  );
-}
-
-// ── Security / suspicious devices ───────────────────────────────────────────
-const SEC_LABEL: Record<string, string> = {
-  ROOT_DETECTED: 'Root', EMULATOR_DETECTED: 'Emulator', DEBUGGER_DETECTED: 'Debugger', INSTRUMENTATION_DETECTED: 'Frida/Xposed',
-  APK_SIGNATURE_MISMATCH: 'Re-signed APK', INTEGRITY_CHECK_ERROR: 'Check error', SCREEN_CAPTURE_DETECTED: 'Screen capture',
-  LICENSE_TAMPERED: 'Licence tamper', CLOCK_ROLLBACK: 'Clock rollback', CONTENT_TAMPERED: 'Modified video', DECRYPTION_FAILED: 'Decrypt failed',
-  ADB_ENABLED: 'USB/ADB debugging', DEVELOPER_MODE_ENABLED: 'Developer mode', AUTOMATION_DETECTED: 'Automation', SUSPICIOUS_APP_INSTALLED: 'Tool installed', SUSPICIOUS_PROCESS: 'Tool running',
-};
-function Security({ range, product }: { range: string; product: string }) {
-  const { data, err } = useLoad<any>(() => A.getSecurity(range, product || undefined), [range, product], 60_000);
-  if (err) return <Err e={err} />;
-  const sev = (s: string) => <span className={s === 'CRITICAL' || s === 'FATAL' ? 'text-rose-400' : s === 'WARNING' ? 'text-amber-400' : ''}>{s.toLowerCase()}</span>;
-  return (
-    <div className="space-y-3">
-      <Card title={`Suspicious devices (${data?.devices.length ?? '…'})`}>
-        <Table head={['Device', 'School', 'Product', 'Version', 'Worst', 'Signals (count)', 'First', 'Last']} rows={(data?.devices ?? []).map((d: any) => [
-          <span key="c" title={d.fp ?? ''}>{d.computer ?? `${(d.fp ?? '').slice(0, 12)}…`}</span>, d.school ?? '—', d.product ?? '—', d.version ?? '—', sev(d.worst),
-          <span key="s" className="flex gap-1 flex-wrap">{Object.entries(d.signals as Record<string, number>).map(([t, n]) => <span key={t} className="rounded border border-sidebar-border px-1.5">{SEC_LABEL[t] ?? t} ×{n}</span>)}</span>,
-          fmt(d.firstSeen), ago(d.lastSeen)])} />
-      </Card>
-      <Card title="Recent security events">
-        <Table head={['Time', 'Device', 'School', 'Signal', 'Detail', 'Count', 'Level']} rows={(data?.recent ?? []).map((r: any) => [
-          fmt(r.ts), r.computer ?? '—', r.school ?? '—', SEC_LABEL[r.type] ?? r.type, <span key="m" title={r.message ?? ''}>{r.signal ?? '—'}</span>, r.occurrences, sev(r.severity)])} />
-        <p className="text-zinc-500">Each signal is sent once per app session; repeats only raise its count. Copying encrypted files to a PC or filming the screen with another camera cannot be detected by the app.</p>
-      </Card>
+      <div className="h-2 rounded-full bg-white/5 overflow-hidden"><div className={`h-2 rounded-full ${tone}`} style={{ width: `${Math.min(100, Math.max(pct ?? 0, pct ? 1 : 0))}%` }} /></div>
+      <div className="flex justify-between text-[11px] text-zinc-500"><span>{pct === null ? '—' : `${pct.toFixed(1)}% used`}</span>{growth !== undefined && <span>{growthText(growth)}</span>}</div>
     </div>
   );
 }
-
-// ── Performance ─────────────────────────────────────────────────────────────
-function Performance({ range, product }: { range: string; product: string }) {
-  const { data, err } = useLoad<any>(() => A.getPerformance(range, product || null), [range, product]);
-  if (err) return <Err e={err} />;
-  const ms = (v: any) => (v === null || v === undefined ? '—' : `${Math.round(v)} ms`);
-  const api = (data?.percentiles ?? []).filter((r: any) => r.category === 'API');
-  return (
-    <div className="space-y-3">
-      <Card title="Latency percentiles (reported durations)">
-        <Table head={['Category', 'Operation', 'Count', 'P50', 'P75', 'P90', 'P95', 'P99']} rows={(data?.percentiles ?? []).filter((r: any) => r.category !== 'API').map((r: any) => [r.category, r.name, num(Number(r.n)), ms(r.p50), ms(r.p75), ms(r.p90), ms(r.p95), ms(r.p99)])} />
-      </Card>
-      <Card title="API endpoints">
-        <Table head={['Endpoint', 'Requests', 'Errors', 'Error %', 'P50', 'P95', 'P99']} rows={api.map((r: any) => [r.name ?? '—', num(Number(r.n)), num(Number(r.errors)), `${((Number(r.errors) / Number(r.n)) * 100).toFixed(2)}%`, ms(r.p50), ms(r.p95), ms(r.p99)])} />
-        {!api.length && <p className="text-zinc-500">No API telemetry reported by the apps in this range.</p>}
-      </Card>
-      <Card title="Feature health (from telemetry)">
-        <Table head={['Module', 'Status', 'Events', 'Errors', 'Crashes', 'Error %']} rows={(data?.features ?? []).map((x: any) => [x.module, <St key="s" s={x.status} />, num(x.events), x.errors, x.crashes, `${x.errorPct.toFixed(2)}%`])} />
-        {data?.sampled && <p className="text-amber-400">Sampled: first 50,000 events of the range.</p>}
-      </Card>
+const Stat = ({ k, v }: { k: string; v: React.ReactNode }) => <div className="flex justify-between gap-2"><span className="text-zinc-400">{k}</span><span className="text-foreground">{v}</span></div>;
+const Service = ({ name, ok, children }: { name: string; ok: boolean; children: React.ReactNode }) => (
+  <GlassCard>
+    <div className="text-xs space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="font-semibold text-foreground text-sm">{name}</h4>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${ok ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>{ok ? 'Connected' : 'Not connected'}</span>
+      </div>
+      {children}
     </div>
-  );
-}
+  </GlassCard>
+);
 
-// ── Incidents / alerts ──────────────────────────────────────────────────────
-function Incidents() {
-  const { data, err, reload } = useLoad<any[]>(() => A.listIncidents(), []);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [n, setN] = useState({ title: '', severity: 'CRITICAL' });
-  const [move, setMove] = useState<{ id: string; code: string; to: string } | null>(null);
-  const act = async (p: Promise<any>) => { const r = await p; setMsg(r.ok ? 'Saved.' : r.error); reload(); };
-  if (err) return <Err e={err} />;
-  const next: Record<string, string[]> = { DETECTED: ['INVESTIGATING', 'IDENTIFIED', 'MITIGATING', 'RESOLVED'], INVESTIGATING: ['IDENTIFIED', 'MITIGATING', 'RESOLVED'], IDENTIFIED: ['MITIGATING', 'RESOLVED'], MITIGATING: ['RESOLVED'], RESOLVED: ['CLOSED'], CLOSED: [] };
-  return (
-    <Card title="Incident Center">
-      <div className="flex gap-2"><input className="bare-input bg-transparent px-2 py-1 w-72" placeholder="New incident title" onChange={(e) => setN({ ...n, title: e.target.value })} />
-        <Sel w="w-32" value={n.severity} onChange={(v) => setN({ ...n, severity: v })} options={opts(['CRITICAL', 'WARNING', 'INFO'])} />
-        <button className="filter-tab" onClick={() => act(A.createIncident(n))}>Create</button></div>
-      {msg && <p className="text-amber-400">{msg}</p>}
-      <ConfirmDialog open={!!move} title={move ? `Move ${move.code} to ${move.to.toLowerCase()}` : ''} body="Add a short note for the incident timeline (what was found or done)." noteLabel="Note (optional)" confirmLabel="Update incident"
-        onConfirm={async (note) => { if (move) await act(A.updateIncident(move.id, move.to, note)); }} onClose={() => setMove(null)} />
-      <Table head={['Incident', 'Title', 'Severity', 'Status', 'Started', 'Resolved', 'Affected', 'Move to']} rows={(data ?? []).map((i) => [i.code, i.title, i.severity, i.status, fmt(i.started_at), fmt(i.resolved_at),
-        i.affected ? Object.entries(i.affected).map(([k, v]) => `${k}: ${typeof v === 'number' ? v.toFixed?.(2) ?? v : v}`).join(' · ') : '—',
-        <span key="m" className="flex gap-1 flex-wrap">{(next[i.status] ?? []).map((s) => <button key={s} className="filter-tab" onClick={() => setMove({ id: i.id, code: i.code, to: s })}>{s.toLowerCase()}</button>)}</span>])} />
-    </Card>
-  );
-}
-
-function Alerts() {
-  const [status, setStatus] = useState('');
-  const { data, err, reload } = useLoad<any[]>(() => A.listAlerts(status || undefined), [status], 30_000);
-  if (err) return <Err e={err} />;
-  return (
-    <Card title="Alert Center">
-      <div className="flex gap-1">{['', 'NEW', 'ACKNOWLEDGED', 'RESOLVED'].map((s) => <button key={s} className={`filter-tab ${status === s ? 'filter-tab-active' : ''}`} onClick={() => setStatus(s)}>{s || 'All'}</button>)}</div>
-      <Table head={['Level', 'Category', 'Alert', 'Count', 'First', 'Last', 'Status', '']} rows={(data ?? []).map((a) => [a.level, a.category, a.title, a.occurrences, fmt(a.first_at), fmt(a.last_at), a.status,
-        a.status !== 'RESOLVED' && <span key="b" className="flex gap-1">{a.status === 'NEW' && <button className="filter-tab" onClick={async () => { await A.setAlertStatus(a.id, 'ACKNOWLEDGED'); reload(); }}>Ack</button>}
-          <button className="filter-tab" onClick={async () => { await A.setAlertStatus(a.id, 'RESOLVED'); reload(); }}>Resolve</button></span>])} />
-      <p className="text-zinc-500">Alerts with the same rule are grouped (one open alert, occurrence count increases). Rules auto-resolve when the metric recovers.</p>
-    </Card>
-  );
-}
-
-// ── Infrastructure / cost ───────────────────────────────────────────────────
-// Derived from the same catalog query as the Database / Storage cards — shown there, not twice.
-const SHOWN_BELOW = new Set(['db_bytes', 'storage_bytes']);
 function Infrastructure() {
-  const { data: d, err } = useLoad<any>(() => A.getInfrastructure(), []);
+  const { data: d, err } = useLoad<any>(() => A.getInfrastructure(), [], 60_000);
   if (err) return <Err e={err} />;
   if (!d) return <p className="text-xs text-zinc-500">Loading…</p>;
-  const db = d.database ?? {};
-  const g = d.dbGrowth;
-  const perMonth = g.length >= 2 ? ((g.at(-1).value - g[0].value) / ((Date.parse(g.at(-1).bucket) - Date.parse(g[0].bucket)) / 86_400_000)) * 30 : null;
-  const dbP = d.providers.flatMap((p: any) => p.metrics).find((m: any) => m.metric === 'db_bytes');
-  const months = perMonth && perMonth > 0 && dbP?.quota ? (dbP.quota - dbP.value) / perMonth : null;
+  const sb = d.supabase, mg = d.mongo;
   return (
     <div className="space-y-3">
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-3">
-        {d.providers.map((p: any) => (
-          <Card key={p.id} title={<span className="flex justify-between">{p.name} <St s={p.last_status} /></span>}>
-            <div className="text-zinc-500">{p.kind} · {p.service ?? '—'} · {p.environment} · synced {ago(p.last_sync)} {p.fresh === 'STALE' && <span className="text-amber-400">⚠ Data may be stale</span>}</div>
-            {p.last_error && <div className="text-rose-400">Last sync error: {p.last_error}</div>}
-            {p.uptime30d !== null && <div>Uptime (30 d checks): <b>{p.uptime30d.toFixed(2)}%</b></div>}
-            <table className="w-full"><tbody>{p.metrics.filter((m: any) => !SHOWN_BELOW.has(m.metric)).map((m: any) => (
-              <tr key={m.metric}><td className="text-zinc-400">{m.metric}</td>
-                <td>{m.text_value ?? (m.unit === 'bytes' ? bytes(m.value) : num(m.value, 2) ?? '—')}{m.quota ? <> / {m.unit === 'bytes' ? bytes(m.quota) : num(m.quota)} ({((m.value / m.quota) * 100).toFixed(1)}%)</> : null}</td>
-                <td className="text-[10px] text-zinc-500">{m.source === 'manual' ? 'Manual estimate' : m.source} · {ago(m.fetched_at)}</td></tr>))}</tbody></table>
-            {p.links.dashboard && <a className="underline" href={p.links.dashboard} target="_blank" rel="noopener noreferrer">Open provider dashboard ↗</a>}
-          </Card>))}
-        {!d.providers.length && <Card title="No providers configured">Add Supabase, Vercel, Render, HTTP health checks or manual services under Settings.</Card>}
-      </div>
-      <Card title="Database (live from Postgres catalog)">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
-          <Kpi label="Size" value={bytes(db.db_bytes)} sub={dbP?.quota ? `${((dbP.value / dbP.quota) * 100).toFixed(1)}% of ${bytes(dbP.quota)}` : 'quota: Unavailable (set in provider)'} />
-          <Kpi label="Growth" value={perMonth !== null ? `${bytes(perMonth)} / month` : NA} sub={months !== null ? `≈ ${months.toFixed(1)} months to quota` : 'needs ≥ 2 days of history'} />
-          <Kpi label="Connections" value={`${num(db.connections) ?? '—'} / ${num(db.max_connections) ?? '—'}`} sub={`${num(db.active_connections) ?? '—'} active`} />
-          <Kpi label="Cache hit" value={show(db.cache_hit_pct, '%', 2)} sub={`${num(db.deadlocks) ?? '—'} deadlocks · ${num(db.waiting_locks) ?? '—'} waiting locks`} />
-          <Kpi label="Rollbacks" value={num(db.xact_rollback) ?? NA} sub={`of ${num(db.xact_commit) ?? '—'} commits since ${fmt(db.stats_reset)}`} />
-          <Kpi label="Long-running queries" value={num(db.long_running_queries) ?? NA} sub="> 30 s active" />
-        </div>
-        <Table head={['Largest tables', 'Total', 'Indexes']} rows={(db.largest_tables ?? []).map((t: any) => [t.name, bytes(t.total_bytes), bytes(t.index_bytes)])} />
-        <h5 className="font-semibold">Slow queries</h5>
-        {db.slow_queries ? <Table head={['Query', 'Calls', 'Mean ms', 'Max ms']} rows={db.slow_queries.map((q: any) => [q.query, num(q.calls), q.mean_ms, q.max_ms])} /> : <p className="text-zinc-500">Not available (pg_stat_statements not enabled).</p>}
-      </Card>
-      <Card title="Storage buckets">
-        <Table head={['Bucket', 'Files', 'Size', 'Uploads 24 h', 'Added 30 d']} rows={d.storage.map((b: any) => [b.bucket, num(b.files), bytes(b.bytes), num(b.files_24h), bytes(b.bytes_30d)])} />
-        <p className="text-zinc-500">Storage quota: {d.storageUsagePct !== null ? `${d.storageUsagePct}% used` : 'Unavailable — set storageQuotaGb on the Supabase provider.'} Bandwidth: {d.bandwidthUsagePct !== null ? `${d.bandwidthUsagePct}% of quota (manual)` : 'Not available — no official API; add an egress_gb_month manual metric.'}</p>
-      </Card>
-    </div>
-  );
-}
-
-function Cost() {
-  const { data: d, err, reload } = useLoad<any>(() => A.getCosts(), []);
-  const [f, setF] = useState({ provider: '', category: 'Hosting', amount_inr: 0, note: '' });
-  const [msg, setMsg] = useState<string | null>(null);
-  if (err) return <Err e={err} />;
-  if (!d) return null;
-  const inr = (v: number | null) => (v === null ? 'Billing data unavailable' : `₹${v.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`);
-  const day = new Date().getUTCDate(), days = new Date(new Date().getUTCFullYear(), new Date().getUTCMonth() + 1, 0).getDate();
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Kpi label={`Current month (${d.month})`} value={inr(d.total)} sub="month-to-date, manual unless marked api" />
-        <Kpi label="Previous month" value={inr(d.previousTotal)} />
-        <Kpi label="Change" value={d.total !== null && d.previousTotal ? `${(((d.total - d.previousTotal) / d.previousTotal) * 100).toFixed(1)}%` : NA} />
-        <Kpi label="Projected month-end" value={d.total !== null ? inr((d.total / day) * days) : NA} sub="linear projection of month-to-date" />
-      </div>
-      <Card title="Cost entries">
-        <Table head={['Provider', 'Category', 'Amount', 'Source', 'Note', 'Updated']} rows={d.current.map((c: any) => [c.provider, c.category, inr(Number(c.amount_inr)), c.source === 'manual' ? 'Manual estimate' : 'API', c.note ?? '', fmt(c.updated_at)])} />
-        <div className="flex flex-wrap gap-2">
-          <input className="bare-input bg-transparent px-2 py-1" placeholder="Provider (e.g. Vercel)" onChange={(e) => setF({ ...f, provider: e.target.value })} />
-          <Sel w="w-36" value={f.category} onChange={(v) => setF({ ...f, category: v })} options={['Hosting', 'Database', 'Storage', 'Bandwidth', 'SMS', 'Email', 'AI APIs', 'CDN', 'Other'].map((c) => ({ value: c, label: c }))} />
-          <input type="number" className="bare-input bg-transparent px-2 py-1 w-28" placeholder="₹" onChange={(e) => setF({ ...f, amount_inr: Number(e.target.value) })} />
-          <input className="bare-input bg-transparent px-2 py-1" placeholder="Note" onChange={(e) => setF({ ...f, note: e.target.value })} />
-          <button className="filter-tab filter-tab-active" onClick={async () => { const r = await A.saveCost(f); setMsg(r.ok ? 'Saved.' : r.error); reload(); }}>Save (month-to-date)</button>
-        </div>
-        {msg && <p className="text-amber-400">{msg}</p>}
-        <p className="text-zinc-500">{d.note}</p>
-      </Card>
-    </div>
-  );
-}
-
-// ── Deployments ─────────────────────────────────────────────────────────────
-function Deployments({ product }: { product: string }) {
-  const { data: d, err } = useLoad<any>(() => A.getDeployments(product || null), [product]);
-  if (err) return <Err e={err} />;
-  if (!d) return null;
-  return (
-    <div className="space-y-3">
-      {d.regressions.filter((r: any) => r.flagged).map((r: any) => (
-        <GlassCard key={r.product + r.version}><p className="text-xs text-amber-400">⚠ <b>Potential Regression</b> — {r.product} {r.version} first seen {fmt(r.at)}. Errors/device {r.errorsPerDevice.before.toFixed(2)} → {r.errorsPerDevice.after.toFixed(2)}, crashes/device {r.crashesPerDevice.before.toFixed(3)} → {r.crashesPerDevice.after.toFixed(3)} (24 h before vs after). Correlation, not proven cause.</p></GlassCard>))}
       <div className="grid md:grid-cols-2 gap-3">
-        {d.versions.map((v: any) => (
-          <Card key={v.product} title={v.name}>
-            {v.rows.map((r: any) => <div key={r.version} className="flex items-center gap-2"><span className="w-20">{r.version}</span><div className="flex-1 h-2 bg-white/5 rounded"><div className="h-2 rounded bg-sky-500" style={{ width: `${r.pct}%` }} /></div><span className="w-24 text-right">{r.pct}% · {r.devices}</span></div>)}
-            <div className="text-zinc-400">Devices on old version: <b>{v.outdated}</b> · Schools: <b>{v.outdatedSchools}</b> · Latest: {v.latest ?? '—'}</div>
-          </Card>))}
+        <Service name="Supabase" ok={!!sb?.connected}>
+          {sb?.connected ? <>
+            <Usage label="Database" used={sb.dbBytes} quota={sb.dbQuota} growth={sb.growth} />
+            <Usage label="File storage" used={sb.fileBytes} quota={sb.fileQuota} growth={sb.fileGrowth} />
+            <div className="space-y-1 pt-1 border-t border-sidebar-border">
+              <Stat k="Cache hit" v={sb.cacheHitPct === null ? '—' : `${num(Number(sb.cacheHitPct), 2)}%`} />
+              <Stat k="Connections" v={`${num(sb.connections) ?? '—'} / ${num(sb.maxConnections) ?? '—'}`} />
+              {sb.largestTables.length > 0 && <Stat k="Largest tables" v={sb.largestTables.map((t: any) => `${t.name} ${bytes(t.bytes)}`).join(' · ')} />}
+            </div>
+          </> : <p className="text-zinc-500">Could not read the database statistics (ops_db_stats). Check SUPABASE_SERVICE_ROLE_KEY.</p>}
+        </Service>
+
+        <Service name="MongoDB Atlas" ok={!!mg}>
+          {mg ? <>
+            <Usage label="Health / Logs storage" used={mg.used} quota={mg.quota} growth={mg.growth} />
+            <div className="space-y-1 pt-1 border-t border-sidebar-border">
+              <Stat k="Documents" v={num(mg.documents) ?? '—'} />
+              <Stat k="Storage guard" v={mg.pct >= 95 ? 'Critical only' : mg.pct >= 80 ? 'Warnings and above' : 'All events stored'} />
+              {mg.collections.length > 0 && <Stat k="Largest" v={mg.collections.map((c: any) => `${c.name} ${bytes(c.bytes)}`).join(' · ')} />}
+            </div>
+          </> : <p className="text-zinc-500">Not reachable. Check MONGODB_URI and the Atlas Network Access list.</p>}
+        </Service>
+
       </div>
-      <Card title="Update health (7 days)">
-        {d.updates ? <div className="flex gap-4 flex-wrap"><span>Available {d.updates.available}</span><span>Downloaded {d.updates.downloaded}</span><span>Installed {d.updates.installed}</span><span>Failed {d.updates.failed}</span><span>Skipped {d.updates.skipped}</span><b>Success rate {d.updates.successRate === null ? '—' : `${d.updates.successRate.toFixed(1)}%`}</b></div>
-          : <p className="text-zinc-500">No update telemetry reported yet (apps emit UPDATE_* events).</p>}
-      </Card>
-      <Card title="Releases & deployments">
-        <Table head={['Product', 'Version', 'Commit', 'Environment', 'Status', 'Source', 'When', 'Duration']} rows={d.releases.map((r: any) => [r.product_id, r.version, r.build_commit?.slice(0, 10) ?? '—', r.environment, r.status ?? '—', r.source === 'field' ? 'first seen in field' : r.source, fmt(r.first_seen), r.duration_s ? `${r.duration_s}s` : '—'])} />
-      </Card>
-    </div>
-  );
-}
 
-// ── Settings: providers, rules, thresholds ──────────────────────────────────
-const FIELDS: Record<string, string[]> = { supabase: ['projectRef', 'dbQuotaGb', 'storageQuotaGb', 'dashboardUrl'], vercel: ['projectId', 'teamId', 'productId', 'dashboardUrl'], render: ['serviceId', 'productId', 'dashboardUrl'], http: ['url', 'slowMs', 'dashboardUrl'], manual: ['dashboardUrl'] };
-function Settings() {
-  const prov = useLoad<any[]>(() => A.listProviders(), []);
-  const rules = useLoad<any>(() => A.listRules(), []);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [remove, setRemove] = useState<{ id: string; name: string } | null>(null);
-  const [p, setP] = useState<any>({ kind: 'supabase', name: '', service: '', environment: 'production', config: {}, credential: '', manual: '' });
-  const [r, setR] = useState<any>({ name: '', metric: 'crash_rate_pct', op: '>', threshold: 2, for_minutes: 5, level: 'CRITICAL', create_incident: true, enabled: true });
-  const done = (res: any, reload: () => void) => { setMsg(res.ok ? 'Saved.' : res.error); reload(); };
-  const saveP = async () => {
-    let manual: any[] = [];
-    if (p.manual.trim()) { try { manual = JSON.parse(p.manual); } catch { setMsg('Manual metrics must be JSON, e.g. [{"metric":"egress_gb_month","value":120,"quota":250,"unit":"GB"}]'); return; } }
-    const config = { ...p.config, ...(manual.length ? { manual } : {}) };
-    for (const k of ['dbQuotaGb', 'storageQuotaGb', 'slowMs']) if (config[k] !== undefined) config[k] = Number(config[k]);
-    done(await A.saveProvider({ ...p, config, credential: p.credential || undefined }), prov.reload);
-  };
-  return (
-    <div className="space-y-3">
-      {msg && <p className="text-xs text-amber-400">{msg}</p>}
-      <ConfirmDialog open={!!remove} danger title={`Remove provider ${remove?.name ?? ''}?`} body="Its stored credential and cached metrics are deleted. Monitoring for this service stops." confirmLabel="Remove"
-        onConfirm={async () => { if (remove) done(await A.deleteProvider(remove.id), prov.reload); }} onClose={() => setRemove(null)} />
-      <Card title="Infrastructure providers">
-        {prov.err ? <p className="text-rose-400">{prov.err}</p> : <Table head={['Name', 'Type', 'Service', 'Env', 'Credential', '']} rows={(prov.data ?? []).map((x) => [x.name, x.kind, x.service ?? '—', x.environment, x.hasCredential ? '•••••• (saved)' : 'none',
-          <button key="d" className="filter-tab text-rose-400" onClick={() => setRemove({ id: x.id, name: x.name })}>Remove</button>])} />}
-        <div className="flex flex-wrap gap-2 items-center">
-          <Sel w="w-36" value={p.kind} onChange={(v) => setP({ ...p, kind: v, config: {} })} options={[{ value: 'supabase', label: 'Supabase' }, { value: 'vercel', label: 'Vercel' }, { value: 'render', label: 'Render' }, { value: 'http', label: 'HTTP health check' }, { value: 'manual', label: 'Manual / other' }]} />
-          <input className="bare-input bg-transparent px-2 py-1" placeholder="Name" onChange={(e) => setP({ ...p, name: e.target.value })} />
-          <input className="bare-input bg-transparent px-2 py-1" placeholder="Service (e.g. Database)" onChange={(e) => setP({ ...p, service: e.target.value })} />
-          {FIELDS[p.kind].map((k) => <input key={k} className="bare-input bg-transparent px-2 py-1 w-40" placeholder={k} onChange={(e) => setP({ ...p, config: { ...p.config, [k]: e.target.value } })} />)}
-          {['supabase', 'vercel', 'render'].includes(p.kind) && <input type="password" autoComplete="off" className="bare-input bg-transparent px-2 py-1 w-56" placeholder="API token (stored encrypted, write-only)" onChange={(e) => setP({ ...p, credential: e.target.value })} />}
-          <input className="bare-input bg-transparent px-2 py-1 w-96" placeholder='Manual metrics JSON (optional) [{"metric":"egress_gb_month","value":120,"quota":250,"unit":"GB"}]' onChange={(e) => setP({ ...p, manual: e.target.value })} />
-          <button className="filter-tab filter-tab-active" onClick={saveP}>Add provider</button>
-          <button className="filter-tab" onClick={async () => done(await A.syncNow(), prov.reload)}><RefreshCw className="w-3.5 h-3.5" /> Sync now</button>
-        </div>
-        <p className="text-zinc-500">Live status and last sync of each provider: Infrastructure tab. Use least-privilege tokens (read-only where the provider supports it). Tokens are encrypted (AES-256-GCM), used only by the backend sync job, and never shown again.</p>
-      </Card>
-      <Card title="Alert rules">
-        <Table head={['Rule', 'Condition', 'For', 'Level', 'Incident', 'Enabled', '']} rows={(rules.data?.rules ?? []).map((x: any) => [x.name, `${x.metric} ${x.op} ${x.threshold}`, `${x.for_minutes} min`, x.level, x.create_incident ? 'yes' : 'no', x.enabled ? 'yes' : 'no',
-          <span key="b" className="flex gap-1"><button className="filter-tab" onClick={async () => done(await A.saveRule({ ...x, enabled: !x.enabled }), rules.reload)}>{x.enabled ? 'Disable' : 'Enable'}</button>
-            <button className="filter-tab text-rose-400" onClick={async () => done(await A.deleteRule(x.id), rules.reload)}>Delete</button></span>])} />
-        <div className="flex flex-wrap gap-2 items-center">IF
-          <Sel w="w-72" value={r.metric} onChange={(v) => setR({ ...r, metric: v })} options={Object.entries(rules.data?.metrics ?? {}).map(([value, label]) => ({ value, label: String(label) }))} />
-          <Sel w="w-20" value={r.op} onChange={(v) => setR({ ...r, op: v })} options={['>', '>=', '<', '<='].map((o) => ({ value: o, label: o }))} />
-          <input type="number" className="bare-input bg-transparent px-2 py-1 w-20" value={r.threshold} onChange={(e) => setR({ ...r, threshold: Number(e.target.value) })} /> FOR
-          <input type="number" className="bare-input bg-transparent px-2 py-1 w-16" value={r.for_minutes} onChange={(e) => setR({ ...r, for_minutes: Number(e.target.value) })} /> min THEN
-          <Sel w="w-32" value={r.level} onChange={(v) => setR({ ...r, level: v })} options={opts(['INFO', 'WARNING', 'CRITICAL'])} />
-          <label><input type="checkbox" checked={r.create_incident} onChange={(e) => setR({ ...r, create_incident: e.target.checked })} /> create incident</label>
-          <input className="bare-input bg-transparent px-2 py-1" placeholder="Rule name" onChange={(e) => setR({ ...r, name: e.target.value })} />
-          <button className="filter-tab filter-tab-active" onClick={async () => done(await A.saveRule(r), rules.reload)}>Add rule</button>
-        </div>
-        <p className="text-zinc-500">Notifications: Siddesh Panel Alert Center + the webhook in LMS_ALERT_WEBHOOK_URL (Slack/Discord/WhatsApp gateway) for WARNING/CRITICAL.</p>
-      </Card>
-      <OpsConfigCard onMsg={setMsg} />
     </div>
-  );
-}
-
-function OpsConfigCard({ onMsg }: { onMsg: (m: string) => void }) {
-  const [edits, setEdits] = useState<Record<string, number>>({});
-  const { data } = useLoad<any>(() => A.getOpsConfig(), []);
-  if (!data) return null;
-  const c = { ...data, ...edits };
-  const setC = (x: Record<string, number>) => setEdits(x);
-  const L: [string, string][] = [['onlineMinutes', 'Online if heartbeat within (min)'], ['staleMinutes', 'Stale until (min), then offline'], ['apiP95ThresholdMs', 'API P95 threshold (ms)'], ['rawDays', 'Device metrics retention (days)'], ['hourlyDays', 'Hourly aggregates (days)'], ['dailyDays', 'Activity history (days, min 1095 = 3 y)'], ['resolvedAlertDays', 'Resolved alerts (days)'], ['closedIncidentDays', 'Closed incidents (days)']];
-  return (
-    <Card title="Monitoring configuration">
-      <div className="grid md:grid-cols-2 gap-2">{L.map(([k, l]) => <label key={k} className="flex justify-between gap-2"><span className="text-zinc-400">{l}</span><input type="number" className="bare-input bg-transparent px-2 py-1 w-24" value={c[k]} onChange={(e) => setC({ ...c, [k]: Number(e.target.value) })} /></label>)}</div>
-      <button className="filter-tab filter-tab-active" onClick={async () => { const r = await A.saveOpsSettings(c); onMsg(r.ok ? 'Configuration saved.' : r.error); }}>Save configuration</button>
-    </Card>
   );
 }

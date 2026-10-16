@@ -59,6 +59,10 @@ describe('fingerprinting', () => {
   it('different bugs → different fingerprints', () => {
     expect(fingerprintOf({ event_type: 'ERROR', message: 'disk full' })).not.toBe(fingerprintOf({ event_type: 'ERROR', message: 'file missing' }));
   });
+  it('numbers glued to a unit do not split a bug (every UI freeze of a product is one bug)', () => {
+    expect(fingerprintOf({ product_id: 'p', event_type: 'UI_FREEZE', message: 'UI thread unresponsive for 5015ms' }))
+      .toBe(fingerprintOf({ product_id: 'p', event_type: 'UI_FREEZE', message: 'UI thread unresponsive for 6614ms' }));
+  });
 });
 
 describe('ingest normalization', () => {

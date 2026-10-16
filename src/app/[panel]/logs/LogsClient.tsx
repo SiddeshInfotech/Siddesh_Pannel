@@ -3,24 +3,20 @@
 // Siddesh Logs — Debug & Diagnostics UI. All text is rendered through React (auto-escaped);
 // raw log content is NEVER injected as HTML. Permissions only shape the UI — the server
 // actions re-check every one of them.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { ScrollText, RefreshCw, Download, X, Search, ChevronLeft, ChevronRight, ShieldAlert, Trash2, CheckCircle2, HardDrive } from 'lucide-react';
+import { ScrollText, Download, X, Search, ShieldAlert, Trash2, CheckCircle2, Copy, Check } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import GlassCard from '@/components/GlassCard';
 import CustomSelect from '@/components/CustomSelect';
 import FormModal from '@/components/FormModal';
 import InfoTip from '@/components/InfoTip';
-import { HELP, LOGS_TAB_HELP } from '@/lib/diagnostics/help';
+import { HELP } from '@/lib/diagnostics/help';
 import * as A from './actions';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- rows from dynamic selects */
 
-const TABS = [
-  ['live', 'Live Logs'], ['all', 'All Events'], ['errors', 'Errors'], ['crashes', 'Crashes'], ['exceptions', 'Exceptions'],
-  ['performance', 'Performance'], ['api', 'API Logs'], ['user', 'User Actions'], ['system', 'System Events'],
-  ['bugs', 'Bug Reports'], ['dumps', 'Crash Dumps'], ['diagnostics', 'Diagnostics'],
-] as const;
+const TABS = [['crashes', 'Crashes'], ['bugs', 'Bug Reports']] as const;
 type Tab = (typeof TABS)[number][0];
 const IST = 'Asia/Kolkata';
 const fmt = (s?: string | null) => (s ? new Date(s).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'medium', timeZone: IST }) : '—');
@@ -41,6 +37,11 @@ export default function LogsClient() {
   const [openIssue, setOpenIssue] = useState<string | null>(params.get('issue'));
   const [openEvent, setOpenEvent] = useState<string | null>(null);
   const [openCrash, setOpenCrash] = useState<string | null>(null);
+  // Bumped when a popup closes: status changes made in it (review / resolve / delete) show in the list at once.
+  const [listVersion, setListVersion] = useState(0);
+  const closeIssue = useCallback(() => { setOpenIssue(null); setListVersion((v) => v + 1); }, []);
+  // Each tab keeps its own search/kind/status (switching tabs does not reset the other one).
+  const [filters, setFilters] = useState<Record<Tab, ListFilter>>({ crashes: { q: '', kind: '', status: 'OPEN' }, bugs: { q: '', kind: '', status: 'OPEN' } });
 
   useEffect(() => { A.getMe().then((r) => (r.ok ? setMe(r.data) : setDenied(r.error))); }, []);
   const can = useCallback((p: string) => !!me?.permissions.includes(p), [me]);
@@ -57,20 +58,20 @@ export default function LogsClient() {
         <h2 className="text-2xl font-bold text-foreground flex items-center gap-2"><ScrollText className="w-6 h-6" /> Logs &amp; Diagnostics</h2>
         <Chip>Role <span className="stat-chip-value">{me.role.replace('_', ' ')}</span>{me.scoped ? ' · school-scoped' : ''}</Chip>
       </div>
-      <div className="flex items-center gap-0 flex-wrap border-b border-sidebar-border">
-        {TABS.map(([k, label]) => (
-          <button key={k} type="button" onClick={() => setTab(k)} className={`filter-tab ${tab === k ? 'filter-tab-active' : ''}`}>{label}</button>
-        ))}
+      {/* items-end: the tabs sit on the gray line (active = purple underline on it), even though the filters are taller. */}
+      <div className="flex items-end justify-between gap-2 flex-wrap border-b border-sidebar-border">
+        <div className="flex items-end self-end">
+          {TABS.map(([k, label]) => (
+            <button key={k} type="button" onClick={() => setTab(k)} className={`filter-tab ${tab === k ? 'filter-tab-active' : ''}`}>{label}</button>
+          ))}
+        </div>
+        <IssueFilterBar showKind={tab === 'bugs'} f={filters[tab]} onChange={(f) => setFilters((o) => ({ ...o, [tab]: f }))} />
       </div>
-      <p className="text-xs text-zinc-500 flex items-center gap-1"><InfoTip text={LOGS_TAB_HELP[tab]} /> {LOGS_TAB_HELP[tab]}</p>
 
-      {tab === 'crashes' && <IssuesView key="c" kind="CRASH" onOpen={setOpenIssue} />}
-      {tab === 'bugs' && <IssuesView key="b" onOpen={setOpenIssue} />}
-      {tab === 'dumps' && <DumpsView can={can} onOpen={setOpenIssue} />}
-      {tab === 'diagnostics' && <DiagnosticsView can={can} />}
-      {!['crashes', 'bugs', 'dumps', 'diagnostics'].includes(tab) && <EventsView key={tab} view={tab} live={tab === 'live'} school={params.get('school') ?? undefined} onOpen={setOpenEvent} />}
+      {tab === 'crashes' && <IssuesView key="c" kind="CRASH" f={filters.crashes} version={listVersion} onOpen={setOpenIssue} />}
+      {tab === 'bugs' && <IssuesView key="b" f={filters.bugs} version={listVersion} onOpen={setOpenIssue} />}
 
-      {openIssue && <IssueDrawer id={openIssue} can={can} onClose={() => setOpenIssue(null)} onCrash={setOpenCrash} onEvent={setOpenEvent} />}
+      {openIssue && <IssueDrawer id={openIssue} can={can} onClose={closeIssue} onCrash={setOpenCrash} onEvent={setOpenEvent} />}
       {openCrash && <CrashDrawer id={openCrash} can={can} onClose={() => setOpenCrash(null)} />}
       {openEvent && <EventDrawer id={openEvent} onClose={() => setOpenEvent(null)} onIssue={(i) => { setOpenEvent(null); setOpenIssue(i); }} />}
     </div>
@@ -80,7 +81,8 @@ export default function LogsClient() {
 
 /** Panel-styled dropdown (CustomSelect) — replaces native <select> so menus match the panel theme. */
 function Sel({ value, onChange, options, w = 'w-40' }: { value: string; onChange: (v: string) => void; options: { value: string; label: string; group?: string }[]; w?: string }) {
-  return <CustomSelect size="sm" className={w} value={value} onChange={onChange} options={options} />;
+  // CustomSelect is `w-full` by design; the wrapper gives it the intended width so filters sit side by side.
+  return <div className={`${w} shrink-0`}><CustomSelect size="sm" value={value} onChange={onChange} options={options} /></div>;
 }
 const opts = (xs: readonly string[]) => xs.map((x) => ({ value: x, label: x.replace(/_/g, ' ').toLowerCase().replace(/^w/, (c) => c.toUpperCase()) }));
 
@@ -89,112 +91,144 @@ const CONFIRM_FIELD = 'mt-1 block w-64 rounded-lg border border-sidebar-border b
 /** Typed confirmation matches ignoring case and surrounding spaces. */
 const sameCode = (typed: string, code: string) => typed.trim().toUpperCase() === code.toUpperCase();
 
-// ── Events table (search / filter / sort / paginate) ───────────────────────
-function EventsView({ view, live, school, onOpen }: { view: string; live: boolean; school?: string; onOpen: (id: string) => void }) {
-  const [f, setF] = useState<A.EventFilters>({ view, school, page: 0, pageSize: 50, sort: 'ts' });
-  const [data, setData] = useState<{ rows: any[]; total: number } | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const load = useCallback(() => { A.listEvents(f).then((r) => (r.ok ? (setData(r.data), setErr(null)) : setErr(r.error))); }, [f]);
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => { if (!live) return; const t = setInterval(load, 10_000); return () => clearInterval(t); }, [live, load]);
-  const set = (p: Partial<A.EventFilters>) => setF((o) => ({ ...o, page: 0, ...p }));
-  const sortBy = (c: string) => setF((o) => ({ ...o, sort: c, asc: o.sort === c ? !o.asc : false }));
-  const th = (children: React.ReactNode, c?: string) => (
-    <th key={String(children)} className={c ? 'cursor-pointer select-none' : ''} onClick={c ? () => sortBy(c) : undefined}>{children}{c && f.sort === c ? (f.asc ? ' ▲' : ' ▼') : ''}</th>
-  );
+/** "Showing 1–10 of 27" · Prev 1 … 4 5 6 … 9 Next (pages are 0-based internally). */
+function Pager({ page, total, size, onPage }: { page: number; total: number; size: number; onPage: (p: number) => void }) {
+  if (!total) return null;
+  const pages = Math.ceil(total / size);
+  const cur = Math.min(Math.max(0, page), pages - 1);
+  const nums = [...new Set([0, cur - 1, cur, cur + 1, pages - 1])].filter((p) => p >= 0 && p < pages).sort((x, y) => x - y);
+  const btn = 'min-w-8 h-8 px-2 rounded-lg border border-sidebar-border text-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
   return (
-    <>
-      <div className="flex flex-wrap gap-2 items-center text-xs">
-        <InfoTip text={HELP['Event filters']} />
-        <label className="relative"><Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-          <input className="bare-input pl-7 pr-2 py-1.5 bg-transparent w-56" placeholder="Search message…" onChange={(e) => set({ q: e.target.value })} /></label>
-        <Sel value={f.severity ?? ''} onChange={(v) => set({ severity: v || undefined })} options={[{ value: '', label: 'All severities' }, ...opts(['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'FATAL'])]} />
-        <input className="bare-input py-1.5 bg-transparent w-32" placeholder="Product id" onChange={(e) => set({ product: e.target.value })} />
-        <input className="bare-input py-1.5 bg-transparent w-24" placeholder="Version" onChange={(e) => set({ version: e.target.value })} />
-        <input className="bare-input py-1.5 bg-transparent w-36" placeholder="School/entity id" defaultValue={school} onChange={(e) => set({ school: e.target.value })} />
-        <input className="bare-input py-1.5 bg-transparent w-28" placeholder="Module" onChange={(e) => set({ module: e.target.value })} />
-        <input className="bare-input py-1.5 bg-transparent w-36" placeholder="Event type" onChange={(e) => set({ event_type: e.target.value.toUpperCase() })} />
-        <input type="datetime-local" className="bare-input py-1.5 bg-transparent" onChange={(e) => set({ from: e.target.value })} title="From" />
-        <input type="datetime-local" className="bare-input py-1.5 bg-transparent" onChange={(e) => set({ to: e.target.value })} title="To" />
-        <button className="filter-tab" onClick={load}><RefreshCw className={`w-3.5 h-3.5 ${live ? 'animate-spin [animation-duration:3s]' : ''}`} />{live ? 'Live · 10s' : 'Refresh'}</button>
-      </div>
-      {err && <p className="text-xs text-rose-400">{err}</p>}
-      <GlassCard className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto px-[15px] py-2.5">
-          <table className="data-table data-table-rich min-w-[1300px] text-xs">
-            <thead><tr className="border-b border-sidebar-border h-[40px]">
-              {th("Timestamp", "ts")}{th("Severity", "severity")}{th("Event", "event_type")}{th("Product", "product_id")}{th("Version", "product_version")}
-              {th("School")}{th("Computer")}{th("User")}{th("Module", "module")}{th("Feature")}{th("Status")}{th("Error ID")}{th("Crash ID")}{th("Bug")}{th("Message")}
-            </tr></thead>
-            <tbody>
-              {(data?.rows ?? []).map((r) => (
-                <tr key={r.id} className="cursor-pointer hover:bg-white/5" onClick={() => onOpen(r.id)}>
-                  <td className="whitespace-nowrap">{fmt(r.ts)}</td><td><Sev s={r.severity} /></td><td>{r.event_type}</td><td>{r.product_id ?? '—'}</td>
-                  <td>{r.product_version ?? '—'}</td><td>{r.school_name ?? '—'}</td><td>{r.computer_name ?? r.machine_id?.slice(0, 10)}</td><td>{r.user_id ?? '—'}</td>
-                  <td>{r.module ?? '—'}</td><td>{r.feature ?? '—'}</td><td>{r.result ?? '—'}</td><td>{r.error_code ?? '—'}</td>
-                  <td>{r.crash_id ? r.crash_id.slice(0, 8) : '—'}</td><td>{r.issue_id ? '●' : '—'}</td>
-                  <td className="max-w-[320px] truncate" title={r.message ?? ''}>{r.message ?? r.action ?? ''}</td>
-                </tr>
-              ))}
-              {data && data.rows.length === 0 && <tr><td colSpan={15} className="text-center text-zinc-500 py-6">No events match.</td></tr>}
-            </tbody>
-          </table>
-        </div>
-      </GlassCard>
-      <Pager page={f.page ?? 0} total={data?.total ?? 0} size={f.pageSize ?? 50} onPage={(p) => setF((o) => ({ ...o, page: p }))} />
-    </>
+    <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
+      <span className="text-zinc-500">Showing <b className="text-foreground">{cur * size + 1}–{Math.min(total, (cur + 1) * size)}</b> of <b className="text-foreground">{total.toLocaleString()}</b></span>
+      {pages > 1 && (
+        <nav className="flex items-center gap-1" aria-label="Pagination">
+          <button type="button" className={`${btn} hover:bg-white/5`} disabled={cur === 0} onClick={() => onPage(cur - 1)}>Prev</button>
+          {nums.map((p, i) => (
+            <React.Fragment key={p}>
+              {i > 0 && p - nums[i - 1] > 1 && <span className="px-1 text-zinc-500">…</span>}
+              <button type="button" aria-current={p === cur ? 'page' : undefined} onClick={() => onPage(p)}
+                className={`${btn} ${p === cur ? 'bg-sky-500/15 border-sky-500/40 text-sky-400 font-semibold' : 'hover:bg-white/5'}`}>{p + 1}</button>
+            </React.Fragment>
+          ))}
+          <button type="button" className={`${btn} hover:bg-white/5`} disabled={cur >= pages - 1} onClick={() => onPage(cur + 1)}>Next</button>
+        </nav>
+      )}
+    </div>
   );
 }
 
-function Pager({ page, total, size, onPage }: { page: number; total: number; size: number; onPage: (p: number) => void }) {
-  const last = Math.max(0, Math.ceil(total / size) - 1);
+/**
+ * Horizontal scroll for wide tables. The panel hides native scrollbars globally (globals.css), so
+ * this draws a slim bar above the header that appears on hover (and while dragging): drag the
+ * thumb, or click the track to jump. Touchpad / Shift+wheel / swipe scrolling still work as usual.
+ */
+function HScroll({ children, className = '' }: { children: React.ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [m, setM] = useState({ w: 0, sw: 0, left: 0 });
+  const [dragging, setDragging] = useState(false);
+  const measure = useCallback(() => { const el = ref.current; if (el) setM({ w: el.clientWidth, sw: el.scrollWidth, left: el.scrollLeft }); }, []);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    if (el.firstElementChild) ro.observe(el.firstElementChild);
+    return () => ro.disconnect();
+  }, [measure]);
+  const INSET = 15; // track is inset like the table's own padding
+  const overflow = m.sw > m.w + 1;
+  const track = Math.max(1, m.w - 2 * INSET);
+  const thumbW = overflow ? Math.min(track, Math.max(48, (m.w / m.sw) * track)) : 0;
+  const thumbX = overflow ? (m.left / (m.sw - m.w)) * (track - thumbW) : 0;
+  const drag = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const el = ref.current!;
+    const startX = e.clientX, start = el.scrollLeft, ratio = (m.sw - m.w) / Math.max(1, track - thumbW);
+    const move = (ev: PointerEvent) => { el.scrollLeft = start + (ev.clientX - startX) * ratio; };
+    const up = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); setDragging(false); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    setDragging(true);
+  };
+  const jump = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.target !== e.currentTarget || !ref.current) return;
+    const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
+    ref.current.scrollBy({ left: (x < thumbX ? -1 : 1) * ref.current.clientWidth * 0.8, behavior: 'smooth' });
+  };
   return (
-    <div className="flex items-center justify-end gap-2 text-xs text-zinc-400">
-      <span>~{total.toLocaleString()} rows · page {page + 1} / {last + 1}</span>
-      <button className="filter-tab" disabled={page <= 0} onClick={() => onPage(page - 1)}><ChevronLeft className="w-3.5 h-3.5" /></button>
-      <button className="filter-tab" disabled={page >= last} onClick={() => onPage(page + 1)}><ChevronRight className="w-3.5 h-3.5" /></button>
+    <div className="relative group/hs">
+      {overflow && (
+        <div onMouseDown={jump} aria-hidden="true"
+          className={`absolute left-[15px] right-[15px] top-1 z-10 h-1.5 rounded-full bg-white/10 cursor-pointer transition-opacity ${dragging ? 'opacity-100' : 'opacity-0 group-hover/hs:opacity-100'}`}>
+          <div onPointerDown={drag} className="absolute top-0 h-1.5 rounded-full bg-zinc-400/70 hover:bg-zinc-300 cursor-grab active:cursor-grabbing"
+            style={{ width: thumbW, transform: `translateX(${thumbX}px)` }} />
+        </div>
+      )}
+      <div ref={ref} onScroll={measure} className={`overflow-x-auto ${className}`}>{children}</div>
     </div>
   );
 }
 
 // ── Issues (fingerprint groups) ─────────────────────────────────────────────
-function IssuesView({ kind, onOpen }: { kind?: string; onOpen: (id: string) => void }) {
-  const [f, setF] = useState<A.IssueFilters>({ kind, status: 'OPEN', page: 0 });
-  const [data, setData] = useState<{ rows: any[]; total: number } | null>(null);
+// Filters live in the tab row (IssueFilterBar); the list owns only its page (10 rows).
+type ListFilter = { q: string; kind: string; status: string };
+const PANEL_LABEL: Record<string, string> = { lms: 'LMS School', lab: 'Lab' };
+const PAGE_SIZE = 10;
+function useDebounced(value: string, ms = 300) {
+  const [v, setV] = useState(value);
+  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);
+  return v;
+}
+function IssueFilterBar({ showKind, f, onChange }: { showKind: boolean; f: ListFilter; onChange: (f: ListFilter) => void }) {
+  return (
+    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 text-xs pb-1.5">
+      <div className="relative w-56 shrink-0">
+        <Search className="w-3.5 h-3.5 text-zinc-500 absolute left-2 top-1/2 -translate-y-1/2" />
+        <input className="bare-input bg-transparent pl-7 pr-2 py-1.5 w-full" placeholder="Search title…" value={f.q} onChange={(e) => onChange({ ...f, q: e.target.value })} autoComplete="off" spellCheck={false} />
+      </div>
+      {showKind && <Sel w="w-36" value={f.kind} onChange={(v) => onChange({ ...f, kind: v })} options={[{ value: '', label: 'All kinds' }, ...opts(['CRASH', 'ERROR', 'WARNING', 'USER_REPORT'])]} />}
+      <Sel w="w-36" value={f.status} onChange={(v) => onChange({ ...f, status: v })} options={[{ value: 'OPEN', label: 'Open' }, { value: '', label: 'Any status' }, ...opts(['NEW', 'REOPENED', 'REVIEWING', 'DOWNLOADED', 'INVESTIGATING', 'RESOLVED', 'DELETE_PENDING', 'DELETED'])]} />
+    </div>
+  );
+}
+function IssuesView({ kind, f, version, onOpen }: { kind?: string; f: ListFilter; version: number; onOpen: (id: string) => void }) {
+  const q = useDebounced(f.q.trim());
+  const filterKey = `${q}|${f.kind}|${f.status}`;
+  const [pg, setPg] = useState({ key: filterKey, page: 0 });
+  const page = pg.key === filterKey ? pg.page : 0; // any filter change → back to page 1
+  const [data, setData] = useState<{ rows: any[]; total: number; page: number } | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { A.listIssues(f).then((r) => (r.ok ? (setData(r.data), setErr(null)) : setErr(r.error))); }, [f]);
-  const set = (p: Partial<A.IssueFilters>) => setF((o) => ({ ...o, page: 0, ...p }));
+  useEffect(() => {
+    A.listIssues({ kind: kind ?? (f.kind || undefined), status: f.status || undefined, q: q || undefined, page, pageSize: PAGE_SIZE })
+      .then((r) => (r.ok ? (setData(r.data), setErr(null)) : setErr(r.error)));
+  }, [kind, f.kind, f.status, q, page, version]);
   return (
     <>
-      <div className="flex flex-wrap gap-2 text-xs">
-        <input className="bare-input py-1.5 px-2 bg-transparent w-64" placeholder="Search title…" onChange={(e) => set({ q: e.target.value })} />
-        {!kind && <Sel value={f.kind ?? ''} onChange={(v) => set({ kind: v || undefined })} options={[{ value: '', label: 'All kinds' }, ...opts(['CRASH', 'ERROR', 'WARNING', 'USER_REPORT'])]} />}
-        <Sel value={f.status ?? ''} onChange={(v) => set({ status: v || undefined })} options={[{ value: 'OPEN', label: 'Open' }, { value: '', label: 'Any status' }, ...opts(['NEW', 'REOPENED', 'REVIEWING', 'DOWNLOADED', 'INVESTIGATING', 'RESOLVED', 'DELETE_PENDING', 'DELETED'])]} />
-        <Sel value={f.sort ?? 'last_seen_at'} onChange={(v) => set({ sort: v })} options={[{ value: 'last_seen_at', label: 'Last seen' }, { value: 'occurrence_count', label: 'Most frequent' }, { value: 'first_seen_at', label: 'First seen' }]} />
-      </div>
       {err && <p className="text-xs text-rose-400">{err}</p>}
       <GlassCard className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto px-[15px] py-2.5">
+        <HScroll className="px-[15px] pt-3.5 pb-2.5">
           <table className="data-table data-table-rich min-w-[1100px] text-xs">
             <thead><tr className="border-b border-sidebar-border h-[40px]">
-              <th>Bug ID</th><th>Kind</th><th>Severity</th><th>Issue</th><th>Product</th><th>Count</th><th>Schools</th><th>Machines</th><th>Versions</th><th>First seen</th><th>Last seen</th><th>Status</th>
+              <th>Bug ID</th><th>Panel</th><th>Kind</th><th>Severity</th><th>Issue</th><th>Product</th><th>Count</th><th>Schools</th><th>Machines</th><th>Versions</th><th>First seen</th><th>Last seen</th><th>Status</th>
             </tr></thead>
             <tbody>
               {(data?.rows ?? []).map((r) => (
                 <tr key={r.id} className="cursor-pointer hover:bg-white/5" onClick={() => onOpen(r.id)}>
-                  <td className="font-mono">{r.code}</td><td>{r.kind}</td><td><Sev s={r.severity} /></td>
+                  <td className="font-mono">{r.code}</td><td className="whitespace-nowrap">{PANEL_LABEL[r.panel] ?? r.panel}</td><td>{r.kind}</td><td><Sev s={r.severity} /></td>
                   <td className="max-w-[340px] truncate" title={r.title}>{r.title}</td><td>{r.product_id ?? '—'}</td>
                   <td className="font-semibold">{Number(r.occurrence_count).toLocaleString()}</td><td>{r.schools}</td><td>{r.machines}</td>
                   <td className="max-w-[120px] truncate">{r.affected_versions.join(', ')}</td><td className="whitespace-nowrap">{fmt(r.first_seen_at)}</td>
                   <td className="whitespace-nowrap">{fmt(r.last_seen_at)}</td><td><StatusPill s={r.status} reopened={r.reopen_count} /></td>
                 </tr>
               ))}
-              {data && data.rows.length === 0 && <tr><td colSpan={12} className="text-center text-zinc-500 py-6">Nothing here.</td></tr>}
+              {data && data.rows.length === 0 && <tr><td colSpan={13} className="text-center text-zinc-500 py-6">Nothing here.</td></tr>}
             </tbody>
           </table>
-        </div>
+        </HScroll>
       </GlassCard>
-      <Pager page={f.page ?? 0} total={data?.total ?? 0} size={50} onPage={(p) => setF((o) => ({ ...o, page: p }))} />
+      <Pager page={data?.page ?? page} total={data?.total ?? 0} size={PAGE_SIZE} onPage={(p) => setPg({ key: filterKey, page: p })} />
     </>
   );
 }
@@ -206,7 +240,41 @@ const StatusPill = ({ s, reopened }: { s: string; reopened?: number }) => (
 );
 
 // ── Drawers ────────────────────────────────────────────────────────────────
-function Drawer({ title, onClose, children }: { title: React.ReactNode; onClose: () => void; children: React.ReactNode }) {
+/** Puts `value` on the clipboard; true only when the browser actually accepted it. */
+async function writeClipboard(value: string): Promise<boolean> {
+  try { await navigator.clipboard.writeText(value); return true; } catch { /* blocked / unavailable → legacy path */ }
+  const ta = document.createElement('textarea');
+  ta.value = value; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { ok = false; }
+  ta.remove();
+  return ok;
+}
+
+/** Copies `text` (or what `get()` returns). Shows "Copied" only when it really worked, else "Copy failed" —
+ *  never a false "Copied" that leaves the previous record on the clipboard. */
+function CopyButton({ text, get, label, className = '' }: { text?: string; get?: () => string | Promise<string>; label?: string; className?: string }) {
+  const [state, setState] = useState<'idle' | 'busy' | 'ok' | 'fail'>('idle');
+  const copy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (state === 'busy') return;
+    setState('busy');
+    const value = get ? await get() : text ?? '';
+    const ok = await writeClipboard(value);
+    setState(ok ? 'ok' : 'fail');
+    setTimeout(() => setState('idle'), 1800);
+  };
+  return (
+    <button type="button" onClick={copy} title={state === 'ok' ? 'Copied' : state === 'fail' ? 'Copy failed' : 'Copy'} aria-label={label ?? 'Copy'}
+      className={`inline-flex items-center gap-1 text-zinc-400 hover:text-foreground transition-colors ${className}`}>
+      {state === 'ok' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : state === 'fail' ? <X className="w-3.5 h-3.5 text-rose-400" /> : <Copy className="w-3.5 h-3.5" />}
+      {label && <span className={`text-xs ${state === 'fail' ? 'text-rose-400' : ''}`}>{state === 'ok' ? 'Copied' : state === 'fail' ? 'Copy failed' : state === 'busy' ? 'Copying…' : label}</span>}
+    </button>
+  );
+}
+
+function Drawer({ title, onClose, copy, children }: { title: React.ReactNode; onClose: () => void; copy?: () => string | Promise<string>; children: React.ReactNode }) {
   // Portal: a transformed ancestor would otherwise trap `fixed` (see FormModal). Esc closes.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('[role="dialog"]')) onClose(); };
@@ -215,10 +283,13 @@ function Drawer({ title, onClose, children }: { title: React.ReactNode; onClose:
   }, [onClose]);
   if (typeof document === 'undefined') return null;
   return createPortal(
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/40 backdrop-blur-sm animate-fade-in" onClick={onClose}>
-      <div className="h-full w-full max-w-3xl overflow-y-auto bg-surface-hover border-l border-sidebar-border p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center p-4 sm:p-6 bg-black/50 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+      <div className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl bg-surface-hover border border-sidebar-border shadow-2xl p-5 space-y-4 animate-slide-up" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3"><h3 className="text-lg font-bold text-foreground break-all">{title}</h3>
-          <button onClick={onClose} aria-label="Close" className="filter-tab"><X className="w-4 h-4" /></button></div>
+          <div className="flex items-center gap-1 shrink-0">
+            {copy && <CopyButton get={copy} label="Copy all" className="filter-tab" />}
+            <button onClick={onClose} aria-label="Close" className="filter-tab"><X className="w-4 h-4" /></button>
+          </div></div>
         {children}
       </div>
     </div>,
@@ -285,7 +356,11 @@ function IssueDrawer({ id, can, onClose, onCrash, onEvent }: { id: string; can: 
   const i = d.issue;
   const act = async (p: Promise<{ ok: boolean; error?: string }>, done: string) => { const r = await p; setMsg(r.ok ? done : (r as any).error); if (r.ok) { setMode('none'); load(); } };
   return (
-    <Drawer title={<>{i.code} · {i.title}</>} onClose={onClose}>
+    <Drawer title={<>{i.code} · {i.title}</>} onClose={onClose} copy={async () => {
+      // Full record of each crash (system info, stack, timeline…), not just the list row — up to 20.
+      const crashes = await Promise.all(((d.crashes ?? []) as any[]).slice(0, 20).map((c) => A.getCrash(c.id).then((r) => (r.ok ? r.data.crash : c)).catch(() => c)));
+      return JSON.stringify({ bug: i, crashes, events: d.events ?? [], artifacts: d.artifacts ?? [] }, null, 2);
+    }}>
       <div className="flex flex-wrap gap-2 items-center">
         <StatusPill s={i.status} reopened={i.reopen_count} />
         <InfoTip text={<ul className="list-disc pl-4 space-y-1">{['Download Diagnostic Bundle', 'Start investigating', 'Mark as resolved', 'Delete diagnostics'].map((k) => <li key={k}><b>{k}:</b> {HELP[k]}</li>)}</ul>} />
@@ -383,7 +458,7 @@ function CrashDrawer({ id, can, onClose }: { id: string; can: (p: string) => boo
   if (!d) return <Drawer title="Loading…" onClose={onClose}>{err && <p className="text-xs text-rose-400">{err}</p>}</Drawer>;
   const c = d.crash; const x = c.exception ?? {}; const s = c.system_info ?? {}; const n = c.network_state ?? {}; const p = c.perf_state ?? {};
   return (
-    <Drawer title={<>{c.code} · {c.event_type}</>} onClose={onClose}>
+    <Drawer title={<>{c.code} · {c.event_type}</>} onClose={onClose} copy={() => JSON.stringify(c, null, 2)}>
       <Section title="Application" rows={[['Product', c.product_id], ['Version', c.product_version], ['Build', c.build_number], ['Commit', c.build_commit]]} />
       <Section title="Deployment" rows={[['School', c.school_name], ['School/entity id', c.entity_id], ['Installation', c.installation_id], ['Machine', c.machine_id], ['Computer', c.computer_name]]} />
       <Section title="Session" rows={[['User', c.user_id], ['Session', c.session_id], ['Process ID', c.process_id], ['Screen', c.current_screen]]} />
@@ -408,7 +483,7 @@ function EventDrawer({ id, onClose, onIssue }: { id: string; onClose: () => void
   if (!d) return <Drawer title="Loading…" onClose={onClose}>{err && <p className="text-xs text-rose-400">{err}</p>}</Drawer>;
   const e = d.event; const data = e.data ?? {}; const x = data.exception ?? {};
   return (
-    <Drawer title={<>{e.event_type} · <Sev s={e.severity} /></>} onClose={onClose}>
+    <Drawer title={<>{e.event_type} · <Sev s={e.severity} /></>} onClose={onClose} copy={() => JSON.stringify(e, null, 2)}>
       {e.issue_id && <button className="filter-tab" onClick={() => onIssue(e.issue_id)}>Open grouped issue →</button>}
       <Section title="Application" rows={[['Product', e.product_id], ['Version', e.product_version], ['Build', e.build_number], ['Commit', e.build_commit]]} />
       <Section title="Deployment" rows={[['School', e.school_name], ['Installation', e.installation_id], ['Machine', e.machine_id], ['Computer', e.computer_name]]} />
@@ -422,140 +497,5 @@ function EventDrawer({ id, onClose, onIssue }: { id: string; onClose: () => void
       <Section title="Extra" rows={Object.entries(data.extra ?? {})} />
       <Timeline events={d.timeline} />
     </Drawer>
-  );
-}
-
-// ── Crash dumps + Diagnostics (storage, retention, roles, audit) ────────────
-function DumpsView({ can, onOpen }: { can: (p: string) => boolean; onOpen: (id: string) => void }) {
-  const [rows, setRows] = useState<any[] | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  useEffect(() => { A.listArtifacts(0).then((r) => (r.ok ? setRows(r.data.rows) : setErr(r.error))); }, []);
-  return (
-    <GlassCard className="!p-0 overflow-hidden"><div className="overflow-x-auto px-[15px] py-2.5">
-      {err && <p className="text-xs text-rose-400">{err}</p>}
-      <table className="data-table text-xs w-full"><thead><tr><th>Kind</th><th>Bug</th><th>Size</th><th>Uploaded</th><th>Status</th><th /></tr></thead>
-        <tbody>{(rows ?? []).map((a) => (
-          <tr key={a.id}><td>{a.kind}</td><td className="cursor-pointer font-mono" onClick={() => a.issue_id && onOpen(a.issue_id)}>{a.diag_issues?.code ?? '—'}</td>
-            <td>{bytes(a.size_bytes)}</td><td>{fmt(a.created_at)}</td><td>{a.status}</td>
-            <td>{can('CRASH_DOWNLOAD') && a.status === 'ACTIVE' && <button className="filter-tab" onClick={async () => { const r = await A.getArtifactUrl(a.id); if (r.ok) window.location.assign(r.data.url); else setErr(r.error); }}><Download className="w-3.5 h-3.5" /></button>}</td></tr>))}
-          {rows && rows.length === 0 && <tr><td colSpan={6} className="text-center text-zinc-500 py-6">No crash dumps stored.</td></tr>}</tbody></table>
-    </div></GlassCard>
-  );
-}
-
-const RET_LABELS: [string, string][] = [
-  ['debugHours', 'Debug logs (hours)'], ['infoHours', 'Raw INFO logs (hours)'], ['warningDays', 'Warnings (days)'], ['errorDays', 'Errors (days)'],
-  ['resolvedGraceHours', 'Resolved crash retention (hours)'], ['artifactGraceHours', 'Artifacts after resolution (hours)'],
-  ['cleanupEveryMinutes', 'Cleanup frequency (minutes)'], ['samplePerFingerprintPerDay', 'Stored samples per warning/day'],
-  ['orphanGraceMinutes', 'Orphan grace (minutes)'], ['auditDays', 'Security audit retention (days)'],
-];
-
-function DiagnosticsView({ can }: { can: (p: string) => boolean }) {
-  const [st, setSt] = useState<any>(null);
-  const [ret, setRet] = useState<any>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const load = useCallback(() => { A.getStorage().then((r) => r.ok && setSt(r.data)); A.getRetention().then((r) => r.ok && setRet(r.data)); }, []);
-  useEffect(() => { load(); }, [load]);
-  const s = st?.stats ?? {};
-  const art = useMemo(() => st?.stats?.artifacts ?? {}, [st]);
-  const logsBytes = Number(s.events_table_bytes ?? 0) + Number(s.crashes_table_bytes ?? 0) + Number(s.issues_table_bytes ?? 0);
-  const artBytes = useMemo(() => Object.values(art).reduce((t: number, v: any) => t + Number(v.bytes ?? 0), 0), [art]);
-  return (
-    <div className="space-y-4">
-      <GlassCard><div className="space-y-2 text-xs">
-        <h4 className="font-semibold text-foreground flex items-center gap-2"><HardDrive className="w-4 h-4" /> Diagnostic Storage<InfoTip text={HELP['Diagnostic Storage']} /></h4>
-        <div className="flex flex-wrap gap-2">
-          <Chip>Logs tables <span className="stat-chip-value">{bytes(logsBytes)}</span></Chip>
-          <Chip>Crash dumps <span className="stat-chip-value">{bytes(art.DUMP?.bytes)}</span></Chip>
-          <Chip>Screenshots <span className="stat-chip-value">{bytes(art.SCREENSHOT?.bytes)}</span></Chip>
-          <Chip>Pending delete <span className="stat-chip-value">{bytes(s.pending_delete_bytes)}</span></Chip>
-          <Chip>Total <span className="stat-chip-value">{bytes(logsBytes + artBytes)}</span></Chip>
-          <Chip>Events <span className="stat-chip-value">{Number(s.events_count ?? 0).toLocaleString()}</span></Chip>
-          <Chip>Avg event <span className="stat-chip-value">{s.events_count ? bytes(Number(s.events_table_bytes) / Number(s.events_count)) : '—'}</span></Chip>
-          <Chip>Crashes <span className="stat-chip-value">{s.crashes_count ?? 0}</span></Chip>
-          <Chip>Open issues <span className="stat-chip-value">{s.issues_open ?? 0}</span></Chip>
-          <Chip>Awaiting delete <span className="stat-chip-value">{s.issues_pending_delete ?? 0}</span></Chip>
-          <Chip>Oldest event <span className="stat-chip-value">{fmt(s.oldest_event)}</span></Chip>
-          <Chip>Database <span className="stat-chip-value">{bytes(s.db_bytes)}</span></Chip>
-        </div>
-        <p className="text-zinc-500">Deleted rows are reclaimed by Postgres autovacuum (file size may not shrink immediately). Supabase backups keep deleted data until they age out — see LOGS.md.</p>
-        {can('RETENTION_MANAGE') && <button className="filter-tab" onClick={async () => { const r = await A.runCleanupNow(); setMsg(r.ok ? `Cleanup done: ${JSON.stringify(r.data)}` : r.error); load(); }}><RefreshCw className="w-3.5 h-3.5" /> Run cleanup now</button>}
-        {msg && <p className="text-amber-400 break-all">{msg}</p>}
-        <table className="data-table w-full"><thead><tr><th>Cleanup run</th><th>Events</th><th>Crashes</th><th>Issues</th><th>Artifacts</th><th>Orphans</th><th>Reclaimed</th><th>Error</th></tr></thead>
-          <tbody>{(st?.runs ?? []).map((r: any) => <tr key={r.id}><td>{fmt(r.started_at)}</td><td>{r.events_deleted}</td><td>{r.crashes_deleted}</td><td>{r.issues_purged}</td><td>{r.artifacts_deleted}</td><td>{r.orphans_deleted}</td><td>{bytes(r.bytes_reclaimed)}</td><td className="text-rose-400">{r.error ?? ''}</td></tr>)}</tbody></table>
-      </div></GlassCard>
-
-      {ret && <GlassCard><div className="space-y-2 text-xs">
-        <h4 className="font-semibold text-foreground flex items-center gap-1">Retention policy<InfoTip text={HELP["Retention policy"]} /></h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">{RET_LABELS.map(([k, l]) => (
-          <label key={k} className="flex items-center justify-between gap-2"><span className="text-zinc-400">{l}</span>
-            <input type="number" disabled={!can('RETENTION_MANAGE')} className="bare-input bg-transparent px-2 py-1 w-24" value={ret[k]} onChange={(e) => setRet({ ...ret, [k]: Number(e.target.value) })} /></label>))}</div>
-        {can('RETENTION_MANAGE') && <button className="filter-tab filter-tab-active" onClick={async () => { const r = await A.saveRetention(ret); setMsg(r.ok ? 'Retention saved.' : r.error); if (r.ok) setRet(r.data); }}>Save retention</button>}
-      </div></GlassCard>}
-
-      {can('FORCE_DELETE') && <BulkDelete />}
-      {can('ROLE_MANAGE') && <Roles />}
-      {can('AUDIT_VIEW') && <Audit />}
-    </div>
-  );
-}
-
-function BulkDelete() {
-  const [days, setDays] = useState(7);
-  const [p, setP] = useState<any>(null);
-  const [confirm, setConfirm] = useState('');
-  const [msg, setMsg] = useState<string | null>(null);
-  return (
-    <GlassCard><div className="space-y-2 text-xs">
-      <h4 className="font-semibold text-foreground flex items-center gap-1">Bulk cleanup<InfoTip text={HELP["Bulk cleanup"]} /></h4>
-      <div className="flex items-center gap-2">Delete all resolved diagnostics older than
-        <input type="number" className="bare-input bg-transparent px-2 py-1 w-16" value={days} onChange={(e) => { setDays(Number(e.target.value)); setP(null); }} /> days
-        <button className="filter-tab" onClick={async () => { const r = await A.previewBulkDelete(days); if (r.ok) setP(r.data); else setMsg(r.error); }}>Preview</button></div>
-      {p && <>
-        <p>Issues: {p.issues} · Records: {(p.events + p.crashes).toLocaleString()} · Artifacts: {p.artifacts} · Estimated space reclaimed: {bytes(p.bytes)} (+ row storage)</p>
-        <label className="block text-zinc-400">Type <b className="font-mono text-foreground">DELETE</b> to confirm
-          <input className={CONFIRM_FIELD} placeholder="DELETE" onChange={(e) => setConfirm(e.target.value)} /></label>
-        <button className="filter-tab text-rose-400 disabled:opacity-40 disabled:cursor-not-allowed" disabled={!sameCode(confirm, 'DELETE') || !p.issues} onClick={async () => { const r = await A.bulkDeleteResolved(days, 'DELETE'); setMsg(r.ok ? `Purged ${r.data.purged} issues.` : r.error); setP(null); }}>Delete permanently</button>
-      </>}
-      {msg && <p className="text-amber-400">{msg}</p>}
-    </div></GlassCard>
-  );
-}
-
-function Roles() {
-  const [rows, setRows] = useState<any[]>([]);
-  const [f, setF] = useState({ email: '', role: 'VIEWER', schools: '' });
-  const [msg, setMsg] = useState<string | null>(null);
-  const load = useCallback(() => { A.listRoles().then((r) => r.ok && setRows(r.data)); }, []);
-  useEffect(() => { load(); }, [load]);
-  const save = async (email: string, role: string | null, schools: string) => {
-    const r = await A.setRole(email, role, schools ? schools.split(',').map((s) => s.trim()) : null); setMsg(r.ok ? 'Saved.' : r.error); load();
-  };
-  return (
-    <GlassCard><div className="space-y-2 text-xs">
-      <h4 className="font-semibold text-foreground flex items-center gap-1">Logs access (RBAC)<InfoTip text={HELP["Logs access (RBAC)"]} /></h4>
-      <p className="text-zinc-500">Viewer: view/search · Developer: + download · Debug Admin: + resolve/delete · Super Admin: + retention, roles, audit, force delete. Leave schools empty for all schools.</p>
-      <table className="data-table w-full"><tbody>{rows.map((r) => (
-        <tr key={r.email}><td>{r.email}</td><td>{r.role}</td><td>{r.school_ids?.join(', ') ?? 'All schools'}</td>
-          <td><button className="filter-tab text-rose-400" onClick={() => save(r.email, null, '')}>Remove</button></td></tr>))}</tbody></table>
-      <div className="flex flex-wrap gap-2">
-        <input className="bare-input bg-transparent px-2 py-1 w-56" placeholder="email" onChange={(e) => setF({ ...f, email: e.target.value })} />
-        <Sel value={f.role} onChange={(v) => setF({ ...f, role: v })} options={opts(['VIEWER', 'DEVELOPER', 'DEBUG_ADMIN', 'SUPER_ADMIN'])} />
-        <input className="bare-input bg-transparent px-2 py-1 w-64" placeholder="school/entity ids, comma-separated" onChange={(e) => setF({ ...f, schools: e.target.value })} />
-        <button className="filter-tab filter-tab-active" onClick={() => save(f.email, f.role, f.schools)}>Grant</button>
-      </div>
-      {msg && <p className="text-amber-400">{msg}</p>}
-    </div></GlassCard>
-  );
-}
-
-function Audit() {
-  const [rows, setRows] = useState<any[]>([]);
-  useEffect(() => { A.listAudit(0).then((r) => r.ok && setRows(r.data)); }, []);
-  return (
-    <GlassCard><div className="text-xs space-y-2"><h4 className="font-semibold text-foreground flex items-center gap-1">Security audit trail<InfoTip text={HELP["Security audit trail"]} /></h4>
-      <div className="max-h-96 overflow-y-auto"><table className="data-table w-full"><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Resource</th><th>Result</th><th>IP</th></tr></thead>
-        <tbody>{rows.map((r, i) => <tr key={i}><td>{fmt(r.at)}</td><td>{r.actor}</td><td>{r.action}</td><td>{r.resource_id ?? '—'}</td><td>{r.result}</td><td>{r.ip}</td></tr>)}</tbody></table></div>
-    </div></GlassCard>
   );
 }

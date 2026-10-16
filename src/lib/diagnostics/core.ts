@@ -134,7 +134,8 @@ export function normalizeForFingerprint(s: string): string {
     .replace(/[A-Za-z]:\\[^\s:'"]*|\/(?:[\w.-]+\/)+[\w.-]*/g, '<path>')
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<uuid>')
     .replace(/\b0x[0-9a-f]+\b/gi, '<hex>')
-    .replace(/\b\d+\b/g, '<n>')
+    // Every digit run, also when glued to a unit ("5015ms", "v2", "x3"): a value, not a different bug.
+    .replace(/\d+/g, '<n>')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();

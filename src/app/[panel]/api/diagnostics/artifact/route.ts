@@ -4,6 +4,7 @@ import { getClientIp } from '@/lib/sanitize';
 import { authenticateDevice } from '@/lib/diagnostics/deviceAuth';
 import { diagDb, rateLimit } from '@/lib/diagnostics/server';
 import { LIMITS, sniffArtifact } from '@/lib/diagnostics/core';
+import { col } from '@/lib/diagnostics/mongo';
 
 // POST /api/diagnostics/artifact?kind=DUMP|SCREENSHOT|LOG&crash_id=<uuid>
 // Body = raw bytes. Headers: X-Activation-Key, X-Device-Fingerprint, X-Product-Id.
@@ -31,10 +32,10 @@ export async function POST(req: NextRequest) {
 
   const db = diagDb();
   // The crash must exist, belong to THIS device, and be ingested first.
-  const { data: crash } = await db.from('diag_crashes').select('id, issue_id, panel, machine_id').eq('id', crashId).maybeSingle();
+  const crash = await (await col('diag_crashes')).findOne({ _id: crashId as never }, { projection: { issue_id: 1, panel: 1, machine_id: 1 } });
   if (!crash || crash.panel !== identity.panel || crash.machine_id !== identity.machineId) return bad(404, 'Unknown crash.');
-  const { count } = await db.from('diag_artifacts').select('id', { count: 'exact', head: true }).eq('crash_id', crashId);
-  if ((count ?? 0) >= 5) return bad(409, 'Artifact limit reached.');
+  const arts = await col('diag_artifacts');
+  if ((await arts.countDocuments({ crash_id: crashId })) >= 5) return bad(409, 'Artifact limit reached.');
 
   const buf = new Uint8Array(await req.arrayBuffer());
   if (buf.length === 0 || buf.length > max) return bad(413, 'Payload too large.');
@@ -46,10 +47,11 @@ export async function POST(req: NextRequest) {
   const path = `${identity.panel}/${crashId}/${randomUUID()}.${ext}`;
   const up = await db.storage.from('diagnostics').upload(path, buf, { contentType: mime, upsert: false });
   if (up.error) return bad(503, 'Storage unavailable.');
-  const { error } = await db.from('diag_artifacts').insert({
-    panel: identity.panel, issue_id: crash.issue_id, crash_id: crashId, kind, storage_path: path, size_bytes: buf.length, sha256, mime,
-  });
-  if (error) {
+  const saved = await arts.insertOne({
+    _id: randomUUID() as never, panel: identity.panel, issue_id: crash.issue_id, crash_id: crashId, kind, storage_path: path, size_bytes: buf.length, sha256, mime,
+    status: 'ACTIVE', created_at: new Date(), expires_at: null,
+  }).catch(() => null);
+  if (!saved) {
     await db.storage.from('diagnostics').remove([path]); // never leave an unreferenced object
     return bad(503, 'Storage unavailable.');
   }

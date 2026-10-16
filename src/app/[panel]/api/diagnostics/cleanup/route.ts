@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'crypto';
 import { runCleanup } from '@/lib/diagnostics/cleanup';
-import { diagDb, loadRetention } from '@/lib/diagnostics/server';
+import { loadRetention } from '@/lib/diagnostics/server';
+import { col } from '@/lib/diagnostics/mongo';
 
 // GET /api/diagnostics/cleanup — scheduled lifecycle worker (Vercel Cron, hourly).
 // Auth: `Authorization: Bearer ${CRON_SECRET}` (Vercel Cron sends this automatically).
@@ -23,8 +24,8 @@ export async function GET(req: NextRequest) {
   const out: Record<string, unknown> = {};
   for (const panel of ['lms', 'lab'] as const) {
     const cfg = await loadRetention(panel);
-    const { data: last } = await diagDb().from('diag_cleanup_runs').select('started_at').eq('panel', panel).order('started_at', { ascending: false }).limit(1).maybeSingle();
-    if (last && Date.now() - Date.parse(last.started_at) < (cfg.cleanupEveryMinutes - 5) * 60_000) { out[panel] = 'skipped'; continue; }
+    const last = await (await col('diag_cleanup_runs')).find({ panel }, { projection: { started_at: 1 } }).sort({ started_at: -1 }).limit(1).next();
+    if (last && Date.now() - new Date(last.started_at).getTime() < (cfg.cleanupEveryMinutes - 5) * 60_000) { out[panel] = 'skipped'; continue; }
     out[panel] = await runCleanup(panel);
   }
   return NextResponse.json(out);

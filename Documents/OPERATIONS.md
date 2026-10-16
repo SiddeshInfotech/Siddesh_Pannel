@@ -1,7 +1,7 @@
 # Operations Center (sidebar → Health)
 
 ## Setup
-1. Run `diagnostics-schema.sql` first, then `ops-schema.sql`, in the Supabase SQL editor.
+1. Storage is MongoDB Atlas, shared with Logs — see LOGS.md → Setup (only `MONGODB_URI` is needed; no SQL to run).
 2. Use the same `CRON_SECRET` as Logs. The hourly cron `/lms-admin/api/ops/sync` is in `vercel.json`.
    - Vercel Hobby only allows daily crons, so change both crons to `0 0 * * *` on that plan.
 3. Go to Health → Settings → Infrastructure providers and add what you actually use:

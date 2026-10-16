@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
+import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 import Sidebar from '@/components/Sidebar';
 import { ToastProvider } from '@/components/Toast';
@@ -41,6 +42,8 @@ export default async function RootLayout({
             </div>
           </AuthWrapper>
         </ToastProvider>
+        {/* Vercel Web Analytics: page views only (no cookies); a no-op outside Vercel deployments. */}
+        <Analytics />
       </body>
     </html>
   );
