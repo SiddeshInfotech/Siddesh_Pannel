@@ -144,4 +144,21 @@ describe('MongoDB logs storage', () => {
     expect((await issues.findOne({ _id: 'd' as never }))?.fingerprint).not.toBe('old-d'); // P2 freeze kept apart, fingerprint refreshed
     expect((await regroupIssues()).merged).toBe(0);
   });
+  it('reads env values pasted with "# comments", quotes or spaces, and explains connection errors', async () => {
+    const { envValue, logsDbName, logsDbErrorMessage } = await import('../diagnostics/mongo');
+    const keep = process.env.MONGODB_DB;
+    try {
+      process.env.MONGODB_DB = 'siddesh_logs          # optional, default siddesh_logs';
+      expect(envValue('MONGODB_DB')).toBe('siddesh_logs');
+      process.env.MONGODB_DB = '"siddesh_logs"';
+      expect(logsDbName()).toBe('siddesh_logs');
+      process.env.MONGODB_DB = 'bad name/with.dots';
+      expect(logsDbName()).toBe('siddesh_logs'); // invalid → default, never a broken database name
+    } finally { process.env.MONGODB_DB = keep; }
+    const silent = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    expect(logsDbErrorMessage(Object.assign(new Error('Server selection timed out after 8000 ms'), { name: 'MongoServerSelectionError' }))).toMatch(/Network Access/);
+    expect(logsDbErrorMessage(Object.assign(new Error('bad auth : authentication failed'), { code: 8000 }))).toMatch(/rejected the login/);
+    expect(logsDbErrorMessage(new Error('querySrv ENOTFOUND _mongodb._tcp.x.mongodb.net'))).toMatch(/address not found/);
+    silent.mockRestore();
+  });
 });

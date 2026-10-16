@@ -24,7 +24,27 @@ const DATE_FIELDS = new Set([
   'first_at', 'last_at', 'first_seen',
 ]);
 
-export const QUOTA_BYTES = Math.max(1, Number(process.env.MONGODB_QUOTA_MB) || 512) * 1024 * 1024;
+/**
+ * An env value as the app should see it. Values pasted into a hosting UI often keep what a `.env` parser
+ * would drop: a trailing "  # comment", surrounding quotes or spaces (e.g. MONGODB_DB=siddesh_logs  # optional).
+ */
+export function envValue(name: string): string | undefined {
+  const raw = process.env[name];
+  if (raw === undefined) return undefined;
+  const v = raw.replace(/\s+#.*$/, '').trim().replace(/^(['"])(.*)\1$/, '$2').trim();
+  return v || undefined;
+}
+const DEFAULT_DB = 'siddesh_logs';
+/** MongoDB database names: ≤ 38 bytes, none of  /\. "$*<>:|?  — anything else falls back to the default (and is logged). */
+export function logsDbName(): string {
+  const name = envValue('MONGODB_DB');
+  if (!name) return DEFAULT_DB;
+  if (Buffer.byteLength(name) <= 38 && !/[/\\. "$*<>:|?]/.test(name)) return name;
+  console.error(`[mongo] MONGODB_DB "${name.slice(0, 60)}" is not a valid database name — using "${DEFAULT_DB}".`);
+  return DEFAULT_DB;
+}
+
+export const QUOTA_BYTES = Math.max(1, Number(envValue('MONGODB_QUOTA_MB')) || 512) * 1024 * 1024;
 
 // Indexes count toward the 512 MB — only what the queries need.
 const INDEXES: Partial<Record<LogsCollection, IndexDescription[]>> = {
@@ -58,13 +78,13 @@ const INDEXES: Partial<Record<LogsCollection, IndexDescription[]>> = {
 type G = typeof globalThis & { __siddeshMongo?: Promise<Db> };
 
 async function connect(): Promise<Db> {
-  const uri = process.env.MONGODB_URI;
+  const uri = envValue('MONGODB_URI');
   if (!uri) throw new Error('MONGODB_URI is not set — Health/Logs storage is unavailable.');
   // mongodb+srv:// needs a DNS SRV lookup (dns.resolveSrv). Some PCs' local resolvers refuse those
   // (querySrv ECONNREFUSED) while normal lookups work. MONGODB_DNS_SERVERS forces resolvers; without
   // it, a refused SRV lookup is retried once via public DNS. Only dns.resolve* is affected — normal
   // hostname lookups (Supabase, providers) keep using the OS resolver.
-  const servers = (process.env.MONGODB_DNS_SERVERS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  const servers = (envValue('MONGODB_DNS_SERVERS') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   if (servers.length) dns.setServers(servers);
   const open = async () => {
     const client = new MongoClient(uri, { maxPoolSize: 5, serverSelectionTimeoutMS: 8000, appName: 'siddesh-panel' });
@@ -80,7 +100,7 @@ async function connect(): Promise<Db> {
     dns.setServers(['8.8.8.8', '1.1.1.1']);
     client = await open();
   }
-  const db = client.db(process.env.MONGODB_DB || 'siddesh_logs');
+  const db = client.db(logsDbName());
   await ensureIndexes(db);
   return db;
 }
@@ -150,7 +170,18 @@ export const contains = (s: string) => ({ $regex: s.replace(/[.*+?^${}()|[\]\\]/
 /** Mongo errors → the same user-facing text style as before. */
 export function logsDbErrorMessage(e: unknown): string {
   const m = e instanceof Error ? e.message : String(e);
-  if (/MONGODB_URI is not set/.test(m)) return 'Logs/Health storage is not configured. Set MONGODB_URI (MongoDB Atlas) and restart.';
+  const name = e instanceof Error ? e.name : '';
+  // The real cause goes to the server log (Vercel → Logs); credentials in a URI are masked.
+  console.error('[mongo] Health/Logs storage error:', name, m.replace(/mongodb(\+srv)?:\/\/[^@\s]+@/gi, 'mongodb$1://***@').slice(0, 500));
+  if (/MONGODB_URI is not set/.test(m)) return 'Logs/Health storage is not configured. Set MONGODB_URI (MongoDB Atlas) on the server and redeploy.';
   if (/quota|space|storage limit/i.test(m)) return 'Logs/Health storage is full (MongoDB free tier). Old data is being cleaned up — try again later.';
+  if (/bad auth|authentication failed|auth.*fail/i.test(m) || (e as { code?: number })?.code === 18) {
+    return 'MongoDB rejected the login. Check the user name and password in MONGODB_URI (special characters must be URL-encoded), then redeploy.';
+  }
+  if (/querySrv|ENOTFOUND|getaddrinfo/i.test(m)) return 'MongoDB address not found. Check the cluster host in MONGODB_URI (mongodb+srv://…mongodb.net).';
+  if (/ServerSelection|ETIMEDOUT|ECONNREFUSED|timed out|ECONNRESET|not authorized.*IP|whitelist|IP access/i.test(name + ' ' + m)) {
+    return 'Cannot reach MongoDB Atlas. In Atlas → Network Access, allow 0.0.0.0/0 (Vercel servers use changing IPs), then try again.';
+  }
+  if (/database name|Invalid namespace|is too long/i.test(m)) return 'MONGODB_DB is not a valid database name. Use e.g. siddesh_logs (no spaces or "# comments") and redeploy.';
   return 'Something went wrong. Please try again.';
 }
