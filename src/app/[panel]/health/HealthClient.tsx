@@ -179,7 +179,8 @@ function Products({ list, product, onProduct }: { list: any[]; product: string; 
   );
 }
 
-/** Open incidents + alerts behind "Points lost": details and Resolve (with a note for incidents). */
+/** Open incidents + alerts behind "Points lost": details, the errors behind each incident, and
+ *  Start investigating → Resolve (with a note) for incidents. */
 function OpenOpsModal({ onClose, onChanged }: { onClose: () => void; onChanged: () => void }) {
   const { data, err, reload } = useLoad<any>(() => A.listOpenOps(), []);
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -189,7 +190,7 @@ function OpenOpsModal({ onClose, onChanged }: { onClose: () => void; onChanged: 
     setBusy(id); setMsg(null);
     const r = await p;
     setBusy(null);
-    if (!r.ok) { setMsg(r.error ?? 'Could not resolve.'); return; }
+    if (!r.ok) { setMsg(r.error ?? 'Could not update.'); return; }
     reload(); onChanged();
   };
   const affected = (x: any) => (x && typeof x === 'object' ? Object.entries(x).map(([k, v]) => `${k.replace(/_/g, ' ')}: ${typeof v === 'number' ? num(v, 2) : String(v)}`).join(' · ') : null);
@@ -206,7 +207,7 @@ function OpenOpsModal({ onClose, onChanged }: { onClose: () => void; onChanged: 
         {incidents.length > 0 && <section className="space-y-2">
           <h4 className="text-[11px] uppercase tracking-wider text-zinc-500">Incidents ({incidents.length})</h4>
           {incidents.map((i) => (
-            <div key={i.id} className="rounded-xl border border-sidebar-border p-3 space-y-2">
+            <div key={i.id} className="border border-sidebar-border p-3 space-y-2">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="font-mono text-zinc-400">{i.code}</span>
                 <span className="font-semibold text-foreground">{i.title}</span>
@@ -215,11 +216,15 @@ function OpenOpsModal({ onClose, onChanged }: { onClose: () => void; onChanged: 
               </div>
               {affected(i.affected) && <p className="text-zinc-400">{affected(i.affected)}</p>}
               {(i.updates ?? []).length > 0 && <ol className="space-y-0.5 text-zinc-500">{(i.updates as any[]).map((u, k) => <li key={k}>{fmt(u.at)} · {u.by} · {String(u.status).toLowerCase()}{u.note ? ` — ${u.note}` : ''}</li>)}</ol>}
+              <IncidentErrors rows={i.errors ?? []} />
               <div className="flex flex-wrap items-center gap-2">
-                <input className="bare-input bg-transparent px-2 py-1.5 flex-1 min-w-[200px]" placeholder="What was done (optional)" value={notes[i.id] ?? ''}
+                <input className="bare-input bg-transparent px-2 py-1.5 flex-1 min-w-[200px]" placeholder={i.status === 'INVESTIGATING' ? 'What was done (optional)' : 'Cause / plan (optional)'} value={notes[i.id] ?? ''}
                   onChange={(e) => setNotes((n) => ({ ...n, [i.id]: e.target.value }))} />
-                <button type="button" className="filter-tab filter-tab-active" disabled={busy === i.id} onClick={() => run(i.id, A.resolveIncident(i.id, notes[i.id] ?? ''))}>
-                  {busy === i.id ? 'Resolving…' : 'Resolve incident'}</button>
+                {i.status === 'INVESTIGATING'
+                  ? <button type="button" className="filter-tab filter-tab-active" disabled={busy === i.id} onClick={() => run(i.id, A.resolveIncident(i.id, notes[i.id] ?? ''))}>
+                      {busy === i.id ? 'Resolving…' : 'Resolve incident'}</button>
+                  : <button type="button" className="filter-tab filter-tab-active" disabled={busy === i.id} onClick={() => run(i.id, A.investigateIncident(i.id, notes[i.id] ?? ''))}>
+                      {busy === i.id ? 'Starting…' : 'Start investigating'}</button>}
               </div>
             </div>
           ))}
@@ -227,7 +232,7 @@ function OpenOpsModal({ onClose, onChanged }: { onClose: () => void; onChanged: 
         {alerts.length > 0 && <section className="space-y-2">
           <h4 className="text-[11px] uppercase tracking-wider text-zinc-500">Alerts ({alerts.length})</h4>
           {alerts.map((a) => (
-            <div key={a.id} className="rounded-xl border border-sidebar-border p-3 flex flex-wrap items-center gap-2">
+            <div key={a.id} className="border border-sidebar-border p-3 flex flex-wrap items-center gap-2">
               <span className="font-semibold text-foreground">{a.title}</span>
               <span className="rounded-full px-1.5 text-[10px] font-semibold border border-sidebar-border">{a.level}</span>
               <span className="text-zinc-500">{a.panelLabel} · ×{a.occurrences} · first {fmt(a.first_at)} · last {ago(a.last_at)}</span>
@@ -238,6 +243,34 @@ function OpenOpsModal({ onClose, onChanged }: { onClose: () => void; onChanged: 
         <p className="text-zinc-500">If the cause is still there (the rule is still breached), the next check opens a new alert/incident.</p>
       </>}
     </div>
+  );
+}
+
+/** Crash reports + error events in the incident's window (newest first), with their bug code if grouped. */
+function IncidentErrors({ rows }: { rows: any[] }) {
+  if (!rows.length) return <p className="text-zinc-500">No crash reports or error events in this incident&apos;s window.</p>;
+  const th = 'px-2 py-1 font-normal';
+  return (
+    <details open className="border border-sidebar-border">
+      <summary className="cursor-pointer px-2 py-1.5 text-zinc-400">Errors ({rows.length >= 100 ? 'latest 100' : rows.length})</summary>
+      <div className="max-h-80 overflow-auto">
+        <table className="w-full table-fixed text-left">
+          {/* Fixed narrow columns; the message takes the rest of the width. */}
+          <colgroup><col className="w-36" /><col className="w-48" /><col className="w-56" /><col className="w-16" /><col /><col className="w-32" /></colgroup>
+          <thead className="text-zinc-500"><tr><th className={th}>Time</th><th className={th}>Type</th><th className={th}>Computer</th><th className={th}>Version</th><th className={th}>Message</th><th className={th}>Bug</th></tr></thead>
+          <tbody>{rows.map((r) => (
+            <tr key={`${r.kind}-${r.id}`} className="border-t border-sidebar-border align-top">
+              <td className="px-2 py-1 whitespace-nowrap text-zinc-500">{fmt(r.ts)}</td>
+              <td title={r.event_type} className={`px-2 py-1 truncate ${r.kind === 'CRASH' ? 'text-rose-400' : 'text-amber-400'}`}>{r.event_type}</td>
+              <td className="px-2 py-1 truncate text-zinc-400" title={[r.computer_name, r.school_name].filter(Boolean).join(' · ')}>{r.computer_name ?? '—'}{r.school_name ? ` · ${r.school_name}` : ''}</td>
+              <td className="px-2 py-1 whitespace-nowrap text-zinc-500">{r.product_version ?? '—'}</td>
+              <td className="px-2 py-1 text-zinc-300 break-words">{r.message ?? '—'}</td>
+              <td className="px-2 py-1 truncate font-mono text-zinc-400">{r.bug ? `${r.bug.code} (${String(r.bug.status).toLowerCase()})` : '—'}</td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </details>
   );
 }
 
@@ -261,7 +294,7 @@ function OverallHealth({ d, onChanged }: { d: any; onChanged: () => void }) {
                 <span className="text-zinc-400 min-w-0 break-words underline decoration-dotted underline-offset-2">{p.reason}</span><span className="text-rose-500 font-semibold">−{p.points}</span></button>
             : <div key={p.reason} className="flex justify-between gap-2 rounded-md bg-rose-500/5 px-2 py-1"><span className="text-zinc-400 min-w-0 break-words">{p.reason}</span><span className="text-rose-500 font-semibold">−{p.points}</span></div>)}
         </div>)}
-      <FormModal open={openOps} onClose={() => setOpenOps(false)} panelClassName="glass-interactive w-full max-w-3xl max-h-[90vh] overflow-y-auto relative animate-slide-up rounded-2xl p-5">
+      <FormModal open={openOps} onClose={() => setOpenOps(false)} panelClassName="glass-interactive w-[min(1280px,96vw)] max-h-[90vh] overflow-y-auto relative animate-slide-up rounded-none p-5">
         {openOps && <OpenOpsModal onClose={() => setOpenOps(false)} onChanged={onChanged} />}
       </FormModal>
       <details className="text-zinc-500 mt-auto"><summary className="cursor-pointer">How is this calculated?</summary>100 minus capped penalties: crash rate (10/1%, max 30), error rate (2/1%, max 20), API errors (max 10), API P95 over threshold (5), open incidents (max 30), open alerts (max 10), providers down/degraded (max 20), DB/storage over 80/90% of quota. Missing data is never penalised; no data at all = Unknown.</details>

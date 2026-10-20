@@ -10,7 +10,7 @@ import { decryptAES } from '@/lib/crypto';
 import { sendSecurityAlert } from '@/lib/alert';
 import { fetchAllPages } from '@/app/[panel]/update/telemetry';
 import { col, toRows, toSet } from '@/lib/diagnostics/mongo';
-import { activityRefresh, allocCode, eventSeries, percentiles, storagePressure } from '@/lib/diagnostics/mongoOps';
+import { activityRefresh, allocCode, eventSeries, percentiles, sessionCrashStats, storagePressure } from '@/lib/diagnostics/mongoOps';
 import { PROVIDERS, GB, type ProviderRow } from './providers';
 import { DEFAULT_RULES, LOGS_STORAGE_RULE, evaluateRule, healthScore, heartbeatState, mergeOps, pct, type OpsConfig } from './health';
 
@@ -97,7 +97,7 @@ export async function computeMetrics(panelOrPanels: Panel | Panel[], product: st
   const day = new Date(now - 86_400_000), hour = new Date(now - 3600_000);
   const scope = product ? { product_id: product } : {};
   const [events, crashes, metricsCol, incidents, alerts] = await Promise.all([col('diag_events'), col('diag_crashes'), col('ops_device_metrics'), col('ops_incidents'), col('ops_alerts')]);
-  const [ev, er, cr, apiAll, apiFail, perc, dm, inc, al, infra, logsPct, sb] = await Promise.all([
+  const [ev, er, cr, apiAll, apiFail, perc, dm, inc, al, infra, logsPct, sb, ss] = await Promise.all([
     events.countDocuments({ panel, ts: { $gte: day }, ...scope }),
     events.countDocuments({ panel, ts: { $gte: day }, severity: { $in: ERR }, ...scope }),
     crashes.countDocuments({ panel, ts: { $gte: day }, ...scope }),
@@ -110,6 +110,7 @@ export async function computeMetrics(panelOrPanels: Panel | Panel[], product: st
     infraSnapshot(),
     storagePressure(),
     supabaseUsage().catch(() => null), // usage rules work without a configured Supabase provider
+    sessionCrashStats(panels, iso(day.getTime()), iso(now), product),
   ]);
   if (infra.dbUsagePct === null && sb?.dbPct != null) infra.dbUsagePct = Number(sb.dbPct.toFixed(1));
   if (infra.storageUsagePct === null && sb) infra.storageUsagePct = Number(sb.filePct.toFixed(1));
@@ -119,7 +120,7 @@ export async function computeMetrics(panelOrPanels: Panel | Panel[], product: st
   const apiP95 = apiN ? apiRows.reduce((s, r) => s + Number(r.p95) * Number(r.n), 0) / apiN : null;
   const pick = (k: string) => dm.map((x: any) => x[k]).filter((v: any) => typeof v === 'number');
   const values = {
-    crash_rate_pct: active24 ? (cr / active24) * 100 : null,
+    crash_rate_pct: ss.sessions ? (ss.crashed / ss.sessions) * 100 : null,
     error_rate_pct: ev ? (er / ev) * 100 : null,
     api_error_rate_pct: apiAll ? (apiFail / apiAll) * 100 : null,
     api_p95_ms: apiP95,
@@ -131,7 +132,7 @@ export async function computeMetrics(panelOrPanels: Panel | Panel[], product: st
     health_score: null as number | null,
   };
   const score = healthScore({
-    crashes24h: active24 ? cr : null, activeDevices24h: active24, errors24h: er, events24h: ev,
+    crashedSessions24h: ss.sessions ? ss.crashed : null, sessions24h: ss.sessions, errors24h: er, events24h: ev,
     apiFailed: apiFail, apiTotal: apiAll, apiP95Ms: apiP95, apiP95ThresholdMs: cfg.apiP95ThresholdMs,
     openIncidents: product ? undefined : (inc as any[]), openAlerts: product ? undefined : (al as any[]),
     providers: product ? undefined : infra.providers.filter((p) => p.enabled).map((p) => ({ status: p.last_status })),
@@ -140,7 +141,8 @@ export async function computeMetrics(panelOrPanels: Panel | Panel[], product: st
   values.health_score = score.score;
   return {
     values, score, infra,
-    counts: { events24h: ev, errors24h: er, crashes24h: cr, apiCalls1h: apiAll, apiFailed1h: apiFail, activeDevices24h: active24 },
+    counts: { events24h: ev, errors24h: er, crashes24h: cr, apiCalls1h: apiAll, apiFailed1h: apiFail, activeDevices24h: active24,
+      sessions24h: ss.sessions, crashedSessions24h: ss.crashed },
     devices: devs,
   };
 }
@@ -301,7 +303,8 @@ export async function evaluateRules(panel: Panel, cfg: OpsConfig, metrics?: Awai
       if (!openInc) {
         await insertIncident({
           panel, title: rule.name, severity: 'CRITICAL', alert_id: alertId, rule_id: rule.id,
-          affected: { metric: rule.metric, value, devices_24h: m.counts.activeDevices24h, crashes_24h: m.counts.crashes24h },
+          affected: { metric: rule.metric, value, devices_24h: m.counts.activeDevices24h, crashes_24h: m.counts.crashes24h,
+            sessions_24h: m.counts.sessions24h, crashed_sessions_24h: m.counts.crashedSessions24h },
           updates: [{ at: iso(now), by: 'system', status: 'DETECTED', note: title }],
         });
       }

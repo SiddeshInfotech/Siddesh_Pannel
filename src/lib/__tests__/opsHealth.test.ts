@@ -12,12 +12,12 @@ describe('health score', () => {
     expect(healthScore({ openIncidents: [], openAlerts: [] }).status).toBe('UNKNOWN'); // empty incident list ≠ healthy
   });
   it('clean fleet → 100 HEALTHY', () => {
-    const r = healthScore({ crashes24h: 0, activeDevices24h: 100, errors24h: 0, events24h: 1000, openIncidents: [], openAlerts: [], providers: [{ status: 'HEALTHY' }] });
+    const r = healthScore({ crashedSessions24h: 0, sessions24h: 100, errors24h: 0, events24h: 1000, openIncidents: [], openAlerts: [], providers: [{ status: 'HEALTHY' }] });
     expect(r.score).toBe(100);
     expect(r.status).toBe('HEALTHY');
   });
   it('penalties are capped and explained', () => {
-    const r = healthScore({ crashes24h: 50, activeDevices24h: 100, errors24h: 500, events24h: 1000, openIncidents: [{ severity: 'CRITICAL' }, { severity: 'CRITICAL' }, { severity: 'CRITICAL' }], providers: [{ status: 'DOWN' }] });
+    const r = healthScore({ crashedSessions24h: 50, sessions24h: 100, errors24h: 500, events24h: 1000, openIncidents: [{ severity: 'CRITICAL' }, { severity: 'CRITICAL' }, { severity: 'CRITICAL' }], providers: [{ status: 'DOWN' }] });
     expect(r.penalties.find((p) => p.reason.startsWith('Crash'))!.points).toBe(30);
     expect(r.penalties.find((p) => p.reason.startsWith('Error'))!.points).toBe(20);
     expect(r.penalties.find((p) => p.reason.includes('incident'))!.points).toBe(30);

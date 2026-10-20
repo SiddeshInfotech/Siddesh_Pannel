@@ -128,6 +128,23 @@ export async function eventSeries(panel: string | string[], from: string, to: st
   return rows.map((r) => ({ ...(r as any), bucket: (r.bucket as Date).toISOString() }));
 }
 
+/**
+ * Crash rate by session: distinct app sessions seen in the window (events ∪ crash reports) and how
+ * many of them have a crash report. Per session, so one PC force-closed twice can't read as "200%".
+ */
+export async function sessionCrashStats(panel: string | string[], from: string, to: string, product: string | null): Promise<{ sessions: number; crashed: number }> {
+  const match = { panel: panelMatch(panel), ts: { $gte: new Date(from), $lt: new Date(to) }, session_id: { $type: 'string' }, ...(product ? { product_id: product } : {}) };
+  const [r] = await (await col('diag_events')).aggregate([
+    { $match: match },
+    { $group: { _id: '$session_id' } },
+    { $project: { c: { $literal: 0 } } },
+    { $unionWith: { coll: 'diag_crashes', pipeline: [{ $match: match }, { $group: { _id: '$session_id' } }, { $project: { c: { $literal: 1 } } }] } },
+    { $group: { _id: '$_id', c: { $max: '$c' } } },
+    { $group: { _id: null, sessions: { $sum: 1 }, crashed: { $sum: '$c' } } },
+  ], { allowDiskUse: true }).toArray();
+  return { sessions: Number(r?.sessions ?? 0), crashed: Number(r?.crashed ?? 0) };
+}
+
 /** Same as ops_percentiles (approximate percentiles; exact enough for P50…P99 dashboards). */
 export async function percentiles(panel: string | string[], from: string, to: string, product: string | null) {
   const at = (i: number) => ({ $arrayElemAt: ['$pcts', i] });

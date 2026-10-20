@@ -4,7 +4,7 @@
 // HEALTH SCORE (documented, deterministic). Start at 100 and subtract capped penalties,
 // each computed ONLY from metrics that are actually available (missing data = no penalty,
 // and if nothing is available the status is UNKNOWN, never a made-up "100"):
-//   crash rate   (crashes / active devices, 24h)      : 10 pts per 1%        cap 30
+//   crash rate   (crashed sessions / sessions, 24h)   : 10 pts per 1%        cap 30
 //   error rate   (error events / all events, 24h)     : 2 pts per 1%         cap 20
 //   API errors   (failed / all API calls, range)      : 2 pts per 1%         cap 10
 //   API P95 over threshold                             : 5
@@ -18,7 +18,7 @@
 export type Status = 'HEALTHY' | 'WARNING' | 'CRITICAL' | 'UNKNOWN';
 
 export type ScoreInput = {
-  crashes24h?: number | null; activeDevices24h?: number | null;
+  crashedSessions24h?: number | null; sessions24h?: number | null;
   errors24h?: number | null; events24h?: number | null;
   apiFailed?: number | null; apiTotal?: number | null; apiP95Ms?: number | null; apiP95ThresholdMs?: number;
   openIncidents?: { severity: string }[]; openAlerts?: { level: string }[];
@@ -33,9 +33,9 @@ const num = (v: unknown): v is number => typeof v === 'number' && Number.isFinit
 export function healthScore(i: ScoreInput): { score: number | null; status: Status; penalties: Penalty[] } {
   const p: Penalty[] = [];
   let inputs = 0;
-  if (num(i.crashes24h) && num(i.activeDevices24h) && i.activeDevices24h > 0) {
+  if (num(i.crashedSessions24h) && num(i.sessions24h) && i.sessions24h > 0) {
     inputs++;
-    const rate = (i.crashes24h / i.activeDevices24h) * 100;
+    const rate = (i.crashedSessions24h / i.sessions24h) * 100;
     p.push({ reason: `Crash rate ${rate.toFixed(2)}%`, points: cap(rate * 10, 30) });
   }
   if (num(i.errors24h) && num(i.events24h) && i.events24h > 0) {
@@ -127,7 +127,7 @@ export function regressionCheck(before: { errors: number; crashes: number; devic
 
 // ── Alert rules ──────────────────────────────────────────────────────────────
 export const RULE_METRICS = {
-  crash_rate_pct: 'Crash rate % (24h, per active device)',
+  crash_rate_pct: 'Crash rate % (24h, crashed sessions)',
   error_rate_pct: 'Error rate % (24h, of all events)',
   api_error_rate_pct: 'API error rate % (1h)',
   api_p95_ms: 'API P95 latency ms (1h)',

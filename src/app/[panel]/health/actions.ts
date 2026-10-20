@@ -7,7 +7,7 @@
 import { DiagAuthError, audit, dbErrorMessage, rateLimit, requireActor, visiblePanels, type Actor } from '@/lib/diagnostics/server';
 import { cleanLine } from '@/lib/diagnostics/core';
 import { col, contains, fields, logsDb, toRows } from '@/lib/diagnostics/mongo';
-import { eventSeries, mongoCollections, mongoUsage } from '@/lib/diagnostics/mongoOps';
+import { eventSeries, mongoCollections, mongoUsage, sessionCrashStats } from '@/lib/diagnostics/mongoOps';
 import { ActionResult, fail, ok } from '@/lib/actionResult';
 import { panelDb } from '@/lib/panelTables';
 import { productDisplayName, productsForPanel } from '@/lib/productIdentity';
@@ -64,11 +64,10 @@ export async function getOverview(product?: string | null): Promise<ActionResult
     // Every product of every visible panel with the same fields (24 h), plus an "All products" total.
     const summarize = async (inPanels: Panel[], id: string | null, name: string, os: string | null = null) => {
       const pd = inPanels.flatMap((p) => devicesBy.get(p) ?? []).filter((d) => !id || d.product === id);
-      const s24 = await eventSeries(inPanels, iso(now - 86_400_000), iso(now), 86_400, id);
+      const [s24, ss] = await Promise.all([eventSeries(inPanels, iso(now - 86_400_000), iso(now), 86_400, id), sessionCrashStats(inPanels, iso(now - 86_400_000), iso(now), id)]);
       const r = s24.reduce((t, x) => ({ events: t.events + x.events, errors: t.errors + x.errors, crashes: t.crashes + x.crashes, users: Math.max(t.users, x.users) }), { events: 0, errors: 0, crashes: 0, users: 0 });
-      const active24 = pd.filter((d) => d.lastSeen && now - Date.parse(d.lastSeen) < 86_400_000).length;
       const errorRate = r.events ? (r.errors / r.events) * 100 : null;
-      const crashRate = active24 ? (r.crashes / active24) * 100 : null;
+      const crashRate = ss.sessions ? (ss.crashed / ss.sessions) * 100 : null; // crashed sessions, never > 100%
       const status = !pd.length && !r.events ? 'UNKNOWN' : (crashRate ?? 0) > 2 || (errorRate ?? 0) > 10 ? 'CRITICAL' : (crashRate ?? 0) > 0.5 || (errorRate ?? 0) > 3 ? 'WARNING' : 'HEALTHY';
       return {
         id: id ?? '', name, group: name.replace(/ (Android|Windows|Linux)$/, ''), os, status, version: id ? versionDistribution(pd.map((d) => d.version)).latest : null,
@@ -284,11 +283,51 @@ export async function listOpenOps(): Promise<ActionResult<{ incidents: any[]; al
       col('ops_alerts').then((c) => c.find({ panel, status: { $ne: 'RESOLVED' } }).sort({ last_at: -1 }).limit(50).toArray()).then(toRows),
     ]);
     const label = (r: any) => ({ ...r, panelLabel: PANEL_NAME[r.panel] ?? r.panel });
-    return ok({ incidents: incidents.map(label), alerts: alerts.map(label) });
+    const withErrors = await Promise.all(incidents.map(async (i: any) => ({ ...label(i), errors: await incidentErrors(i) })));
+    return ok({ incidents: withErrors, alerts: alerts.map(label) });
   });
 }
 
-/** Resolve an incident with a note (kept in its update history). It stops counting against the score. */
+/**
+ * The errors behind an incident: crash reports and ERROR/CRITICAL/FATAL events of its panel (and
+ * product, if set) from 24 h before it opened (the window its metric was computed over) until it
+ * was resolved, or now. Newest first, capped so the modal stays light.
+ */
+const INCIDENT_ERRORS_MAX = 100;
+async function incidentErrors(i: any) {
+  const started = Date.parse(i.started_at);
+  const ts = { $gte: new Date(started - 86_400_000), $lte: i.resolved_at ? new Date(i.resolved_at) : new Date() };
+  const match = { panel: i.panel, ts, ...(i.product_id ? { product_id: i.product_id } : {}) };
+  const f = 'ts, event_type, product_id, product_version, computer_name, school_name, session_id, issue_id';
+  const [crashes, events] = await Promise.all([
+    col('diag_crashes').then((c) => c.find(match, fields(`${f}, exception`)).sort({ ts: -1 }).limit(INCIDENT_ERRORS_MAX).toArray()).then(toRows),
+    col('diag_events').then((c) => c.find({ ...match, severity: { $in: ['ERROR', 'CRITICAL', 'FATAL'] } }, fields(`${f}, severity, message`)).sort({ ts: -1 }).limit(INCIDENT_ERRORS_MAX).toArray()).then(toRows),
+  ]);
+  const rows = [
+    ...crashes.map(({ exception, ...c }: any) => ({ ...c, kind: 'CRASH', severity: 'FATAL', message: exception?.message ?? exception?.type ?? null })),
+    ...events.map((e: any) => ({ ...e, kind: 'EVENT' })),
+  ].sort((x, y) => Date.parse(y.ts) - Date.parse(x.ts)).slice(0, INCIDENT_ERRORS_MAX);
+  return attachBugs(rows);
+}
+
+/** Take ownership of an incident: DETECTED → INVESTIGATING (noted in its update history). */
+export async function investigateIncident(id: string, note: string): Promise<ActionResult> {
+  return guard(async () => {
+    const a = await requireActor('OPS_MANAGE');
+    const incidents = await col('ops_incidents');
+    const inc = await incidents.findOne({ _id: String(id).slice(0, 64) as never, panel: { $in: visiblePanels(a) } }, fields('status, code'));
+    if (!inc) return fail('Not found.');
+    if (inc.status !== 'DETECTED') return ok(undefined); // already investigating, or resolved
+    const now = new Date();
+    const r = await incidents.updateOne({ _id: inc._id, status: 'DETECTED' }, { $set: { status: 'INVESTIGATING' },
+      $push: { updates: { at: now.toISOString(), by: a.email, status: 'INVESTIGATING', note: cleanLine(note, 500) ?? '' } } as never });
+    if (r.modifiedCount) await audit(a, 'OPS_INCIDENT_INVESTIGATING', inc.code, 'OK');
+    return ok(undefined);
+  });
+}
+
+/** Resolve an incident with a note (kept in its update history). It stops counting against the score.
+ *  Flow: DETECTED → INVESTIGATING (investigateIncident) → RESOLVED. */
 export async function resolveIncident(id: string, note: string): Promise<ActionResult> {
   return guard(async () => {
     const a = await requireActor('OPS_MANAGE');
@@ -296,6 +335,7 @@ export async function resolveIncident(id: string, note: string): Promise<ActionR
     const inc = await incidents.findOne({ _id: String(id).slice(0, 64) as never, panel: { $in: visiblePanels(a) } }, fields('status, updates, code'));
     if (!inc) return fail('Not found.');
     if (['RESOLVED', 'CLOSED'].includes(inc.status)) return ok(undefined);
+    if (inc.status !== 'INVESTIGATING') return fail('Start investigating first.');
     const now = new Date();
     await incidents.updateOne({ _id: inc._id }, { $set: { status: 'RESOLVED', resolved_at: now },
       $push: { updates: { at: now.toISOString(), by: a.email, status: 'RESOLVED', note: cleanLine(note, 500) ?? '' } } as never });
