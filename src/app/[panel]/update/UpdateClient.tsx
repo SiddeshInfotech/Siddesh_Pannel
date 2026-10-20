@@ -87,9 +87,33 @@ const TAMPER_REASON: Record<string, string> = {
   LEASE_INVALID:        'Server lease failed verification',
 };
 
+// Plain-language meaning of an ATTESTATION_ISSUE's reason_code (bounded set from
+// attestationTelemetry.ts). `risk` marks the codes that point at tampering / forgery; the rest are
+// device or setup problems that look alarming but are not an attack on their own.
+const ATTEST_REASON: Record<string, { text: string; risk: boolean }> = {
+  PUBKEY_MISSING:         { risk: false, text: 'The app sent no device key: its secure key store failed to set up on this PC (app/installer problem, not an attack).' },
+  ROOT_UNTRUSTED:         { risk: false, text: "The device's hardware key is not certified by Google. Common on uncertified Android panels and custom builds; not tampering by itself." },
+  CHAIN_MISSING:          { risk: false, text: 'The device sent no attestation certificates (old app version or unsupported device).' },
+  CHAIN_INVALID:          { risk: false, text: "The device's attestation certificates are broken or expired." },
+  SECURITY_LEVEL_INVALID: { risk: false, text: 'The key is software-only, not stored in secure hardware.' },
+  EXTENSION_UNPARSEABLE:  { risk: false, text: 'The attestation data could not be read.' },
+  CLAIM_MISSING:          { risk: false, text: 'The attestation contained no device claim.' },
+  CLOCK_SKEW:             { risk: false, text: "The device's clock is too far from server time." },
+  SERVER_MISCONFIGURED:   { risk: false, text: 'Server-side problem: no trusted attestation roots are configured.' },
+  ORIGIN_INVALID:         { risk: true,  text: 'The key was imported, not generated inside the device hardware.' },
+  PUBKEY_MISMATCH:        { risk: true,  text: 'The device key does not match its attestation: possible cloned or modified install.' },
+  CHALLENGE_MISMATCH:     { risk: true,  text: 'The attestation answered a different challenge: possible replay.' },
+  SIGNATURE_INVALID:      { risk: true,  text: 'The attestation signature is invalid: possible forgery.' },
+  CERT_REVOKED:           { risk: true,  text: "The device's attestation certificate has been revoked." },
+  NONCE_REPLAY:           { risk: true,  text: 'The same attestation was sent twice: possible replay attack.' },
+};
+const STAGE_LABEL: Record<string, string> = { 'terms-accept': 'Terms acceptance', activate: 'Activation' };
+
 const SECURITY_EVENTS = new Set<string>(SECURITY_EVENT_TYPES);
 
 type StatusFilter = 'all' | 'online' | 'offline' | KeyState;
+
+const KEYS_PER_PAGE = 20;
 
 // Local noon in IST for a YYYY-MM-DD day key — formatting midnight in the browser's own
 // timezone could land on the neighbouring IST day for viewers outside India.
@@ -107,6 +131,8 @@ export default function UpdateClient({
   const [productFilter, setProductFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [showLegend, setShowLegend] = useState(false);
+  const [showSecurity, setShowSecurity] = useState(false);
+  const [page, setPage] = useState(1);
   const [isProductMenuOpen, setIsProductMenuOpen] = useState(false);
   const productMenuButtonRef = useRef<HTMLButtonElement>(null);
   const filterBarRef = useRef<HTMLDivElement>(null);
@@ -150,6 +176,11 @@ export default function UpdateClient({
     if (statusFilter === 'offline') return searched.filter((d) => d.connection === 'offline' || d.connection === 'never');
     return searched.filter((d) => d.keyState === statusFilter);
   }, [searched, statusFilter]);
+  // Same pagination as Device Monitoring. Clamped so a narrower filter never leaves an empty page.
+  const totalPages = Math.max(1, Math.ceil(filtered.length / KEYS_PER_PAGE));
+  const currentPage = Math.min(page, totalPages);
+  const pageStart = (currentPage - 1) * KEYS_PER_PAGE;
+  const pagedKeys = filtered.slice(pageStart, pageStart + KEYS_PER_PAGE);
 
   const statusTabs: { value: StatusFilter; label: string }[] = [
     { value: 'all', label: 'All keys' },
@@ -165,7 +196,17 @@ export default function UpdateClient({
 
   // Fingerprints that have at least one security event (for the red row marker).
   const flaggedFingerprints = useMemo(() => new Set(securityEvents.map((e) => e.fingerprint)), [securityEvents]);
-  const securityAlertCount = securityEvents.filter((e) => SECURITY_EVENTS.has(e.type)).length;
+  const securityAlerts = useMemo(
+    () => securityEvents.filter((e) => SECURITY_EVENTS.has(e.type))
+      .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '')),
+    [securityEvents]
+  );
+  const securityAlertCount = securityAlerts.length;
+  // The device an alert came from: the key that device runs now (active), else its newest key row.
+  const deviceFor = (fingerprint: string) => {
+    const rows = devices.filter((d) => d.fingerprint === fingerprint);
+    return rows.find((d) => d.keyState === 'active') ?? rows[0] ?? null;
+  };
 
   const selectedDevice = useMemo(
     () => devices.find((d) => d.id === selectedKeyId) ?? null,
@@ -231,10 +272,15 @@ export default function UpdateClient({
             <span className="stat-chip"><span className="live-dot" /> Online now <span className="stat-chip-value">{onlineCount}</span></span>
             <span className="stat-chip"><WifiOff className="w-3.5 h-3.5" /> Offline <span className="stat-chip-value">{counts.offline}</span></span>
             <span className="stat-chip"><CalendarX className="w-3.5 h-3.5 text-rose-500" /> Expired <span className="stat-chip-value">{counts.expired}</span></span>
-            <span className={`stat-chip ${securityAlertCount > 0 ? '!text-rose-500 !border-rose-500/40' : ''}`}>
+            <button
+              type="button"
+              onClick={() => setShowSecurity(true)}
+              title="Show security alerts"
+              className={`stat-chip cursor-pointer hover:border-accent-violet/40 ${securityAlertCount > 0 ? '!text-rose-500 !border-rose-500/40' : ''}`}
+            >
               <ShieldAlert className="w-3.5 h-3.5" /> Security alerts
               <span className={`stat-chip-value ${securityAlertCount > 0 ? '!text-rose-500' : ''}`}>{securityAlertCount}</span>
-            </span>
+            </button>
           </div>
         </div>
 
@@ -245,7 +291,7 @@ export default function UpdateClient({
               <button
                 key={t.value}
                 type="button"
-                onClick={() => { setStatusFilter(t.value); setProductFilter('all'); }}
+                onClick={() => { setStatusFilter(t.value); setProductFilter('all'); setPage(1); }}
                 className={`filter-tab ${statusFilter === t.value && productFilter === 'all' ? 'filter-tab-active' : ''}`}
               >
                 {t.label}
@@ -278,7 +324,7 @@ export default function UpdateClient({
                 boundaryRef={filterBarRef}
                 options={productOptions}
                 value={productFilter}
-                onSelect={(v) => { setProductFilter(v); setStatusFilter('all'); setIsProductMenuOpen(false); }}
+                onSelect={(v) => { setProductFilter(v); setStatusFilter('all'); setPage(1); setIsProductMenuOpen(false); }}
               />
             </div>
           </div>
@@ -289,7 +335,7 @@ export default function UpdateClient({
               <input
                 type="text"
                 value={q}
-                onChange={(e) => setQ(e.target.value)}
+                onChange={(e) => { setQ(e.target.value); setPage(1); }}
                 placeholder="Search school, ID, or licence key…"
                 className="bare-input w-full pl-8 pr-2 py-1.5 bg-transparent text-xs text-foreground placeholder-zinc-500 focus:outline-none"
               />
@@ -307,6 +353,97 @@ export default function UpdateClient({
           </div>
         </div>
       </div>
+
+      {/* Security alerts pop-up (opened by the "Security alerts" chip). */}
+      {showSecurity && (
+        <FormModal
+          open
+          onClose={() => setShowSecurity(false)}
+          panelClassName="glass relative w-[min(1100px,96vw)] max-h-[85vh] rounded-2xl flex flex-col overflow-hidden animate-slide-up"
+        >
+          <div className="flex items-center justify-between gap-3 px-6 py-4 border-b border-sidebar-border">
+            <div className="flex items-center gap-3">
+              <span className="w-9 h-9 rounded-[10px] flex items-center justify-center bg-rose-500/10 border border-rose-500/20 text-rose-500">
+                <ShieldAlert className="w-4 h-4" />
+              </span>
+              <div>
+                <h3 className="text-lg font-bold text-foreground tracking-tight">Security alerts ({securityAlertCount})</h3>
+                <p className="text-xs text-zinc-500 font-medium">Expiry tampering, content-key decrypt failures and attestation issues reported by devices — newest first</p>
+              </div>
+            </div>
+            <button type="button" onClick={() => setShowSecurity(false)} className="icon-btn shrink-0" aria-label="Close" title="Close">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="overflow-auto">
+            {!securityAlertCount ? (
+              <p className="text-sm text-zinc-500 text-center py-10">No security alerts.</p>
+            ) : (
+              <table className="w-full table-fixed text-left text-xs">
+                <colgroup><col className="w-40" /><col className="w-48" /><col /><col className="w-40" /><col className="w-56" /><col className="w-24" /></colgroup>
+                <thead className="text-zinc-500 sticky top-0 bg-background">
+                  <tr>{['Time (IST)', 'Alert', 'What it means', 'Result', 'Device', ''].map((h) => <th key={h} className="px-4 py-2 font-medium">{h}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {securityAlerts.map((e) => {
+                    const { label, Icon, tone } = eventStyle(e.type, e.detail);
+                    const reason = typeof e.detail?.reason === 'string' ? e.detail.reason
+                      : typeof e.detail?.reason_detail === 'string' ? e.detail.reason_detail : null;
+                    const count = typeof e.detail?.count === 'number' && e.detail.count > 1 ? e.detail.count : null;
+                    const appV = typeof e.detail?.app_version === 'string' ? e.detail.app_version : null;
+                    const code = typeof e.detail?.reason_code === 'string' ? e.detail.reason_code : null;
+                    const meaning = code ? ATTEST_REASON[code] : undefined;
+                    const blocked = e.detail?.action === 'REJECTED';
+                    const stage = typeof e.detail?.stage === 'string' ? STAGE_LABEL[e.detail.stage] ?? e.detail.stage : null;
+                    const model = typeof e.detail?.device_model === 'string' ? e.detail.device_model : null;
+                    const d = deviceFor(e.fingerprint);
+                    return (
+                      <tr key={e.id} className="border-t border-sidebar-border align-top">
+                        <td className="px-4 py-2 text-zinc-500 tabular-nums">
+                          {e.createdAt ? new Date(e.createdAt).toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true, timeZone: IST }) : '—'}
+                        </td>
+                        <td className={`px-4 py-2 font-semibold ${TONE[tone].text}`}>
+                          <span className="inline-flex items-center gap-1.5"><Icon className="w-3.5 h-3.5 shrink-0" /> {label}</span>
+                          {count && <span className="ml-1 text-zinc-500 font-normal">×{count}</span>}
+                        </td>
+                        <td className="px-4 py-2 break-words">
+                          {meaning ? <>
+                            <span className={`inline-block mb-1 px-1.5 py-0.5 rounded-md border text-[10px] font-semibold ${meaning.risk ? 'border-rose-500/40 text-rose-500' : 'border-amber-500/40 text-amber-600'}`}>
+                              {meaning.risk ? 'Possible tampering' : 'Not an attack'}
+                            </span>
+                            <div className="text-foreground">{meaning.text}</div>
+                            {reason && <div className="text-[10px] text-zinc-500 font-mono mt-0.5">{code} · {reason}</div>}
+                          </> : <span className="text-foreground">{reason ? (TAMPER_REASON[reason] ?? reason) : '—'}</span>}
+                        </td>
+                        <td className="px-4 py-2">
+                          {typeof e.detail?.action === 'string' ? (
+                            <span className={`font-semibold ${blocked ? 'text-rose-500' : 'text-amber-600'}`}>{blocked ? 'Blocked' : 'Allowed (logged only)'}</span>
+                          ) : <span className="text-zinc-500">—</span>}
+                          {stage && <div className="text-zinc-500">at {stage}</div>}
+                        </td>
+                        <td className="px-4 py-2 text-zinc-400">
+                          {d ? <>
+                            <div className="truncate text-foreground" title={d.schoolName}>{d.schoolName || '—'}</div>
+                            <div className="truncate" title={d.activationKey}>{d.productId ? productDisplayName(d.productId) : 'Unknown product'}{appV ? ` · v${appV}` : ''}</div>
+                            {model && <div className="truncate text-zinc-500">{model}</div>}
+                          </> : <span className="font-mono truncate block" title={e.fingerprint}>{e.fingerprint.slice(0, 12)}…</span>}
+                        </td>
+                        <td className="px-4 py-2 text-right">
+                          {d && (
+                            <button type="button" className="filter-tab" onClick={() => { setShowSecurity(false); if (selectedKeyId !== d.id) openKey(d); }}>
+                              Timeline
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </FormModal>
+      )}
 
       {/* Status guide pop-up (opened by the i button in the filter bar). */}
       {showLegend && (
@@ -403,7 +540,7 @@ export default function UpdateClient({
               {filtered.length === 0 && (
                 <tr><td colSpan={9} className="!h-auto py-12 text-center text-zinc-500 text-sm">No keys match these filters.</td></tr>
               )}
-              {filtered.map((d) => {
+              {pagedKeys.map((d) => {
                 const isSelected = d.id === selectedKeyId;
                 const flagged = !!d.fingerprint && flaggedFingerprints.has(d.fingerprint);
                 const t = tierStyle(d.securityTier);
@@ -500,6 +637,40 @@ export default function UpdateClient({
             </tbody>
           </table>
         </div>
+
+        {filtered.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-white/5 bg-white/[0.02]">
+            <span className="text-[11px] font-bold text-zinc-400">
+              Showing <span className="text-foreground">{pageStart + 1}–{Math.min(pageStart + KEYS_PER_PAGE, filtered.length)}</span> of{' '}
+              <span className="text-foreground">{filtered.length}</span> keys
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button type="button" onClick={() => setPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[11px] font-bold text-zinc-300 hover:text-white transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                Prev
+              </button>
+              {/* Sliding window: first, last, and the current page with its neighbours. */}
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter((n) => n === 1 || n === totalPages || Math.abs(n - currentPage) <= 1)
+                .map((n, idx, arr) => (
+                  <React.Fragment key={n}>
+                    {idx > 0 && n - arr[idx - 1] > 1 && <span className="px-1 text-[11px] font-bold text-zinc-600">…</span>}
+                    <button
+                      type="button"
+                      onClick={() => setPage(n)}
+                      className={`min-w-[32px] px-2.5 py-1.5 rounded-lg text-[11px] font-bold transition-colors cursor-pointer ${
+                        n === currentPage ? 'bg-accent-violet text-white shadow-md' : 'bg-white/5 hover:bg-white/10 border border-white/10 text-zinc-300 hover:text-white'
+                      }`}
+                    >
+                      {n}
+                    </button>
+                  </React.Fragment>
+                ))}
+              <button type="button" onClick={() => setPage(Math.min(totalPages, currentPage + 1))} disabled={currentPage === totalPages} className="px-3 py-1.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-[11px] font-bold text-zinc-300 hover:text-white transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed">
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </GlassCard>
 
       {/* Timeline popup — a centered rectangle with the panel's usual backdrop blur. Closes on
