@@ -29,6 +29,8 @@ export const LAB_COURSES: readonly LabCourse[] = [
   { number: 9, folder: 'mr', name: 'MR (Mixed Reality)' },
   { number: 10, folder: 'scratch', name: 'Scratch Programming' },
   { number: 11, folder: 'c-programming', name: 'C Programming' },
+  // Composite only (2026-10-21) — every Composite activation already carries course_1..LAB_SCOPE_MAX.
+  { number: 12, folder: 'python-programming', name: 'Python Programming' },
 ];
 
 /**

@@ -21,6 +21,7 @@ describe('LMS Lab course registry', () => {
       mr: 'course_9',
       scratch: 'course_10',
       'c-programming': 'course_11',
+      'python-programming': 'course_12',
     });
   });
 

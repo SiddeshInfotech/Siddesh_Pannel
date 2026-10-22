@@ -96,6 +96,10 @@ LAB_SCOPE_BY_FOLDER = {
     'c-programming': 'course_11',
     'c_programming': 'course_11',
     'c programming': 'course_11',
+    # Added 2026-10-21 (Composite only). Same lock-step rule as above.
+    'python-programming': 'course_12',
+    'python_programming': 'course_12',
+    'python programming': 'course_12',
 }
 
 
@@ -107,7 +111,7 @@ LAB_PACKAGES = {
     'robodrone': ('Robotics & Drone Lab', 'LMS_LAB_MASTER_CEK_ROBODRONE', {1, 2, 5, 10}),
     'iotrobo':   ('IoT & Robotics Lab',   'LMS_LAB_MASTER_CEK_IOTROBO',   {1, 2, 3, 10}),
     'aifuture':  ('AI & Future Tech Lab', 'LMS_LAB_MASTER_CEK_AIFUTURE',  {1, 3, 4, 6, 7, 8, 9, 10}),
-    'composite': ('ThinkSphere 360 Composite Skill Lab', 'LMS_LAB_MASTER_CEK_COMPOSITE', set(range(1, 12))),
+    'composite': ('ThinkSphere 360 Composite Skill Lab', 'LMS_LAB_MASTER_CEK_COMPOSITE', set(range(1, 13))),
 }
 
 
