@@ -90,6 +90,24 @@ describe('MongoDB logs storage', () => {
     expect((await eventSeries('lab', t0.toISOString(), new Date(t0.getTime() + 2 * 3600_000).toISOString(), 3600, 'P2'))[0].events).toBe(1);
   });
 
+  it('developer runs (environment "test") stay out of the crash rate and series', async () => {
+    const { col } = await import('../diagnostics/mongo');
+    const { eventSeries, sessionCrashStats } = await import('../diagnostics/mongoOps');
+    const t0 = new Date('2026-10-17T00:00:00Z'), at = new Date(t0.getTime() + 60_000);
+    const to = new Date(t0.getTime() + 3600_000).toISOString();
+    await (await col('diag_events')).insertMany([
+      ev({ ts: at, session_id: 's-prod', environment: 'production' }),
+      ev({ ts: at, session_id: 's-old' }), // untagged (before the field existed) = production
+      ev({ ts: at, session_id: 's-dev', environment: 'test' }),
+    ] as never[]);
+    await (await col('diag_crashes')).insertMany([
+      { _id: crypto.randomUUID(), panel: 'lab', ts: at, session_id: 's-dev', product_id: 'P1', environment: 'test' },
+      { _id: crypto.randomUUID(), panel: 'lab', ts: at, session_id: 's-prod', product_id: 'P1', environment: 'production' },
+    ] as never[]);
+    expect(await sessionCrashStats('lab', t0.toISOString(), to, null)).toEqual({ sessions: 2, crashed: 1 });
+    expect((await eventSeries('lab', t0.toISOString(), to, 3600, null))[0].events).toBe(2);
+  });
+
   it('percentiles reports P50…P99 of durations per operation', async () => {
     const { col } = await import('../diagnostics/mongo');
     const { percentiles } = await import('../diagnostics/mongoOps');

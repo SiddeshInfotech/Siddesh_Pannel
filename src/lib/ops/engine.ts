@@ -10,7 +10,7 @@ import { decryptAES } from '@/lib/crypto';
 import { sendSecurityAlert } from '@/lib/alert';
 import { fetchAllPages } from '@/app/[panel]/update/telemetry';
 import { col, toRows, toSet } from '@/lib/diagnostics/mongo';
-import { activityRefresh, allocCode, eventSeries, percentiles, sessionCrashStats, storagePressure } from '@/lib/diagnostics/mongoOps';
+import { activityRefresh, allocCode, eventSeries, percentiles, PROD, sessionCrashStats, storagePressure } from '@/lib/diagnostics/mongoOps';
 import { PROVIDERS, GB, type ProviderRow } from './providers';
 import { DEFAULT_RULES, LOGS_STORAGE_RULE, evaluateRule, healthScore, heartbeatState, mergeOps, pct, type OpsConfig } from './health';
 
@@ -95,7 +95,7 @@ export async function computeMetrics(panelOrPanels: Panel | Panel[], product: st
   const recent = devs.filter((d) => d.lastSeen && now - Date.parse(d.lastSeen) < 7 * 86_400_000);
   const active24 = devs.filter((d) => d.lastSeen && now - Date.parse(d.lastSeen) < 86_400_000).length;
   const day = new Date(now - 86_400_000), hour = new Date(now - 3600_000);
-  const scope = product ? { product_id: product } : {};
+  const scope = { ...PROD, ...(product ? { product_id: product } : {}) };
   const [events, crashes, metricsCol, incidents, alerts] = await Promise.all([col('diag_events'), col('diag_crashes'), col('ops_device_metrics'), col('ops_incidents'), col('ops_alerts')]);
   const [ev, er, cr, apiAll, apiFail, perc, dm, inc, al, infra, logsPct, sb, ss] = await Promise.all([
     events.countDocuments({ panel, ts: { $gte: day }, ...scope }),
@@ -104,7 +104,7 @@ export async function computeMetrics(panelOrPanels: Panel | Panel[], product: st
     events.countDocuments({ panel, category: 'API', ts: { $gte: hour }, ...scope }),
     events.countDocuments({ panel, event_type: { $in: ['API_REQUEST_FAILED', 'API_TIMEOUT'] }, ts: { $gte: hour }, ...scope }),
     percentiles(panels, iso(now - 3600_000), iso(now), product),
-    metricsCol.find({ panel, reported_at: { $gte: day }, ...scope }, { projection: { cpu_pct: 1, ram_pct: 1, disk_pct: 1 } }).limit(5000).toArray(),
+    metricsCol.find({ panel, reported_at: { $gte: day }, ...(product ? { product_id: product } : {}) }, { projection: { cpu_pct: 1, ram_pct: 1, disk_pct: 1 } }).limit(5000).toArray(),
     incidents.find({ panel, status: { $nin: ['RESOLVED', 'CLOSED'] } }, { projection: { _id: 0, severity: 1 } }).toArray(),
     alerts.find({ panel, status: { $ne: 'RESOLVED' } }, { projection: { _id: 0, level: 1 } }).toArray(),
     infraSnapshot(),

@@ -7,7 +7,7 @@
 import { DiagAuthError, audit, dbErrorMessage, rateLimit, requireActor, visiblePanels, type Actor } from '@/lib/diagnostics/server';
 import { cleanLine } from '@/lib/diagnostics/core';
 import { col, contains, fields, logsDb, toRows } from '@/lib/diagnostics/mongo';
-import { eventSeries, mongoCollections, mongoUsage, sessionCrashStats } from '@/lib/diagnostics/mongoOps';
+import { eventSeries, mongoCollections, mongoUsage, PROD, sessionCrashStats } from '@/lib/diagnostics/mongoOps';
 import { ActionResult, fail, ok } from '@/lib/actionResult';
 import { panelDb } from '@/lib/panelTables';
 import { productDisplayName, productsForPanel } from '@/lib/productIdentity';
@@ -297,7 +297,7 @@ const INCIDENT_ERRORS_MAX = 100;
 async function incidentErrors(i: any) {
   const started = Date.parse(i.started_at);
   const ts = { $gte: new Date(started - 86_400_000), $lte: i.resolved_at ? new Date(i.resolved_at) : new Date() };
-  const match = { panel: i.panel, ts, ...(i.product_id ? { product_id: i.product_id } : {}) };
+  const match = { panel: i.panel, ts, ...PROD, ...(i.product_id ? { product_id: i.product_id } : {}) };
   const f = 'ts, event_type, product_id, product_version, computer_name, school_name, session_id, issue_id';
   const [crashes, events] = await Promise.all([
     col('diag_crashes').then((c) => c.find(match, fields(`${f}, exception`)).sort({ ts: -1 }).limit(INCIDENT_ERRORS_MAX).toArray()).then(toRows),

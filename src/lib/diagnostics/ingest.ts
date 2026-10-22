@@ -81,6 +81,8 @@ function common(b: IngestBody, id: DeviceIdentity) {
     product_version: cleanLine(b.product_version, 40), build_number: cleanLine(b.build_number, 40), build_commit: cleanLine(b.build_commit, 64),
     entity_id: id.entityId, school_name: id.schoolName, installation_id: cleanLine(b.installation_id, 64),
     machine_id: id.machineId, computer_name: cleanLine(b.computer_name, 64),
+    // Events too, so metrics/alerts can leave developer runs (app sends "test") out.
+    environment: b.environment ?? 'production',
   };
 }
 

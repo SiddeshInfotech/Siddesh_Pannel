@@ -110,10 +110,12 @@ const nonNull = (arr: string) => ({ $size: { $setDifference: [arr, [null]] } });
 export type SeriesRow = { bucket: string; events: number; errors: number; warnings: number; crashes: number; machines: number; users: number };
 /** Same as ops_event_series: buckets of `bucketS` seconds starting at `from` (date_bin). */
 const panelMatch = (panel: string | string[]) => (Array.isArray(panel) ? { $in: panel } : panel);
+/** Production rows only: developer runs (environment "test") stay out of rates, alerts and incidents. Untagged (older) rows count as production. */
+export const PROD = { environment: { $ne: 'test' } } as const;
 export async function eventSeries(panel: string | string[], from: string, to: string, bucketS: number, product: string | null): Promise<SeriesRow[]> {
   const f = new Date(from), ms = bucketS * 1000;
   const rows = await (await col('diag_events')).aggregate([
-    { $match: { panel: panelMatch(panel), ts: { $gte: f, $lt: new Date(to) }, ...(product ? { product_id: product } : {}) } },
+    { $match: { panel: panelMatch(panel), ts: { $gte: f, $lt: new Date(to) }, ...PROD, ...(product ? { product_id: product } : {}) } },
     { $group: {
       _id: { $add: [f, { $multiply: [{ $floor: { $divide: [{ $subtract: ['$ts', f] }, ms] } }, ms] }] },
       events: { $sum: 1 },
@@ -133,7 +135,7 @@ export async function eventSeries(panel: string | string[], from: string, to: st
  * many of them have a crash report. Per session, so one PC force-closed twice can't read as "200%".
  */
 export async function sessionCrashStats(panel: string | string[], from: string, to: string, product: string | null): Promise<{ sessions: number; crashed: number }> {
-  const match = { panel: panelMatch(panel), ts: { $gte: new Date(from), $lt: new Date(to) }, session_id: { $type: 'string' }, ...(product ? { product_id: product } : {}) };
+  const match = { panel: panelMatch(panel), ts: { $gte: new Date(from), $lt: new Date(to) }, session_id: { $type: 'string' }, ...PROD, ...(product ? { product_id: product } : {}) };
   const [r] = await (await col('diag_events')).aggregate([
     { $match: match },
     { $group: { _id: '$session_id' } },
@@ -149,7 +151,7 @@ export async function sessionCrashStats(panel: string | string[], from: string, 
 export async function percentiles(panel: string | string[], from: string, to: string, product: string | null) {
   const at = (i: number) => ({ $arrayElemAt: ['$pcts', i] });
   const rows = await (await col('diag_events')).aggregate([
-    { $match: { panel: panelMatch(panel), ts: { $gte: new Date(from), $lt: new Date(to) }, duration_ms: { $ne: null }, ...(product ? { product_id: product } : {}) } },
+    { $match: { panel: panelMatch(panel), ts: { $gte: new Date(from), $lt: new Date(to) }, duration_ms: { $ne: null }, ...PROD, ...(product ? { product_id: product } : {}) } },
     { $group: {
       _id: { category: '$category', name: { $cond: [{ $eq: ['$category', 'API'] }, { $ifNull: ['$feature', '$event_type'] }, '$event_type'] } },
       n: { $sum: 1 },
@@ -167,7 +169,7 @@ export async function activityRefresh(panel: string, days: number): Promise<numb
   const first = new Date(); first.setUTCHours(0, 0, 0, 0); first.setUTCDate(first.getUTCDate() - (Math.max(1, days) - 1));
   const events = await col('diag_events');
   const groupBy = (product: unknown) => events.aggregate([
-    { $match: { panel, ts: { $gte: first } } },
+    { $match: { panel, ts: { $gte: first }, ...PROD } },
     { $group: {
       _id: { day: { $dateToString: { format: '%Y-%m-%d', date: '$ts', timezone: 'UTC' } }, product },
       events: { $sum: 1 }, errors: { $sum: { $cond: [{ $in: ['$severity', ERR] }, 1, 0] } },
