@@ -13,7 +13,6 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import QRCode from 'qrcode';
 import { usePanelSlug } from '@/lib/usePanelPath';
 import { SESSION_PANEL_HEADER } from '@/lib/appPanel';
 import { AuthProvider } from '@/context/AuthContext';
@@ -78,11 +77,13 @@ export default function AuthWrapper({
   useEffect(() => {
     if (mfaSetupRequired && totpSecret && email) {
       const uri = `otpauth://totp/Siddesh%20Tech%20Admin:${encodeURIComponent(email)}?secret=${totpSecret}&issuer=Siddesh%20Tech`;
-      QRCode.toDataURL(uri, { 
+      // Loaded on demand: only MFA setup needs the QR library, so it stays out of every page's bundle.
+      import('qrcode')
+      .then(({ default: QRCode }) => QRCode.toDataURL(uri, {
         width: 200,
         margin: 1,
         color: { dark: '#000000', light: '#ffffff' }
-      })
+      }))
       .then(setQrCodeUrl)
       .catch(console.error);
     }

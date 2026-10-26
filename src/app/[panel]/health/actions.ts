@@ -7,7 +7,7 @@
 import { DiagAuthError, audit, dbErrorMessage, rateLimit, requireActor, visiblePanels, type Actor } from '@/lib/diagnostics/server';
 import { cleanLine } from '@/lib/diagnostics/core';
 import { col, contains, fields, logsDb, toRows } from '@/lib/diagnostics/mongo';
-import { eventSeries, mongoCollections, mongoUsage, PROD, sessionCrashStats } from '@/lib/diagnostics/mongoOps';
+import { eventSeries, eventTotalsByProduct, mongoCollections, mongoUsage, productKey, PROD, sessionCrashStats, sessionCrashStatsByProduct, type ProductTotals } from '@/lib/diagnostics/mongoOps';
 import { ActionResult, fail, ok } from '@/lib/actionResult';
 import { panelDb } from '@/lib/panelTables';
 import { productDisplayName, productsForPanel } from '@/lib/productIdentity';
@@ -15,6 +15,8 @@ import { fetchAllPages } from '@/app/[panel]/update/telemetry';
 import type { Panel } from '@/lib/supabase';
 import { computeMetrics, loadDevices, loadOps, maybeEvaluate, maybeRecordActivity, supabaseUsage, type DeviceRow } from '@/lib/ops/engine';
 import { heartbeatState, versionDistribution } from '@/lib/ops/health';
+import { after } from 'next/server';
+import { swrCache } from '@/lib/swrCache';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- dynamic documents */
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -32,59 +34,89 @@ const inScope = (a: Actor, entity: string | null) => !a.schoolIds || (!!entity &
 const productOk = (a: Actor, p: string | null | undefined) => (p && visiblePanels(a).some((pn) => productsForPanel(pn).some((x) => x.id === p)) ? p : null);
 
 // ── Overview: health score + products ───────────────────────────────────────
+// Full-scope admins of a panel all see the same overview, so concurrent viewers and refreshes
+// share one computation: fresh for 15 s, then served (≤ 45 s old, generatedAt says when) while one
+// background refresh runs. School-scoped roles always compute their own, never from this cache.
+const overviewCache = swrCache<any>({ freshMs: 15_000, maxMs: 45_000 });
+
 export async function getOverview(product?: string | null): Promise<ActionResult<any>> {
   return guard(async () => {
-    const a = await viewer();
-    const cfg = await loadOps(a.panel);
+    const a = await viewer(); // permission + rate limit first, cached or not
     const prod = productOk(a, product);
-    const now = Date.now();
-    await logsDb(); // fail loudly when storage is not configured instead of rendering zeros as "healthy"
-    // LMS-Admin + Lab-Admin together (school-scoped roles: their own panel only).
-    const panels = visiblePanels(a);
-    const devicesBy = new Map<Panel, DeviceRow[]>(await Promise.all(panels.map(async (p) =>
-      [p, (await loadDevices(p, p === a.panel ? cfg : await loadOps(p))).filter((d) => p !== a.panel || inScope(a, d.entity))] as [Panel, DeviceRow[]])));
-    const allDevices = [...devicesBy.values()].flat();
-    const m = await computeMetrics(panels, prod, cfg, allDevices);
-    if (!a.schoolIds) {
+    return ok(a.schoolIds
+      ? await computeOverview(a, prod)
+      : await overviewCache.get(`${a.panel}|${prod ?? ''}`, () => computeOverview(a, prod)));
+  });
+}
+
+async function computeOverview(a: Actor, prod: string | null) {
+  const now = Date.now();
+  const hour = Math.floor(now / 3600_000) * 3600_000;
+  // LMS-Admin + Lab-Admin together (school-scoped roles: their own panel only).
+  const panels = visiblePanels(a);
+
+  // Steps that do not depend on each other run together, so the page waits for each round
+  // trip (Vercel → MongoDB / Supabase) once per stage instead of once per call.
+  const [cfgs, , [prevScores, releases]] = await Promise.all([
+    Promise.all(panels.map((p) => loadOps(p))),
+    logsDb(), // fail loudly when storage is not configured instead of rendering zeros as "healthy"
+    Promise.all([col('ops_rollups'), col('ops_releases')]).then(([rollups, releasesCol]) => Promise.all([
+      // Exactly the previous hour's snapshot(s) — no comparison when none was recorded.
+      prod ? Promise.resolve([]) : rollups.find({ panel: { $in: panels }, granularity: 'hour', product_id: '_all', metric: 'health_score', bucket: new Date(hour - 3600_000) }).toArray(),
+      releasesCol.find({ panel: { $in: panels } }, fields('panel, product_id, first_seen')).sort({ first_seen: -1 }).limit(100).toArray().then(toRows),
+    ])),
+  ]);
+  const cfg = cfgs[panels.indexOf(a.panel)];
+  const previousScore = prevScores.length ? prevScores.reduce((s, r) => s + Number(r.value), 0) / prevScores.length : null;
+
+  const devicesBy = new Map<Panel, DeviceRow[]>(await Promise.all(panels.map(async (p, i) =>
+    [p, (await loadDevices(p, cfgs[i])).filter((d) => p !== a.panel || inScope(a, d.entity))] as [Panel, DeviceRow[]])));
+  const allDevices = [...devicesBy.values()].flat();
+
+  // Every product of every visible panel with the same fields (24 h), plus an "All products" total.
+  const dayFrom = iso(now - 86_400_000), dayTo = iso(now);
+  const summarize = (inPanels: Panel[], id: string | null, name: string, os: string | null, r: ProductTotals, ss: { sessions: number; crashed: number }) => {
+    const pd = inPanels.flatMap((p) => devicesBy.get(p) ?? []).filter((d) => !id || d.product === id);
+    const errorRate = r.events ? (r.errors / r.events) * 100 : null;
+    const crashRate = ss.sessions ? (ss.crashed / ss.sessions) * 100 : null; // crashed sessions, never > 100%
+    const status = !pd.length && !r.events ? 'UNKNOWN' : (crashRate ?? 0) > 2 || (errorRate ?? 0) > 10 ? 'CRITICAL' : (crashRate ?? 0) > 0.5 || (errorRate ?? 0) > 3 ? 'WARNING' : 'HEALTHY';
+    return {
+      id: id ?? '', name, group: name.replace(/ (Android|Windows|Linux)$/, ''), os, status, version: id ? versionDistribution(pd.map((d) => d.version)).latest : null,
+      panel: inPanels.length === 1 ? inPanels[0] : null, external: false,
+      devices: pd.length, online: pd.filter((d) => d.state === 'ONLINE').length,
+      schools: new Set(pd.map((d) => d.entity).filter(Boolean)).size, activeUsers: r.users || null,
+      errors24h: r.errors, crashes24h: r.crashes, errorRate, crashRate,
+      lastDeployment: releases.find((x: any) => inPanels.includes(x.panel) && (!id || x.product_id === id))?.first_seen ?? null,
+    };
+  };
+  // "All products" keeps its own queries: distinct users cannot be summed from per-product rows.
+  const allProducts = async () => {
+    const [s24, ss] = await Promise.all([eventSeries(panels, dayFrom, dayTo, 86_400, null), sessionCrashStats(panels, dayFrom, dayTo, null)]);
+    const r = s24.reduce((t, x) => ({ events: t.events + x.events, errors: t.errors + x.errors, crashes: t.crashes + x.crashes, users: Math.max(t.users, x.users) }), { events: 0, errors: 0, crashes: 0, users: 0 });
+    return summarize(panels, null, 'All products', null, r, ss);
+  };
+  // Every product's numbers come from 2 grouped queries instead of 2 queries per product.
+  const productRows = async () => {
+    const [totals, crashes] = await Promise.all([eventTotalsByProduct(panels, dayFrom, dayTo), sessionCrashStatsByProduct(panels, dayFrom, dayTo)]);
+    return panels.flatMap((p) => productsForPanel(p).map((pr) => summarize([p], pr.id, pr.displayName, pr.targetOs,
+      totals.get(productKey(p, pr.id)) ?? { events: 0, errors: 0, crashes: 0, users: 0 },
+      crashes.get(productKey(p, pr.id)) ?? { sessions: 0, crashed: 0 })));
+  };
+  // The health score and the per-product rows only share the device list loaded above.
+  const [m, all, rows] = await Promise.all([computeMetrics(panels, prod, cfg, allDevices), allProducts(), productRows()]);
+  const products = [all, ...rows];
+
+  if (!a.schoolIds) {
+    // Bookkeeping the response does not need: run it after the response is sent.
+    after(async () => {
       // Alert rules are per panel: evaluated on THIS panel's own metrics (≤ 1/min), not the combined view.
       await maybeEvaluate(a.panel, cfg).catch(() => undefined);
       // Today's Activity rows; hourly health snapshots per panel come from the hourly cron.
       await maybeRecordActivity(a.panel, panels.length === 1 && !prod ? m.score.score : null).catch(() => undefined);
-    }
+    });
+  }
 
-    const hour = Math.floor(now / 3600_000) * 3600_000;
-    const [rollups, releasesCol] = await Promise.all([col('ops_rollups'), col('ops_releases')]);
-    const [prevScores, releases] = await Promise.all([
-      // Exactly the previous hour's snapshot(s) — no comparison when none was recorded.
-      prod ? Promise.resolve([]) : rollups.find({ panel: { $in: panels }, granularity: 'hour', product_id: '_all', metric: 'health_score', bucket: new Date(hour - 3600_000) }).toArray(),
-      releasesCol.find({ panel: { $in: panels } }, fields('panel, product_id, first_seen')).sort({ first_seen: -1 }).limit(100).toArray().then(toRows),
-    ]);
-    const previousScore = prevScores.length ? prevScores.reduce((s, r) => s + Number(r.value), 0) / prevScores.length : null;
-
-    // Every product of every visible panel with the same fields (24 h), plus an "All products" total.
-    const summarize = async (inPanels: Panel[], id: string | null, name: string, os: string | null = null) => {
-      const pd = inPanels.flatMap((p) => devicesBy.get(p) ?? []).filter((d) => !id || d.product === id);
-      const [s24, ss] = await Promise.all([eventSeries(inPanels, iso(now - 86_400_000), iso(now), 86_400, id), sessionCrashStats(inPanels, iso(now - 86_400_000), iso(now), id)]);
-      const r = s24.reduce((t, x) => ({ events: t.events + x.events, errors: t.errors + x.errors, crashes: t.crashes + x.crashes, users: Math.max(t.users, x.users) }), { events: 0, errors: 0, crashes: 0, users: 0 });
-      const errorRate = r.events ? (r.errors / r.events) * 100 : null;
-      const crashRate = ss.sessions ? (ss.crashed / ss.sessions) * 100 : null; // crashed sessions, never > 100%
-      const status = !pd.length && !r.events ? 'UNKNOWN' : (crashRate ?? 0) > 2 || (errorRate ?? 0) > 10 ? 'CRITICAL' : (crashRate ?? 0) > 0.5 || (errorRate ?? 0) > 3 ? 'WARNING' : 'HEALTHY';
-      return {
-        id: id ?? '', name, group: name.replace(/ (Android|Windows|Linux)$/, ''), os, status, version: id ? versionDistribution(pd.map((d) => d.version)).latest : null,
-        panel: inPanels.length === 1 ? inPanels[0] : null, external: false,
-        devices: pd.length, online: pd.filter((d) => d.state === 'ONLINE').length,
-        schools: new Set(pd.map((d) => d.entity).filter(Boolean)).size, activeUsers: r.users || null,
-        errors24h: r.errors, crashes24h: r.crashes, errorRate, crashRate,
-        lastDeployment: releases.find((x: any) => inPanels.includes(x.panel) && (!id || x.product_id === id))?.first_seen ?? null,
-      };
-    };
-    const products = await Promise.all([
-      summarize(panels, null, 'All products'),
-      ...panels.flatMap((p) => productsForPanel(p).map((pr) => summarize([p], pr.id, pr.displayName, pr.targetOs))),
-    ]);
-
-    return ok({ generatedAt: iso(now), product: prod, score: m.score, previousScore, products });
-  });
+  return { generatedAt: iso(now), product: prod, score: m.score, previousScore, products };
 }
 
 // ── Activity: 24 h from raw events, longer windows from the compact daily table ─

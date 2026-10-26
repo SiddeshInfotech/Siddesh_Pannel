@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, fail, ok } from '@/lib/actionResult';
 import { adminDb } from '@/lib/panelTables';
+import { invalidateEntityLists } from '@/lib/entityLists';
 
 // Define Zod validation schema for vendor fields
 const CreateVendorSchema = z.object({
@@ -120,6 +121,7 @@ export async function createVendor(formData: any /* eslint-disable-line @typescr
 
     logger.info({ event: 'VENDOR_CREATED_DB', vendorId: newVendor.vendor_id, adminEmail: session.email });
     revalidatePath('/[panel]/accounts', 'page');
+    invalidateEntityLists((await adminDb()).panel); // picker lists (src/lib/entityLists.ts)
     return ok(newVendor.vendor_id as string);
   } catch (err) {
     logger.error({ event: 'CREATE_VENDOR_DB_CRITICAL' }, err);

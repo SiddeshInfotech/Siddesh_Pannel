@@ -52,7 +52,10 @@ function productWithDeviceClass(productId: string | null | undefined, deviceClas
   const product = productDisplayName(productId);
   return deviceClass === DEVICE_CLASS_MANAGED_PANEL ? `${product} · ${deviceClassLabel(deviceClass)}` : product;
 }
-import { downloadActivationKeysPdf } from '@/lib/keysPdf';
+import type { BatchPdfInput } from '@/lib/keysPdf';
+// jsPDF is loaded only when "PDF" is clicked, not with the keys page.
+const downloadActivationKeysPdf = (input: BatchPdfInput) =>
+  import('@/lib/keysPdf').then((m) => m.downloadActivationKeysPdf(input));
 
 interface SchoolOption {
   id: string;

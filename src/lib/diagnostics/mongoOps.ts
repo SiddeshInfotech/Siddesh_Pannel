@@ -147,6 +147,45 @@ export async function sessionCrashStats(panel: string | string[], from: string, 
   return { sessions: Number(r?.sessions ?? 0), crashed: Number(r?.crashed ?? 0) };
 }
 
+/** Key of the per-product maps below: `<panel>|<product_id>`. */
+export const productKey = (panel: string, product: string) => `${panel}|${product}`;
+export type ProductTotals = { events: number; errors: number; crashes: number; users: number };
+
+/**
+ * eventSeries totals over the whole window for EVERY (panel, product) at once — one aggregation
+ * instead of one per product. Same match rules (production rows, time window) as eventSeries.
+ */
+export async function eventTotalsByProduct(panels: string[], from: string, to: string): Promise<Map<string, ProductTotals>> {
+  const rows = await (await col('diag_events')).aggregate([
+    { $match: { panel: { $in: panels }, ts: { $gte: new Date(from), $lt: new Date(to) }, product_id: { $type: 'string' }, ...PROD } },
+    { $group: {
+      _id: { panel: '$panel', product: '$product_id' },
+      events: { $sum: 1 },
+      errors: { $sum: { $cond: [{ $in: ['$severity', ERR] }, 1, 0] } },
+      crashes: { $sum: { $cond: [{ $eq: ['$category', 'CRASH'] }, 1, 0] } },
+      u: { $addToSet: '$user_id' },
+    } },
+    { $project: { _id: 1, events: 1, errors: 1, crashes: 1, users: nonNull('$u') } },
+  ], { allowDiskUse: true }).toArray();
+  return new Map(rows.map((r: any) => [productKey(r._id.panel, r._id.product),
+    { events: r.events, errors: r.errors, crashes: r.crashes, users: r.users }]));
+}
+
+/** sessionCrashStats for EVERY (panel, product) at once — same per-session rules, one aggregation. */
+export async function sessionCrashStatsByProduct(panels: string[], from: string, to: string): Promise<Map<string, { sessions: number; crashed: number }>> {
+  const match = { panel: { $in: panels }, ts: { $gte: new Date(from), $lt: new Date(to) }, session_id: { $type: 'string' }, product_id: { $type: 'string' }, ...PROD };
+  const bySession = { panel: '$panel', product: '$product_id', session: '$session_id' };
+  const rows = await (await col('diag_events')).aggregate([
+    { $match: match },
+    { $group: { _id: bySession } },
+    { $project: { c: { $literal: 0 } } },
+    { $unionWith: { coll: 'diag_crashes', pipeline: [{ $match: match }, { $group: { _id: bySession } }, { $project: { c: { $literal: 1 } } }] } },
+    { $group: { _id: '$_id', c: { $max: '$c' } } },
+    { $group: { _id: { panel: '$_id.panel', product: '$_id.product' }, sessions: { $sum: 1 }, crashed: { $sum: '$c' } } },
+  ], { allowDiskUse: true }).toArray();
+  return new Map(rows.map((r: any) => [productKey(r._id.panel, r._id.product), { sessions: Number(r.sessions), crashed: Number(r.crashed) }]));
+}
+
 /** Same as ops_percentiles (approximate percentiles; exact enough for P50…P99 dashboards). */
 export async function percentiles(panel: string | string[], from: string, to: string, product: string | null) {
   const at = (i: number) => ({ $arrayElemAt: ['$pcts', i] });

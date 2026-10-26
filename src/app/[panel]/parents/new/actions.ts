@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, fail, ok } from '@/lib/actionResult';
 import { adminDb } from '@/lib/panelTables';
+import { invalidateEntityLists } from '@/lib/entityLists';
 
 const CreateParentSchema = z.object({
   parentName: z.string().trim().min(1, 'Parent Name is required.').max(150, 'Parent Name is too long.'),
@@ -60,6 +61,7 @@ export async function createParent(formData: any /* eslint-disable-line @typescr
     if (!error) {
       logger.info({ event: 'PARENT_CREATED_DB', parentId: newParent.parent_id, adminEmail: session.email });
       revalidatePath('/[panel]/accounts', 'page');
+      invalidateEntityLists((await adminDb()).panel); // picker lists (src/lib/entityLists.ts)
       return ok(newParent.parent_id as string);
     }
     

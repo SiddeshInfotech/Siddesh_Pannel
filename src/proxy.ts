@@ -29,9 +29,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { jwtVerify, importSPKI } from 'jose';
 import { checkSessionInDb, COOKIE_NAME, LEGACY_COOKIE_NAME } from './lib/auth';
-import { isSessionLiveCached } from './lib/sessionCache';
+import { isSessionLiveCached, type CacheSource } from './lib/sessionCache';
 import { panelFromSlug, type PanelSlug } from './lib/appPanel';
 import { logger } from './lib/logger';
+import { VERIFIED_HEADER, signVerified } from './lib/verifiedHeader';
 
 // Must match auth.ts: admin JWTs are verified with the admin signing key
 // (separate from the device-license PRIVATE_KEY), falling back to PRIVATE_KEY
@@ -190,11 +191,15 @@ export async function proxy(req: NextRequest) {
   // `migrated` (set below) = a pre-split session being moved into this panel's scoped cookie on
   // this request; the page render must already see it under the new name.
   let migrated: string | null = null;
-  const pageNext = (): NextResponse => {
+  // `verified` = signed "this session passed the DB check" for the page render (src/lib/verifiedHeader.ts).
+  // Any copy a client sent is always dropped here, so only the proxy can set it.
+  const pageNext = (verified?: string): NextResponse => {
     if (req.method !== 'GET') {
       return NextResponse.next();
     }
     const requestHeaders = new Headers(req.headers);
+    requestHeaders.delete(VERIFIED_HEADER);
+    if (verified) requestHeaders.set(VERIFIED_HEADER, verified);
     requestHeaders.set('x-nonce', nonce);
     requestHeaders.set('Content-Security-Policy', csp);
     if (migrated) {
@@ -250,8 +255,10 @@ export async function proxy(req: NextRequest) {
   const panelHome = new URL(`/${urlSlug}`, req.url);
   const cookiePath = `/${urlSlug}`; // this panel's session cookie lives here (auth.ts sessionCookiePath)
 
-  // Always allow public API routes (login, device endpoints) under either prefix
-  if (PUBLIC_ROUTES.some(route => pathname.startsWith(route))) {
+  // Always allow public API routes (login, device endpoints) under either prefix.
+  // EXACT path only (a trailing slash is tolerated): a prefix match would also make any future
+  // route that merely starts with one of these names (e.g. /api/ops/sync-report) public by accident.
+  if (PUBLIC_ROUTES.some(route => pathname === route || pathname === `${route}/`)) {
     return injectSecurityHeaders(NextResponse.next(), false);
   }
 
@@ -302,12 +309,14 @@ export async function proxy(req: NextRequest) {
 
   // Verify JWT
   try {
+    const jwtStart = performance.now();
     const key = await keyPromise;
     const { payload } = await jwtVerify(token, key, {
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
       algorithms: ['ES256'],
     });
+    const jwtMs = performance.now() - jwtStart;
 
     const email = payload.email as string;
     const sid = payload.sid as string | undefined;
@@ -332,7 +341,11 @@ export async function proxy(req: NextRequest) {
     // Briefly cached with background re-validation (src/lib/sessionCache.ts) so page
     // navigation does not wait on the database each click. Signature/expiry above are
     // still verified on every request.
-    if (!(await isSessionLiveCached({ panel: tokenPanel, sid, email }, checkSessionInDb))) {
+    const sessionStart = performance.now();
+    const trace: { source?: CacheSource } = {};
+    const sessionLive = await isSessionLiveCached({ panel: tokenPanel, sid, email }, checkSessionInDb, trace);
+    const sessionMs = performance.now() - sessionStart;
+    if (!sessionLive) {
       console.error('[proxy] Session revoked, expired, removed, or unverifiable.');
       return injectSecurityHeaders(reject(() => pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Session revoked or expired.' }, { status: 401 })
@@ -349,7 +362,17 @@ export async function proxy(req: NextRequest) {
         : pageNext()), true);
     }
 
-    return injectSecurityHeaders(adopt(pageNext(), payload.exp), true);
+    const res = injectSecurityHeaders(adopt(pageNext(signVerified({ sid, email, panel: tokenPanel })), payload.exp), true);
+    // Auth cost of this request, visible in the browser's Network tab → Timing. Off unless
+    // AUTH_SERVER_TIMING=1 (turn on only while measuring); even then it is sent only on a fully
+    // authenticated response, so it tells an admin nothing about anyone else's session.
+    if (process.env.AUTH_SERVER_TIMING === '1') {
+      res.headers.set('Server-Timing', [
+        `proxy-jwt;dur=${jwtMs.toFixed(2)}`,
+        `proxy-session;dur=${sessionMs.toFixed(2)};desc="${trace.source ?? 'unknown'}"`,
+      ].join(', '));
+    }
+    return res;
   } catch (err) {
     console.error('❌ verifyAdminToken in proxy failed:', err);
     // Expired or tampered token

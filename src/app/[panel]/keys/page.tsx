@@ -2,71 +2,47 @@ import React from 'react';
 import { getAdminSession } from '@/lib/auth';
 import KeysClient from './KeysClient';
 import { adminDb } from '@/lib/panelTables';
+import { getEntityLists } from '@/lib/entityLists';
 
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
-async function getSchoolsList() {
-  const { data: schools } = await (await adminDb())
-    .from('schools')
-    .select('id, name')
-    .order('name', { ascending: true });
-
-  return (schools ?? []).map(s => ({ id: s.id, name: s.name }));
-}
-
-async function getVendorsList() {
-  const { data: vendors } = await (await adminDb())
-    .from('vendors')
-    .select('vendor_id, vendor_name')
-    .order('vendor_name', { ascending: true });
-
-  return (vendors ?? []).map(v => ({ id: v.vendor_id, name: v.vendor_name }));
-}
-
-async function getParentsList() {
-  const { data: parents } = await (await adminDb())
-    .from('parents')
-    .select('id, parent_name')
-    .order('parent_name', { ascending: true });
-
-  return (parents ?? []).map(p => ({ id: p.id, name: p.parent_name }));
-}
-
 async function getKeysList() {
-  const { data: keys } = await (await adminDb())
-    .from('activation_keys')
-    // NOTE: platform / security_tier are intentionally NOT selected here — they may
-    // not exist until add_platform.sql / add_security_tier.sql run, and Supabase errors
-    // the whole query on an unknown column. The Windows/Android badge falls back to
-    // device_os (Windows OS string), so the keys page stays safe on an un-migrated DB.
-    .select(`
-      id, school_id, vendor_id, parent_id, key, status, duration_days, expires_at, created_at, batch_id,
-      device_fingerprint, device_model, device_os, device_brand, device_android_id, activated_at,
-      watermark_code, product_id,
-      schools ( name ),
-      vendors ( vendor_name ),
-      parents ( parent_name )
-    `)
-    .order('created_at', { ascending: false });
-
-  // device_class (scripts/add_interactive_panel.sql) is read in its own best-effort query so the main
-  // list above never errors on a DB that hasn't run that migration yet — every key then shows
-  // as Standard, which is exactly what they all are until the column exists.
-  const panelById = new Map<string, { deviceClass: string; activateBy: string | null; replacedAt: string | null }>();
-  {
-    const { data: classes, error: classError } = await (await adminDb())
+  const db = await adminDb();
+  // Both reads are independent: one round trip of wait instead of two.
+  const [{ data: keys }, { data: classes, error: classError }] = await Promise.all([
+    db
+      .from('activation_keys')
+      // NOTE: platform / security_tier are intentionally NOT selected here — they may
+      // not exist until add_platform.sql / add_security_tier.sql run, and Supabase errors
+      // the whole query on an unknown column. The Windows/Android badge falls back to
+      // device_os (Windows OS string), so the keys page stays safe on an un-migrated DB.
+      .select(`
+        id, school_id, vendor_id, parent_id, key, status, duration_days, expires_at, created_at, batch_id,
+        device_fingerprint, device_model, device_os, device_brand, device_android_id, activated_at,
+        watermark_code, product_id,
+        schools ( name ),
+        vendors ( vendor_name ),
+        parents ( parent_name )
+      `)
+      .order('created_at', { ascending: false }),
+    // device_class (scripts/add_interactive_panel.sql) is read in its own best-effort query so the main
+    // list above never errors on a DB that hasn't run that migration yet — every key then shows
+    // as Standard, which is exactly what they all are until the column exists.
+    db
       .from('activation_keys')
       .select('id, device_class, enrollment_expires_at, replaced_at')
-      .not('device_class', 'is', null);
-    if (!classError) {
-      for (const c of classes ?? []) {
-        panelById.set(c.id, {
-          deviceClass: c.device_class,
-          activateBy: c.enrollment_expires_at ?? null,
-          replacedAt: c.replaced_at ?? null,
-        });
-      }
+      .not('device_class', 'is', null),
+  ]);
+
+  const panelById = new Map<string, { deviceClass: string; activateBy: string | null; replacedAt: string | null }>();
+  if (!classError) {
+    for (const c of classes ?? []) {
+      panelById.set(c.id, {
+        deviceClass: c.device_class,
+        activateBy: c.enrollment_expires_at ?? null,
+        replacedAt: c.replaced_at ?? null,
+      });
     }
   }
 
@@ -111,11 +87,10 @@ export default async function KeysPage() {
   const session = await getAdminSession();
   if (!session) return null;
 
-  const [schools, keys, vendors, parents] = await Promise.all([
-    getSchoolsList(),
+  // Picker lists come from the data cache (src/lib/entityLists.ts); the keys are always live.
+  const [{ schools, vendors, parents }, keys] = await Promise.all([
+    getEntityLists(session.panel),
     getKeysList(),
-    getVendorsList(),
-    getParentsList(),
   ]);
   return <KeysClient schools={schools} keys={keys} vendors={vendors} parents={parents} panel={session.panel} />;
 }

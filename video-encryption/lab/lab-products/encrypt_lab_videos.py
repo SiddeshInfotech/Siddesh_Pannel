@@ -463,6 +463,17 @@ def process_trans_file(input_path: str, output_path: str, passphrase_a: str, pas
     except Exception as e:
         print(f"❌ Failed key rotation for {input_path}: {str(e)}")
 
+def animation_dest_root(dest_root: str) -> str:
+    """Where pop-up (timed-activity) videos go: the app reads them ONLY from
+    LMS_Content/animation/<course>/Day<N>/. A destination that is the LMS_Content/videos
+    (or videos1/Lab/Lab1) folder gets the sibling LMS_Content/animation; any other
+    destination gets <destination>/animation."""
+    norm = os.path.normpath(dest_root)
+    if os.path.basename(norm).lower() in ('videos', 'videos1', 'lab', 'lab1'):
+        return os.path.join(os.path.dirname(norm), 'animation')
+    return os.path.join(norm, 'animation')
+
+
 def main():
     print("====================================================")
     print("       LMS ENTERPRISE OFFLINE VIDEO ENCRYPTION      ")
@@ -598,9 +609,12 @@ def main():
             workers_in = input(f"⚙️ Parallel workers [{DEFAULT_WORKERS}]: ").strip()
             workers = int(workers_in) if workers_in.isdigit() and int(workers_in) > 0 else DEFAULT_WORKERS
 
+        anim_root = animation_dest_root(dest_root)
         # Sweep stale .part leftovers from a previous hard kill so junk never piles up.
-        if os.path.isdir(dest_root):
-            for dirpath, _, files in os.walk(dest_root):
+        for sweep_root in {dest_root, anim_root}:
+            if not os.path.isdir(sweep_root):
+                continue
+            for dirpath, _, files in os.walk(sweep_root):
                 for f in files:
                     if f.endswith('.enc.part'):
                         try:
@@ -621,6 +635,11 @@ def main():
                     #   electronics/... -> course_1, ... ar/... -> course_7, etc.
                     rel_path = os.path.relpath(full_input, root)
                     parts = rel_path.replace('\\', '/').split('/')
+                    # Pop-up videos: animation/<course>/Day<N>/… use their course's key and
+                    # go to LMS_Content/animation (see animation_dest_root).
+                    is_activity = len(parts) >= 3 and parts[0].lower() == 'animation'
+                    if is_activity:
+                        parts = parts[1:]
 
                     if len(parts) >= 2:
                         course_folder = parts[0]
@@ -638,7 +657,7 @@ def main():
                         # Calculate destination path and recreate subdirectories
                         rel_dir = os.path.dirname(rel_path)
                         enc_filename = os.path.splitext(file)[0] + ".enc"
-                        out_dir = os.path.join(dest_root, rel_dir)
+                        out_dir = os.path.join(anim_root, *parts[:-1]) if is_activity else os.path.join(dest_root, rel_dir)
                         os.makedirs(out_dir, exist_ok=True)
                         full_output = os.path.join(out_dir, enc_filename)
 

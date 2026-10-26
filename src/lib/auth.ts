@@ -12,12 +12,25 @@
  */
 
 import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
-import { cookies } from 'next/headers';
+import { cookies, headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { cache } from 'react';
 import { supabaseFor, type Panel } from './supabase';
 import { logger } from './logger';
-import { isSessionLiveCached, type SessionKey } from './sessionCache';
+import { isSessionLiveCached, type CacheSource, type SessionKey } from './sessionCache';
+import { VERIFIED_HEADER, isVerifiedFor } from './verifiedHeader';
+
+/** Where the auth time of one verification went (diagnostics only). */
+type AuthTiming = { jwtMs?: number; sessionMs?: number; source?: CacheSource; proxyVerified?: boolean };
+
+/** The proxy's signed "already verified" header of the current request, if any (null outside a request). */
+async function verifiedHeaderValue(): Promise<string | null> {
+  try {
+    return (await headers()).get(VERIFIED_HEADER);
+  } catch {
+    return null;
+  }
+}
 import { PANEL_SLUG, SESSION_PANEL_HEADER } from './appPanel';
 
 const isProd = process.env.NODE_ENV === 'production';
@@ -157,15 +170,18 @@ export async function signAdminToken(email: string, sessionId: string, panel: 'l
  * Verify a JWT token string. Returns payload or null if invalid/expired/revoked.
  */
 export async function verifyAdminToken(
-  token: string
+  token: string,
+  timing?: AuthTiming,
 ): Promise<{ email: string; role: string; sid?: string; panel: 'lms' | 'lab' } | null> {
   try {
+    const jwtStart = performance.now();
     const key = await getVerificationKey();
     const { payload } = await jwtVerify(token, key, {
       issuer: JWT_ISSUER,
       audience: JWT_AUDIENCE,
       algorithms: [JWT_ALG],
     });
+    if (timing) timing.jwtMs = performance.now() - jwtStart;
 
     const email = payload.email as string;
     const sid = payload.sid as string | undefined;
@@ -193,7 +209,15 @@ export async function verifyAdminToken(
     // ── Stateful check (mandatory; fail closed) ──────────────────────────────
     // The account must still be an admin of that panel and the session row must be live and
     // unexpired. Briefly cached (src/lib/sessionCache.ts) so page navigation stays fast.
-    if (!(await isSessionLiveCached({ panel, sid, email }, checkSessionInDb))) {
+    const sessionStart = performance.now();
+    // The proxy already checked THIS session against the database for this request and said so in
+    // a signed header (src/lib/verifiedHeader.ts): skip only that second round trip. Signature,
+    // expiry, token type and panel above are still verified here.
+    const proxyVerified = isVerifiedFor(await verifiedHeaderValue(), { sid, email, panel });
+    if (timing) timing.proxyVerified = proxyVerified;
+    const live = proxyVerified || await isSessionLiveCached({ panel, sid, email }, checkSessionInDb, timing);
+    if (timing) timing.sessionMs = performance.now() - sessionStart;
+    if (!live) {
       return null;
     }
 
@@ -236,8 +260,14 @@ export const getAdminSession = cache(async (): Promise<{ email: string; role: st
   const token = cookieStore.get(COOKIE_NAME)?.value;
   logger.info({ event: 'SESSION_CHECK', hasToken: !!token });
   if (!token) return null;
-  const verified = await verifyAdminToken(token);
+  const timing: AuthTiming = {};
+  const verified = await verifyAdminToken(token, timing);
   logger.info({ event: 'SESSION_VERIFICATION_RESULT', verified: !!verified });
+  // Server Components cannot set response headers, so this half of the auth cost goes to the
+  // server log (Vercel → Logs) instead of Server-Timing. Off unless AUTH_TIMING_LOG=1.
+  if (process.env.AUTH_TIMING_LOG === '1') {
+    console.info(`[auth-timing] getAdminSession jwt=${timing.jwtMs?.toFixed(2) ?? '-'}ms session=${timing.sessionMs?.toFixed(2) ?? '-'}ms cache=${timing.proxyVerified ? 'proxy' : timing.source ?? '-'} verified=${!!verified}`);
+  }
   return verified;
 });
 

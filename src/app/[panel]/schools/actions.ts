@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { adminDb } from '@/lib/panelTables';
+import { invalidateEntityLists } from '@/lib/entityLists';
 
 const UpdateSchoolSchema = z.object({
   name: z.string().trim().min(1, 'School name is required.').max(120, 'School name is too long.'),
@@ -40,6 +41,7 @@ export async function deleteSchoolAction(id: string): Promise<ActionResult> {
 
     logger.info({ event: 'SCHOOL_DELETED', schoolId: id, adminEmail: session.email });
     revalidatePath('/[panel]/schools', 'page');
+    invalidateEntityLists((await adminDb()).panel); // picker lists (src/lib/entityLists.ts)
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'DELETE_SCHOOL_CRITICAL_ERROR', schoolId: id }, err);
@@ -96,6 +98,7 @@ export async function updateSchoolAction(id: string, formData: unknown): Promise
 
     logger.info({ event: 'SCHOOL_UPDATED', schoolId: id, adminEmail: session.email });
     revalidatePath('/[panel]/schools', 'page');
+    invalidateEntityLists((await adminDb()).panel); // picker lists (src/lib/entityLists.ts)
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'UPDATE_SCHOOL_CRITICAL_ERROR', schoolId: id }, err);

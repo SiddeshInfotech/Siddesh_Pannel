@@ -85,15 +85,29 @@ function inBackground(task: () => Promise<unknown>) {
 }
 
 /**
- * Is this (signature-verified) session still live? Uses the cache when it safely can.
+ * Where an answer came from (for Server-Timing): `hit` fresh cache, `stale` cache + background
+ * re-check, `miss` waited for the DB, `denied` deny list.
  */
-export async function isSessionLiveCached(k: SessionKey, check: SessionChecker): Promise<boolean> {
+export type CacheSource = 'hit' | 'stale' | 'miss' | 'denied';
+
+/**
+ * Is this (signature-verified) session still live? Uses the cache when it safely can.
+ * `trace.source` is set to where the answer came from (diagnostics only; never affects the result).
+ */
+export async function isSessionLiveCached(
+  k: SessionKey,
+  check: SessionChecker,
+  trace?: { source?: CacheSource },
+): Promise<boolean> {
   const key = keyOf(k);
   const now = Date.now();
 
   const deniedUntil = denied.get(key);
   if (deniedUntil !== undefined) {
-    if (now < deniedUntil) return false;
+    if (now < deniedUntil) {
+      if (trace) trace.source = 'denied';
+      return false;
+    }
     denied.delete(key);
   }
 
@@ -104,15 +118,18 @@ export async function isSessionLiveCached(k: SessionKey, check: SessionChecker):
       // Same session id presented with a different email: never trust the cache for it.
       live.delete(key);
     } else if (now < hardUntil) {
-      if (now - entry.checkedAt >= SOFT_TTL_MS && !inFlight.has(key)) {
+      const stale = now - entry.checkedAt >= SOFT_TTL_MS;
+      if (stale && !inFlight.has(key)) {
         inBackground(() => checkNow(k, check));
       }
+      if (trace) trace.source = stale ? 'stale' : 'hit';
       return true;
     } else {
       live.delete(key);
     }
   }
 
+  if (trace) trace.source = 'miss';
   return checkNow(k, check);
 }
 

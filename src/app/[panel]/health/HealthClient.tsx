@@ -4,7 +4,7 @@
 // "Not available" — never a placeholder value. Polls one summary action every 30 s (no
 // per-browser provider calls; providers are synced by the backend cron).
 import React, { useCallback, useEffect, useState } from 'react';
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import dynamic from 'next/dynamic';
 import { HeartPulse, RefreshCw, Search, ShieldAlert, X } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import GlassCard from '@/components/GlassCard';
@@ -13,6 +13,10 @@ import InfoTip from '@/components/InfoTip';
 import FormModal from '@/components/FormModal';
 import { HEALTH_TAB_HELP, HELP } from '@/lib/diagnostics/help';
 import * as A from './actions';
+import { usePanelPath } from '@/lib/usePanelPath';
+
+// recharts is loaded only when a chart is drawn, not with the page.
+const ActivityChart = dynamic(() => import('./ActivityChart'), { ssr: false, loading: () => <div className="h-full rounded-lg bg-white/5 animate-pulse" /> });
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- action payloads */
 
@@ -40,6 +44,21 @@ function useLoad<T>(fn: () => Promise<{ ok: boolean; data?: T; error?: string } 
   useEffect(() => { load(); if (!pollMs) return; const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, pollMs); return () => clearInterval(t); }, [load, pollMs]);
   return { data, err, reload: load };
 }
+// Reads that poll go over GET so they load in parallel (server actions run one at a time).
+// A request for the same URL that is still running, or finished < 5 s ago, is shared — so a
+// panel can preload data for a child that mounts later (and React dev double-effects collapse).
+const shared = new Map<string, { p: Promise<any>; doneAt?: number }>();
+const getJson = (url: string): Promise<any> => {
+  const hit = shared.get(url);
+  if (hit && (hit.doneAt === undefined || Date.now() - hit.doneAt < 5_000)) return hit.p;
+  const entry: { p: Promise<any>; doneAt?: number } = { p: Promise.resolve() };
+  entry.p = fetch(url, { cache: 'no-store' }).then((r) => r.json()).catch(() => ({ ok: false, error: 'Network error. Please retry.' }))
+    .finally(() => { entry.doneAt = Date.now(); });
+  shared.set(url, entry);
+  return entry.p;
+};
+const activityUrl = (toPanel: (p: string) => string, win: string, product: string) =>
+  toPanel(`/api/ops/activity?${new URLSearchParams({ window: win, ...(product ? { product } : {}) })}`);
 const Err = ({ e }: { e: string | null }) => (e ? <GlassCard><p className="text-xs text-rose-400 flex items-center gap-2"><ShieldAlert className="w-4 h-4" />{e}</p></GlassCard> : null);
 const Table = ({ head, rows, onRow, rowClass }: { head: string[]; rows: React.ReactNode[][]; onRow?: (i: number) => void; rowClass?: (i: number) => string }) => (
   <div className="overflow-x-auto"><table className="data-table text-xs w-full"><thead><tr>{head.map((h, k) => <th key={`${h}${k}`}>{h}</th>)}</tr></thead>
@@ -112,7 +131,10 @@ const Panel = ({ title, children, right }: { title: string; children: React.Reac
 );
 
 function Overview({ product, onProduct, refresh, onUpdated }: { product: string; onProduct: (p: string) => void; refresh: number; onUpdated: (at: string) => void }) {
-  const { data: d, err, reload } = useLoad<any>(() => A.getOverview(product || null), [product, refresh], 30_000);
+  const toPanel = usePanelPath();
+  const { data: d, err, reload } = useLoad<any>(() => getJson(toPanel(`/api/ops/overview?${new URLSearchParams(product ? { product } : {})}`)), [product, refresh], 30_000);
+  // <Activity> mounts only once the overview has loaded: start its first request now, in parallel.
+  useEffect(() => { void getJson(activityUrl(toPanel, '24h', product)); }, [toPanel, product, refresh]);
   useEffect(() => { if (d?.generatedAt) onUpdated(d.generatedAt); }, [d?.generatedAt, onUpdated]);
   if (err) return <Err e={err} />;
   if (!d) return <p className="text-xs text-zinc-500">Loading…</p>;
@@ -304,7 +326,8 @@ function OverallHealth({ d, onChanged }: { d: any; onChanged: () => void }) {
 
 function Activity({ product, refresh }: { product: string; refresh: number }) {
   const [win, setWin] = useState<string>('24h');
-  const { data, err } = useLoad<any>(() => A.getActivity(win, product || null), [win, product, refresh], 60_000);
+  const toPanel = usePanelPath();
+  const { data, err } = useLoad<any>(() => getJson(activityUrl(toPanel, win, product)), [win, product, refresh], 60_000);
   const daily = data?.granularity === 'day';
   const label = (t: string) => daily
     ? new Date(t).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: win === '1y' || win === '3y' ? '2-digit' : undefined, timeZone: 'UTC' })
@@ -320,10 +343,7 @@ function Activity({ product, refresh }: { product: string; refresh: number }) {
           <div key={k as string} className="rounded-lg bg-white/5 px-2 py-1.5"><div className="text-zinc-500 text-[11px]">{k}</div><div className="text-base font-bold text-foreground">{num(v as number)}</div></div>))}
       </div>
       {err ? <p className="text-rose-400">{err}</p> : !data ? <p className="text-zinc-500">Loading…</p> : pts.some((x: any) => x.events || x.devices) ? (
-        <div className="h-44"><ResponsiveContainer><AreaChart data={pts.map((x: any) => ({ ...x, t: label(x.t) }))} margin={{ top: 4, right: 4, left: -16, bottom: 0 }}>
-          <CartesianGrid strokeOpacity={0.1} vertical={false} /><XAxis dataKey="t" fontSize={10} minTickGap={20} tickLine={false} /><YAxis fontSize={10} allowDecimals={false} tickLine={false} axisLine={false} /><Tooltip />
-          {SERIES.map(([k, n, c]) => <Area key={k} dataKey={k} name={n} stroke={c} fill={c} fillOpacity={k === 'devices' ? 0.12 : 0.25} />)}
-        </AreaChart></ResponsiveContainer></div>) : <p className="text-zinc-500 py-10 text-center">No activity in this period.</p>}
+        <div className="h-44"><ActivityChart data={pts.map((x: any) => ({ ...x, t: label(x.t) }))} series={SERIES} /></div>) : <p className="text-zinc-500 py-10 text-center">No activity in this period.</p>}
       <div className="flex flex-wrap items-center justify-between gap-2 text-zinc-500 mt-auto">
         <span className="flex flex-wrap gap-3">{SERIES.map(([k, n, c]) => <span key={k} className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{ background: c }} />{n}</span>)}</span>
         {daily && data?.recordedSince && <span>since {fmt(data.recordedSince).split(',')[0]}</span>}

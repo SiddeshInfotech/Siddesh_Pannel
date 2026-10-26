@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { adminDb } from '@/lib/panelTables';
+import { invalidateEntityLists } from '@/lib/entityLists';
 import { chunk, fetchAllPages, humanDuration } from '../update/telemetry';
 
 const UpdateSchoolSchema = z.object({
@@ -82,6 +83,7 @@ export async function deleteSchoolAction(id: string): Promise<ActionResult> {
 
     logger.info({ event: 'SCHOOL_DELETED', schoolId: id, adminEmail: session.email });
     revalidatePath('/[panel]/accounts', 'page');
+    invalidateEntityLists((await adminDb()).panel); // picker lists (src/lib/entityLists.ts)
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'DELETE_SCHOOL_CRITICAL_ERROR', schoolId: id }, err);
@@ -116,6 +118,7 @@ export async function deleteVendorAction(id: string): Promise<ActionResult> {
     });
 
     revalidatePath('/[panel]/accounts', 'page');
+    invalidateEntityLists((await adminDb()).panel); // picker lists (src/lib/entityLists.ts)
 
     return ok(undefined);
   } catch (err: unknown) {
@@ -177,6 +180,7 @@ export async function updateSchoolAction(id: string, formData: any /* eslint-dis
 
     logger.info({ event: 'SCHOOL_UPDATED', schoolId: id, adminEmail: session.email });
     revalidatePath('/[panel]/accounts', 'page');
+    invalidateEntityLists((await adminDb()).panel); // picker lists (src/lib/entityLists.ts)
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'UPDATE_SCHOOL_CRITICAL_ERROR', schoolId: id }, err);
@@ -286,6 +290,7 @@ export async function updateVendorAction(
     });
 
     revalidatePath('/[panel]/accounts', 'page');
+    invalidateEntityLists((await adminDb()).panel); // picker lists (src/lib/entityLists.ts)
 
     return ok(undefined);
   } catch (err) {
@@ -323,6 +328,7 @@ export async function deleteParentAction(id: string): Promise<ActionResult> {
 
     logger.info({ event: 'PARENT_DELETED', parentDbId: id, adminEmail: session.email });
     revalidatePath('/[panel]/accounts', 'page');
+    invalidateEntityLists((await adminDb()).panel); // picker lists (src/lib/entityLists.ts)
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'DELETE_PARENT_CRITICAL_ERROR', parentDbId: id }, err);

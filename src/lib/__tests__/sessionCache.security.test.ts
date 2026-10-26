@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('next/server', () => ({ after: () => { throw new Error('no request scope'); } }));
 
 import {
-  isSessionLiveCached, invalidateSession, _resetSessionCache, SOFT_TTL_MS, HARD_TTL_MS, type SessionChecker,
+  isSessionLiveCached, invalidateSession, _resetSessionCache, SOFT_TTL_MS, HARD_TTL_MS, type SessionChecker, type CacheSource,
 } from '../sessionCache';
 
 const key = { panel: 'lab' as const, sid: 'sid-1', email: 'a@x.com' };
@@ -103,5 +103,20 @@ describe('session cache (stale-while-revalidate, fail closed)', () => {
   it('a "live" answer whose expiry is already past is treated as expired', async () => {
     const check = vi.fn(async () => ({ live: true, expiresAt: Date.now() - 1 }));
     expect(await isSessionLiveCached(key, check)).toBe(false);
+  });
+
+  it('reports where each answer came from without changing it', async () => {
+    const check = liveFor(3600_000);
+    const t: { source?: CacheSource } = {};
+    expect(await isSessionLiveCached(key, check, t)).toBe(true);
+    expect(t.source).toBe('miss');
+    expect(await isSessionLiveCached(key, check, t)).toBe(true);
+    expect(t.source).toBe('hit');
+    vi.setSystemTime(Date.now() + SOFT_TTL_MS + 1);
+    expect(await isSessionLiveCached(key, check, t)).toBe(true);
+    expect(t.source).toBe('stale');
+    invalidateSession(key.panel, key.sid);
+    expect(await isSessionLiveCached(key, check, t)).toBe(false);
+    expect(t.source).toBe('denied');
   });
 });

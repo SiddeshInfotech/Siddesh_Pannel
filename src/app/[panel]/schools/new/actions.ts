@@ -7,6 +7,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { adminDb } from '@/lib/panelTables';
+import { invalidateEntityLists } from '@/lib/entityLists';
 
 // Per-field validation with safe, human messages. The FIRST failing message is
 // returned to the UI — specific enough to be useful, never leaking internals.
@@ -82,6 +83,7 @@ export async function createSchool(formData: any /* eslint-disable-line @typescr
 
     logger.info({ event: 'SCHOOL_CREATED', schoolId: newSchool.id, adminEmail: session.email });
     revalidatePath('/[panel]/accounts', 'page');
+    invalidateEntityLists((await adminDb()).panel); // picker lists (src/lib/entityLists.ts)
     return ok(newSchool.id as string);
   } catch (err: unknown) {
     logger.error({ event: 'CREATE_SCHOOL_CRITICAL_ERROR' }, err);

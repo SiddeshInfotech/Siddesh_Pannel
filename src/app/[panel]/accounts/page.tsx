@@ -3,16 +3,34 @@ import { getAdminSession } from '@/lib/auth';
 import DataTabs from './DataTabs';
 import { School, Building2, Users } from 'lucide-react';
 import { adminDb } from '@/lib/panelTables';
+import { supabaseAdmin } from '@/lib/supabase';
 import { fetchAllPages } from '../update/telemetry';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
+// Set once PostgREST reports the function missing (PGRST202), so later loads skip straight to the fallback.
+let keyCountsRpcMissing = false;
+
 // Number of licence keys per owner (activation_keys.school_id / vendor_id / parent_id).
 async function getKeyCounts() {
   const db = await adminDb();
+  const count = { school: new Map<string, number>(), vendor: new Map<string, number>(), parent: new Map<string, number>() };
+
+  // Counted inside Postgres (key-counts-by-owner.sql): one small row per owner instead of every key.
+  if (!keyCountsRpcMissing) {
+    const { data: rows, error } = await supabaseAdmin.rpc('key_counts_by_owner', { p_panel: db.panel });
+    if (!error && Array.isArray(rows)) {
+      for (const r of rows as { owner_type: string; owner_id: string; n: number | string }[]) {
+        if (r.owner_type === 'school' || r.owner_type === 'vendor' || r.owner_type === 'parent') count[r.owner_type].set(r.owner_id, Number(r.n));
+      }
+      return count;
+    }
+    if (error?.code === 'PGRST202') keyCountsRpcMissing = true;
+  }
+
+  // Fallback until that SQL function is installed: download the owner columns and count here.
   const { data } = await fetchAllPages<{ school_id: string | null; vendor_id: string | null; parent_id: string | null }>((from, to) =>
     db.from('activation_keys').select('school_id, vendor_id, parent_id').order('id').range(from, to), 200_000);
-  const count = { school: new Map<string, number>(), vendor: new Map<string, number>(), parent: new Map<string, number>() };
   const bump = (m: Map<string, number>, id: string | null) => { if (id) m.set(id, (m.get(id) ?? 0) + 1); };
   for (const k of data) {
     bump(count.school, k.school_id);
@@ -23,11 +41,11 @@ async function getKeyCounts() {
 }
 type KeyCounts = Awaited<ReturnType<typeof getKeyCounts>>;
 
-async function getSchoolsData(keyCounts: KeyCounts) {
-  const { data: schools, error } = await (await adminDb())
-    .from('schools')
-    .select('*')
-    .order('created_at', { ascending: false });
+async function getSchoolsData(keyCountsP: Promise<KeyCounts>) {
+  const [{ data: schools, error }, keyCounts] = await Promise.all([
+    (await adminDb()).from('schools').select('*').order('created_at', { ascending: false }),
+    keyCountsP,
+  ]);
 
   if (error) {
     console.error('getSchoolsData error:', error.message);
@@ -52,11 +70,11 @@ async function getSchoolsData(keyCounts: KeyCounts) {
   }));
 }
 
-async function getVendorsData(keyCounts: KeyCounts) {
-  const { data: vendors, error } = await (await adminDb())
-    .from('vendors')
-    .select('*')
-    .order('created_at', { ascending: false });
+async function getVendorsData(keyCountsP: Promise<KeyCounts>) {
+  const [{ data: vendors, error }, keyCounts] = await Promise.all([
+    (await adminDb()).from('vendors').select('*').order('created_at', { ascending: false }),
+    keyCountsP,
+  ]);
   if (error) {
     console.error('getVendorsData error:', error.message);
     return [];
@@ -82,11 +100,11 @@ async function getVendorsData(keyCounts: KeyCounts) {
   }));
 }
 
-async function getParentsData(keyCounts: KeyCounts) {
-  const { data: parents, error } = await (await adminDb())
-    .from('parents')
-    .select('*')
-    .order('created_at', { ascending: false });
+async function getParentsData(keyCountsP: Promise<KeyCounts>) {
+  const [{ data: parents, error }, keyCounts] = await Promise.all([
+    (await adminDb()).from('parents').select('*').order('created_at', { ascending: false }),
+    keyCountsP,
+  ]);
   if (error) {
     console.error('getParentsData error:', error.message);
     return [];
@@ -117,8 +135,9 @@ export default async function AccountsPage(props: { searchParams: Promise<{ [key
 
   if (!session) return null;
 
-  // Independent queries: run them in parallel, not one after another.
-  const keyCounts = await getKeyCounts();
+  // Independent queries: run them in parallel, not one after another. The key counts are only
+  // needed to fill in each row, so every list query starts at once and waits for them at the end.
+  const keyCounts = getKeyCounts();
   const [schoolsData, vendorsData, parentsData] = await Promise.all([
     getSchoolsData(keyCounts),
     getVendorsData(keyCounts),

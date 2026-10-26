@@ -2,6 +2,7 @@ import React from 'react';
 import { getAdminSession } from '@/lib/auth';
 import PaymentsClient from './PaymentsClient';
 import { adminDb } from '@/lib/panelTables';
+import { getEntityLists } from '@/lib/entityLists';
 
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
@@ -42,42 +43,14 @@ async function getPaymentsData() {
   });
 }
 
-async function getSchoolsList() {
-  const { data: schools } = await (await adminDb())
-    .from('schools')
-    .select('id, name')
-    .order('name', { ascending: true });
-
-  return (schools ?? []).map(s => ({ id: s.id, name: s.name }));
-}
-
-async function getVendorsList() {
-  const { data: vendors } = await (await adminDb())
-    .from('vendors')
-    .select('vendor_id, vendor_name')
-    .order('vendor_name', { ascending: true });
-
-  return (vendors ?? []).map(v => ({ id: v.vendor_id, name: v.vendor_name }));
-}
-
-async function getParentsList() {
-  const { data: parents } = await (await adminDb())
-    .from('parents')
-    .select('id, parent_name')
-    .order('parent_name', { ascending: true });
-
-  return (parents ?? []).map(p => ({ id: p.id, name: p.parent_name }));
-}
-
 export default async function PaymentsPage() {
   const session = await getAdminSession();
   if (!session) return null;
 
-  const [initialPayments, schools, vendors, parents] = await Promise.all([
+  // Picker lists come from the data cache (src/lib/entityLists.ts); payments are always live.
+  const [initialPayments, { schools, vendors, parents }] = await Promise.all([
     getPaymentsData(),
-    getSchoolsList(),
-    getVendorsList(),
-    getParentsList(),
+    getEntityLists(session.panel),
   ]);
   return <PaymentsClient initialPayments={initialPayments} schools={schools} vendors={vendors} parents={parents} />;
 }

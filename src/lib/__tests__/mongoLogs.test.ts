@@ -108,6 +108,38 @@ describe('MongoDB logs storage', () => {
     expect((await eventSeries('lab', t0.toISOString(), to, 3600, null))[0].events).toBe(2);
   });
 
+  it('grouped per-product totals equal the one-query-per-product results', async () => {
+    const { col } = await import('../diagnostics/mongo');
+    const { eventSeries, sessionCrashStats, eventTotalsByProduct, sessionCrashStatsByProduct, productKey } = await import('../diagnostics/mongoOps');
+    const t0 = new Date('2026-10-18T00:00:00Z'), at = (min: number) => new Date(t0.getTime() + min * 60_000);
+    const from = t0.toISOString(), to = new Date(t0.getTime() + 86_400_000).toISOString();
+    await (await col('diag_events')).insertMany([
+      ev({ ts: at(1), product_id: 'PA', user_id: 'u1', session_id: 's1' }),
+      ev({ ts: at(2), product_id: 'PA', user_id: 'u1', session_id: 's1', severity: 'ERROR' }),
+      ev({ ts: at(3), product_id: 'PA', user_id: 'u2', session_id: 's2', category: 'CRASH' }),
+      ev({ ts: at(4), product_id: 'PB', user_id: null, session_id: 's3', severity: 'FATAL' }),
+      ev({ ts: at(5), product_id: 'PB', session_id: 's4', environment: 'test' }), // developer run: excluded
+      ev({ ts: at(6), panel: 'lms', product_id: 'PA', user_id: 'u9', session_id: 's1' }), // other panel, same ids
+      ev({ ts: new Date(t0.getTime() + 86_400_000), product_id: 'PA' }), // outside the window
+    ] as never[]);
+    await (await col('diag_crashes')).insertMany([
+      { _id: crypto.randomUUID(), panel: 'lab', ts: at(3), session_id: 's2', product_id: 'PA' },
+      { _id: crypto.randomUUID(), panel: 'lab', ts: at(7), session_id: 's5', product_id: 'PB' }, // crash-only session
+    ] as never[]);
+
+    const totals = await eventTotalsByProduct(['lab', 'lms'], from, to);
+    const crashes = await sessionCrashStatsByProduct(['lab', 'lms'], from, to);
+    for (const [panel, product] of [['lab', 'PA'], ['lab', 'PB'], ['lms', 'PA'], ['lab', 'NONE']] as const) {
+      const [one] = await eventSeries([panel], from, to, 86_400, product);
+      const want = one ? { events: one.events, errors: one.errors, crashes: one.crashes, users: one.users } : undefined;
+      expect(totals.get(productKey(panel, product))).toEqual(want);
+      const ss = await sessionCrashStats([panel], from, to, product);
+      expect(crashes.get(productKey(panel, product)) ?? { sessions: 0, crashed: 0 }).toEqual(ss);
+    }
+    expect(totals.get(productKey('lab', 'PA'))).toEqual({ events: 3, errors: 1, crashes: 1, users: 2 });
+    expect(crashes.get(productKey('lab', 'PB'))).toEqual({ sessions: 2, crashed: 1 });
+  });
+
   it('percentiles reports P50…P99 of durations per operation', async () => {
     const { col } = await import('../diagnostics/mongo');
     const { percentiles } = await import('../diagnostics/mongoOps');
