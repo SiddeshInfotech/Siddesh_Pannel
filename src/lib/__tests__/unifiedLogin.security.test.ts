@@ -6,6 +6,20 @@ type Row = Record<string, unknown>;
 const tables: Record<string, Row[]> = {};
 const touched: string[] = [];
 
+/** Real Postgres ILIKE semantics: % = any run, _ = any one char, a backslash escapes the next char. */
+function likeToRegex(pattern: string): RegExp {
+  const lit = (ch: string) => ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let re = '';
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === '\\' && i + 1 < pattern.length) re += lit(pattern[++i]);
+    else if (c === '%') re += '.*';
+    else if (c === '_') re += '.';
+    else re += lit(c);
+  }
+  return new RegExp(`^${re}$`, 'i');
+}
+
 function builder(table: string) {
   touched.push(table);
   let rows = [...(tables[table] ?? [])];
@@ -14,7 +28,7 @@ function builder(table: string) {
     order: () => q,
     limit: () => q,
     eq: (col: string, val: unknown) => { rows = rows.filter(r => r[col] === val); return q; },
-    ilike: (col: string, val: string) => { rows = rows.filter(r => String(r[col]).toLowerCase() === val.toLowerCase()); return q; },
+    ilike: (col: string, val: string) => { const re = likeToRegex(val); rows = rows.filter(r => re.test(String(r[col]))); return q; },
     insert: async () => ({ error: null }),
     maybeSingle: async () => ({ data: rows[0] ?? null, error: null }),
     then: (res: (v: { data: Row[]; error: null }) => unknown) => res({ data: rows, error: null }),
@@ -102,6 +116,26 @@ describe('session token: panel comes only from the signed claim', () => {
     tables.lab_admin_users = [];
     tables.lab_admin_sessions = [{ session_id: 'sid-lab', revoked: false, expires_at: future() }];
     expect(await auth.verifyAdminToken(await auth.signAdminToken('lab@x.com', 'sid-lab', 'lab'))).toBeNull();
+  });
+
+  it('an email with LIKE wildcards matches only itself (no look-alike keeps a removed admin alive)', async () => {
+    tables.lab_admin_sessions = [{ session_id: 'sid-lab', revoked: false, expires_at: future() }];
+    // "a_b" would match "axb" under a raw ILIKE: the admin a_b@x.com was removed, axb@x.com remains.
+    tables.lab_admin_users = [{ email: 'axb@x.com' }];
+    expect(await auth.verifyAdminToken(await auth.signAdminToken('a_b@x.com', 'sid-lab', 'lab'))).toBeNull();
+    cache._resetSessionCache();
+    tables.lab_admin_users = [{ email: 'a%@x.com' }, { email: 'zzz@x.com' }];
+    expect(await auth.verifyAdminToken(await auth.signAdminToken('a%@x.com', 'sid-lab', 'lab'))).not.toBeNull(); // literal % is fine
+    cache._resetSessionCache();
+    tables.lab_admin_users = [{ email: 'A_B@X.com' }];
+    expect(await auth.verifyAdminToken(await auth.signAdminToken('a_b@x.com', 'sid-lab', 'lab'))).not.toBeNull(); // case-insensitive
+  });
+
+  it('escapeLike / isExactEmailMatch', () => {
+    expect(auth.escapeLike(String.raw`a_b%c\d`)).toBe(String.raw`a\_b\%c\\d`);
+    expect(auth.isExactEmailMatch([{ email: 'axb@x.com' }], 'a_b@x.com')).toBe(false);
+    expect(auth.isExactEmailMatch([{ email: ' A_B@x.com ' }], 'a_b@x.com')).toBe(true);
+    expect(auth.isExactEmailMatch(null, 'a@x.com')).toBe(false);
   });
 
   it('rejects a revoked session even with a valid signature', async () => {

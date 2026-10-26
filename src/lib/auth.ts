@@ -15,7 +15,7 @@ import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
 import { cookies, headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { cache } from 'react';
-import { supabaseFor, type Panel } from './supabase';
+import { supabaseAdmin, supabaseFor, type Panel } from './supabase';
 import { logger } from './logger';
 import { isSessionLiveCached, type CacheSource, type SessionKey } from './sessionCache';
 import { VERIFIED_HEADER, isVerifiedFor } from './verifiedHeader';
@@ -235,18 +235,49 @@ export async function verifyAdminToken(
  * Both queries run in parallel. Throws on a database error (the cache treats that as not live).
  */
 export async function checkSessionInDb({ panel, sid, email }: SessionKey): Promise<{ live: boolean; expiresAt?: number }> {
+  // One call with an exact, indexed email match (admin-session-check.sql) …
+  if (!sessionRpcMissing) {
+    const res = await supabaseAdmin.rpc('admin_session_status', { p_panel: panel, p_sid: sid, p_email: email });
+    const row = res && !res.error ? (Array.isArray(res.data) ? res.data[0] : res.data) : null;
+    if (row && typeof row.is_admin === 'boolean' && typeof row.session_found === 'boolean') {
+      return liveResult(row.is_admin, row.session_found ? { revoked: row.revoked, expires_at: row.expires_at } : null);
+    }
+    if (res?.error?.code === 'PGRST202') sessionRpcMissing = true; // not installed: stop trying
+    // Any other problem: the two-query check below decides (it fails closed on its own errors).
+  }
+
+  // … or, until that function is installed, two parallel queries.
   const db = supabaseFor(panel);
   const [admins, sessions] = await Promise.all([
-    db.from('admin_users').select('email').ilike('email', email).limit(1),
+    // ILIKE for case-insensitivity only: LIKE wildcards in the email are escaped, and the match is
+    // confirmed exactly below — "a_b@x.com" must never match "axb@x.com".
+    db.from('admin_users').select('email').ilike('email', escapeLike(email)).limit(10),
     db.from('admin_sessions').select('revoked, expires_at').eq('session_id', sid).maybeSingle(),
   ]);
   if (admins.error || sessions.error) {
     logger.error({ event: 'SESSION_LOOKUP_FAILED', sid, error: admins.error?.message ?? sessions.error?.message });
     throw new Error('Session lookup failed');
   }
-  const session = sessions.data;
-  if (!admins.data?.[0] || !session || session.revoked) return { live: false };
-  const expiresAt = new Date(session.expires_at).getTime();
+  return liveResult(isExactEmailMatch(admins.data, email), sessions.data);
+}
+
+// Set once PostgREST reports admin_session_status missing (PGRST202); later checks use the fallback directly.
+let sessionRpcMissing = false;
+
+/** Escapes LIKE/ILIKE wildcards (\ % _) so the pattern matches the literal text only. */
+export function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+/** True only when one of the rows has exactly this email (case-insensitive). */
+export function isExactEmailMatch(rows: { email?: unknown }[] | null | undefined, email: string): boolean {
+  const want = email.trim().toLowerCase();
+  return (rows ?? []).some((r) => typeof r.email === 'string' && r.email.trim().toLowerCase() === want);
+}
+
+function liveResult(isAdmin: boolean, session: { revoked?: unknown; expires_at?: unknown } | null): { live: boolean; expiresAt?: number } {
+  if (!isAdmin || !session || session.revoked) return { live: false };
+  const expiresAt = new Date(session.expires_at as string).getTime();
   return Number.isFinite(expiresAt) && Date.now() < expiresAt ? { live: true, expiresAt } : { live: false };
 }
 

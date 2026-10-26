@@ -7,6 +7,7 @@ import { getAdminSession } from '@/lib/auth';
 import { getClientIp } from '@/lib/sanitize';
 import { ROLES, hasPermission, mergeRetention, type Permission, type RetentionConfig, type Role } from './core';
 import { col } from './mongo';
+import { swrCache } from '@/lib/swrCache';
 
 export type Panel = 'lms' | 'lab';
 export type Actor = { email: string; panel: Panel; role: Role; schoolIds: string[] | null; ip: string };
@@ -21,6 +22,12 @@ function bootstrapSuperAdmins(): Set<string> {
   return new Set((process.env.DIAG_SUPER_ADMINS ?? '').split(/[,;\s]+/).map((e) => e.replace(/["']/g, '').trim().toLowerCase()).filter(Boolean));
 }
 
+// Role lookups (MongoDB) are remembered for 15 s per panel+email, so every Health/Logs request does
+// not wait on a MongoDB round trip. Plain TTL (never served stale); a failed lookup is never cached.
+// Roles are edited outside this app, so a role removal/downgrade/scope change applies within 15 s
+// (the admin session itself is still re-checked on every request by getAdminSession()).
+const roleCache = swrCache<{ role: unknown; school_ids?: string[] | null } | null>({ freshMs: 15_000, maxMs: 15_000, maxEntries: 500 });
+
 export async function resolveActor(): Promise<Actor | null> {
   const session = await getAdminSession();
   if (!session) return null;
@@ -28,8 +35,11 @@ export async function resolveActor(): Promise<Actor | null> {
   let ip = '0.0.0.0';
   try { ip = getClientIp(await headers()); } catch { /* not in a request scope */ }
   if (bootstrapSuperAdmins().has(email)) return { email, panel: session.panel, role: 'SUPER_ADMIN', schoolIds: null, ip };
-  const data = await (await col('diag_roles')).findOne({ panel: session.panel, email }, { projection: { role: 1, school_ids: 1 } });
-  if (!data || !(ROLES as readonly string[]).includes(data.role)) return null; // authenticated ≠ authorized
+  const data = await roleCache.get(`${session.panel}|${email}`, async () => {
+    const d = await (await col('diag_roles')).findOne({ panel: session.panel, email }, { projection: { role: 1, school_ids: 1 } });
+    return d ? { role: d.role, school_ids: (d.school_ids as string[] | null | undefined) ?? null } : null;
+  });
+  if (!data || !(ROLES as readonly string[]).includes(data.role as string)) return null; // authenticated ≠ authorized
   return { email, panel: session.panel, role: data.role as Role, schoolIds: data.school_ids ?? null, ip };
 }
 

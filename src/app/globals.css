@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap');
 @import "tailwindcss";
 
 :root {
@@ -98,7 +97,7 @@
   --color-accent-blue: var(--accent-blue);
   --color-surface-hover: var(--surface-hover);
   
-  --font-sans: 'Roboto', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans: var(--font-roboto), 'Roboto', 'Inter', system-ui, -apple-system, sans-serif;
 
   /* Site-wide corner radius: every large rounding utility follows --radius-log */
   --radius-lg: var(--radius-log);

@@ -3,9 +3,9 @@
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from '@/components/PanelLink';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
-import { usePanelSlug } from '@/lib/usePanelPath';
+import { usePanelPath, usePanelSlug } from '@/lib/usePanelPath';
 import {
   LayoutDashboard,
   School,
@@ -44,6 +44,11 @@ export default function Sidebar() {
   const [isDark, setIsDark] = useState(true);
   // F-10 fix: get logout from React Context instead of window.__adminLogout
   const { logout } = useAuth();
+  // Hover/focus on a menu item starts loading that page's data, so the click usually lands on a
+  // ready page. Same authenticated GET as the click itself (proxy-checked); pages only read on render.
+  const router = useRouter();
+  const toPanel = usePanelPath();
+  const prefetchFull = (path: string) => router.prefetch(toPanel(path), { kind: 'full' } as Parameters<typeof router.prefetch>[1]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -91,6 +96,8 @@ export default function Sidebar() {
             <Link
               key={item.path}
               href={item.path}
+              onMouseEnter={() => prefetchFull(item.path)}
+              onFocus={() => prefetchFull(item.path)}
               className={`sidebar-rail-item flex flex-col items-center gap-0.5 text-[10px] leading-none font-medium ${isActive ? 'sidebar-rail-item-active' : ''}`}
             >
               <span className="sidebar-rail-icon w-8 h-8 rounded-[10px] flex items-center justify-center">

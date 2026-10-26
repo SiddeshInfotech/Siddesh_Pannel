@@ -87,7 +87,8 @@ async function connect(): Promise<Db> {
   const servers = (envValue('MONGODB_DNS_SERVERS') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   if (servers.length) dns.setServers(servers);
   const open = async () => {
-    const client = new MongoClient(uri, { maxPoolSize: 5, serverSelectionTimeoutMS: 8000, appName: 'siddesh-panel' });
+    // Pool 20: one Health overview runs ~17 queries at once (with 5 they queued in rounds). Atlas M0 allows 500 connections.
+    const client = new MongoClient(uri, { maxPoolSize: 20, serverSelectionTimeoutMS: 8000, appName: 'siddesh-panel' });
     await client.connect();
     return client;
   };

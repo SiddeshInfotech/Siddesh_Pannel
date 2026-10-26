@@ -131,9 +131,10 @@ const PUBLIC_ROUTES = [
 //   strict-dynamic lets Next.js's own nonced bootstrap load the app chunks.
 //   ('unsafe-eval' is added in DEV only — React uses eval for dev error overlays.)
 // style-src: keeps 'unsafe-inline' on purpose. React inline style={{…}} attributes
-//   and the Google-Fonts @import in globals.css CANNOT carry a nonce (CSP nonces
-//   only apply to <style> elements, not style="" attributes). Inline styles are a
-//   far lower XSS risk than scripts, so this is the correct, non-breaking trade-off.
+//   CANNOT carry a nonce (CSP nonces only apply to <style> elements, not style=""
+//   attributes). Inline styles are a far lower XSS risk than scripts, so this is the
+//   correct, non-breaking trade-off.
+// Fonts are self-hosted (next/font in app/layout.tsx), so no third-party font/style origins.
 // The Supabase project this deployment talks to (from SUPABASE_URL), so the CSP never points at
 // a stale project after a migration.
 const SUPABASE_HOST = (() => {
@@ -146,8 +147,8 @@ function buildCsp(nonce: string, isDev: boolean): string {
   return [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ''}`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-    "font-src 'self' https://fonts.gstatic.com data:",
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self' data:",
     `img-src 'self' data: blob:${sb}`,
     `connect-src 'self'${sb}${sbWs}`,
     "frame-ancestors 'none'",

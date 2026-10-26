@@ -1,11 +1,16 @@
 import { Suspense } from 'react';
 import type { Metadata } from 'next';
+import { Roboto } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 import Sidebar from '@/components/Sidebar';
 import { ToastProvider } from '@/components/Toast';
 import AuthWrapper from '@/components/AuthWrapper';
 import { getAdminSession } from '@/lib/auth';
+
+// Self-hosted at build time (served from our own origin): no render-blocking request to Google
+// on first load, and the CSP no longer needs to allow Google's font domains.
+const roboto = Roboto({ weight: ['300', '400', '500', '700', '900'], subsets: ['latin'], display: 'swap', variable: '--font-roboto' });
 
 export const metadata: Metadata = {
   title: 'Siddesh Tech — Admin Console',
@@ -22,7 +27,7 @@ export default async function RootLayout({
   const sessionExists = !!session;
 
   return (
-    <html lang="en">
+    <html lang="en" className={roboto.variable}>
       <body className="antialiased min-h-screen flex bg-background">
         <ToastProvider>
           <AuthWrapper sessionExists={sessionExists}>
