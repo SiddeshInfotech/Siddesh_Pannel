@@ -5,6 +5,7 @@ import { School, Building2, Users } from 'lucide-react';
 import { adminDb } from '@/lib/panelTables';
 import { supabaseAdmin } from '@/lib/supabase';
 import { fetchAllPages } from '../update/telemetry';
+import { websiteUsersByEmail } from '@/lib/websiteDb';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
@@ -101,14 +102,19 @@ async function getVendorsData(keyCountsP: Promise<KeyCounts>) {
 }
 
 async function getParentsData(keyCountsP: Promise<KeyCounts>) {
+  const db = await adminDb();
   const [{ data: parents, error }, keyCounts] = await Promise.all([
-    (await adminDb()).from('parents').select('*').order('created_at', { ascending: false }),
+    db.from('parents').select('*').order('created_at', { ascending: false }),
     keyCountsP,
   ]);
   if (error) {
     console.error('getParentsData error:', error.message);
     return [];
   }
+  // LMS School website accounts, matched by email (LMS-Admin only; empty if the website isn't connected).
+  const website = db.panel === 'lms'
+    ? await websiteUsersByEmail((parents ?? []).map((p: { email?: string | null }) => p.email ?? ''))
+    : new Map<string, string>();
 
   return (parents ?? []).map((parent: any /* eslint-disable-line @typescript-eslint/no-explicit-any */) => ({
     id: parent.parent_id ?? '',
@@ -121,6 +127,7 @@ async function getParentsData(keyCountsP: Promise<KeyCounts>) {
     city: parent.city,
     grade: parent.grade,
     status: parent.status,
+    websiteUserId: website.get(String(parent.email ?? '').trim().toLowerCase()) ?? null,
     keyCount: keyCounts.parent.get(parent.id) ?? 0,
     dateAdded: parent.created_at
       ? new Date(parent.created_at).toLocaleDateString()

@@ -11,7 +11,7 @@ async function getPaymentsData() {
   const { data: payments } = await (await adminDb())
     .from('payments')
     .select(`
-      id, school_id, vendor_id, parent_id, amount, keys_count, bank_name, transaction_id, payment_date, status, created_at,
+      id, school_id, vendor_id, parent_id, amount, keys_count, payment_method, bank_name, transaction_id, payment_date, status, created_at,
       schools ( name ),
       vendors ( vendor_name ),
       parents ( parent_name )
@@ -39,6 +39,8 @@ async function getPaymentsData() {
         ? new Date(p.payment_date).toISOString()
         : new Date().toISOString(),
       status: p.status || 'Unpaid',
+      // Recorded automatically by the LMS School website after a Razorpay (or free) checkout.
+      fromWebsite: p.parent_id != null && (p.payment_method === 'Razorpay' || p.payment_method === 'Free'),
     };
   });
 }

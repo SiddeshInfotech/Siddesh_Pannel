@@ -9,6 +9,7 @@ import {
     Pencil,
     Trash2,
     Search,
+    Globe,
     Plus,
     AlertTriangle,
     X
@@ -33,6 +34,7 @@ interface Parent {
     status: StatusType;
     dateAdded: string;
     keyCount: number;
+    websiteUserId: string | null;
 }
 
 interface ParentsClientProps {
@@ -55,6 +57,8 @@ export default function ParentsClient({
     const [showAdd, setShowAdd] = useState(false);
     const closeAdd = useCallback(() => setShowAdd(false), []);
     const [search, setSearch] = useState('');
+    const [onlyWebsite, setOnlyWebsite] = useState(false);
+    const websiteCount = useMemo(() => parents.filter((p) => p.websiteUserId).length, [parents]);
     const [keysTarget, setKeysTarget] = useState<KeysTarget | null>(null);
     const showKeys = (p: Parent) => setKeysTarget({ kind: 'parent', id: p.dbId, name: p.parentName, publicId: p.parentId });
     const { toast } = useToast();
@@ -63,18 +67,19 @@ export default function ParentsClient({
     const [parentToDelete, setParentToDelete] = useState<Parent | null>(null);
 
     const filteredParents = useMemo(() => {
-        if (!search.trim()) return parents;
+        const pool = onlyWebsite ? parents.filter((p) => p.websiteUserId) : parents;
+        if (!search.trim()) return pool;
 
         const value = search.toLowerCase();
 
-        return parents.filter((parent) =>
+        return pool.filter((parent) =>
             parent.parentName.toLowerCase().includes(value) ||
             parent.parentId.toLowerCase().includes(value) ||
             parent.kidName.toLowerCase().includes(value) ||
             parent.email.toLowerCase().includes(value) ||
             parent.mobile.toLowerCase().includes(value)
         );
-    }, [parents, search]);
+    }, [parents, search, onlyWebsite]);
 
     const confirmDelete = (parent: Parent) => {
         setParentToDelete(parent);
@@ -121,6 +126,16 @@ export default function ParentsClient({
                             className="bare-input w-full pl-8 pr-2 py-1.5 bg-transparent text-xs text-foreground placeholder-zinc-500 focus:outline-none"
                         />
                     </div>
+                    {websiteCount > 0 && (
+                        <button
+                            type="button"
+                            onClick={() => setOnlyWebsite((v) => !v)}
+                            className={`filter-tab !h-8 shrink-0 whitespace-nowrap ${onlyWebsite ? 'filter-tab-active' : ''}`}
+                            title="Show only LMS School website users"
+                        >
+                            <Globe className="w-3.5 h-3.5 inline -mt-0.5 mr-1" />Website {websiteCount}
+                        </button>
+                    )}
                     <button
                         type="button"
                         onClick={() => setShowAdd(true)}
@@ -156,6 +171,7 @@ export default function ParentsClient({
                                         <div className="flex items-center gap-2.5 cursor-pointer" onClick={() => showKeys(parent)} title="Show licence keys">
                                             <EntityAvatar name={parent.parentName || '?'} />
                                             <span className="cell-strong">{parent.parentName}</span>
+                                            {parent.websiteUserId && <WebsiteBadge />}
                                         </div>
                                     </td>
                                     <td>{parent.kidName}</td>
@@ -240,5 +256,14 @@ export default function ParentsClient({
                 </div>
             )}
         </div>
+    );
+}
+
+// Marks a parent who is also an LMS School website account.
+function WebsiteBadge() {
+    return (
+        <span className="inline-flex items-center gap-1 rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold text-sky-400 whitespace-nowrap" title="LMS School website user">
+            <Globe className="w-3 h-3" />LMS School
+        </span>
     );
 }

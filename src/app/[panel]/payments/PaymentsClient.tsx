@@ -26,6 +26,7 @@ interface PaymentRow {
   amount: number;
   keysCount: number;
   bankName: string;
+  fromWebsite?: boolean;
   transactionId: string;
   paymentDate: string;
   status: 'Unpaid' | 'Pending Approval' | 'Paid';
@@ -309,6 +310,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
                       <div className="flex items-center gap-2.5">
                         <EntityAvatar name={payment.entityName || '?'} />
                         <span>{payment.entityName}</span>
+                        {payment.fromWebsite && <span className="inline-flex items-center rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-semibold text-sky-400 whitespace-nowrap" title="Paid on the LMS School website">LMS School</span>}
                       </div>
                     </td>
                     <td>
