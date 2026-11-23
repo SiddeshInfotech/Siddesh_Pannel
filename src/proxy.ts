@@ -174,6 +174,10 @@ export async function proxy(req: NextRequest) {
     res.headers.set('X-Frame-Options', 'DENY');
     res.headers.set('X-Content-Type-Options', 'nosniff');
     res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+    res.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+    res.headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+    res.headers.set('Origin-Agent-Cluster', '?1');
+    res.headers.set('X-Permitted-Cross-Domain-Policies', 'none');
     res.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), interest-cohort=()');
     res.headers.set('Content-Security-Policy', csp);
     if (isAuthenticatedRoute) {

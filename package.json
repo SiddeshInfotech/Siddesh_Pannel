@@ -20,13 +20,14 @@
     "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.16.0",
     "mongodb": "^6.21.0",
-    "next": "16.2.6",
+    "next": "^16.4.6",
     "qrcode": "^1.5.4",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.1",
+    "server-only": "^0.0.1",
     "tailwind-merge": "^3.6.0",
-    "zod": "^4.4.3"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -41,5 +42,10 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^3.2.4"
+  },
+  "overrides": {
+    "baseline-browser-mapping": "^2.11.39",
+    "dompurify": "^3.5.0",
+    "source-map-js": "^1.2.4"
   }
 }

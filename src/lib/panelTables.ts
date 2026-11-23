@@ -1,3 +1,4 @@
+import 'server-only';
 // ============================================================================
 // Admin panel split — LMS-Admin (existing products) vs Lab-Admin (the 5 LMS-Lab products).
 //

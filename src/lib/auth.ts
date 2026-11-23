@@ -11,6 +11,7 @@
  *   then queries Supabase 'admin_sessions' to check for revocation.
  */
 
+import 'server-only';
 import { SignJWT, jwtVerify, importPKCS8, importSPKI } from 'jose';
 import { cookies, headers } from 'next/headers';
 import { NextResponse } from 'next/server';

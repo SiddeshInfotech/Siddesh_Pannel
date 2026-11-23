@@ -10,10 +10,14 @@ const ID = { panel: 'lab' as const, keyId: 'k', entityId: 'school-A', schoolName
 const body = IngestSchema.parse({ activation_key: 'AK-SECRET', device_fingerprint: 'fp-123456789', product_version: '2.1.0', build_number: '210', build_commit: 'abc1234' });
 const now = new Date('2026-10-08T10:00:00Z');
 const ev = (o: Record<string, unknown> = {}) => ({ event_id: crypto.randomUUID(), timestamp: now.toISOString(), severity: 'INFO', event_type: 'BUTTON_CLICKED', ...o });
+type RedactedFixture = { password: string; nested: Record<string, string>; session_id: string };
+type TruncatedJson = { _truncated?: boolean };
+type DiagnosticData = { expected_behavior?: string; actual_behavior?: string };
+type StoredEvent = { i?: number; token?: string };
 
 describe('redaction', () => {
   it('masks sensitive keys at any depth', () => {
-    const r = redactDeep({ user: 'x', password: 'hunter2', nested: { otp: '123456', Authorization: 'Bearer abc', apiKey: 'k', activation_key: 'AK' }, session_id: 's1' }) as any;
+    const r = redactDeep({ user: 'x', password: 'hunter2', nested: { otp: '123456', Authorization: 'Bearer abc', apiKey: 'k', activation_key: 'AK' }, session_id: 's1' }) as RedactedFixture;
     expect(r.password).toBe(REDACTED);
     expect(r.nested.otp).toBe(REDACTED);
     expect(r.nested.Authorization).toBe(REDACTED);
@@ -43,7 +47,7 @@ describe('log injection', () => {
   });
   it('bounded JSON never exceeds its cap', () => {
     const big = { arr: Array.from({ length: 150 }, () => 'z'.repeat(1900)) };
-    const out = boundedJson(big, 8000) as any;
+    const out = boundedJson(big, 8000) as TruncatedJson;
     expect(out._truncated).toBe(true);
     expect(JSON.stringify(out).length).toBeLessThan(9000);
   });
@@ -98,8 +102,8 @@ describe('ingest normalization', () => {
   });
   it('expected vs actual behaviour is kept and redacted', () => {
     const n = normalizeEvent(ev({ severity: 'ERROR', event_type: 'ERROR', expected_behavior: 'Compile shows output', actual_behavior: 'died password=abc', result: 'FAIL' }), body, ID, DEFAULT_RETENTION, now)!;
-    expect((n.row.data as any).expected_behavior).toBe('Compile shows output');
-    expect((n.row.data as any).actual_behavior).not.toContain('abc');
+    expect((n.row.data as DiagnosticData).expected_behavior).toBe('Compile shows output');
+    expect((n.row.data as DiagnosticData).actual_behavior).not.toContain('abc');
     expect(n.row.result).toBe('FAIL');
   });
   it('crash keeps the last N events, version/build, school, machine, exception and stack', () => {
@@ -114,7 +118,7 @@ describe('ingest normalization', () => {
     expect(c.row.entity_id).toBe('school-A');
     expect(c.row.machine_id).toBe('fp-123456789');
     expect(c.row.stack_trace).toContain('tcc_compile');
-    const kept = c.row.last_events as any[];
+    const kept = c.row.last_events as StoredEvent[];
     expect(kept.length).toBe(500);
     expect(kept[499].i).toBe(699);
     expect(kept[0].token).toBe(REDACTED);

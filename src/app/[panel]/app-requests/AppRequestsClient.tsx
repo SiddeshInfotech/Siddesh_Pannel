@@ -2,13 +2,16 @@
 
 import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, MessageCircle } from 'lucide-react';
 import GlassCard from '@/components/GlassCard';
 import EntityAvatar from '@/components/EntityAvatar';
 import StatusBadge from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
 import type { WindowsAppRequest } from '@/lib/websiteDb';
 import { markAppRequestSentAction } from './actions';
+
+// '+919876543210' → '+91 98765 43210'
+const showNumber = (e164: string) => e164.replace(/^\+91(\d{5})(\d{5})$/, '+91 $1 $2');
 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : '—');
 
@@ -49,7 +52,7 @@ export default function AppRequestsClient({ requests }: { requests: WindowsAppRe
           <thead>
             <tr>
               <th>Buyer</th>
-              <th>Contact</th>
+              <th>WhatsApp</th>
               <th>Order</th>
               <th>Requested</th>
               <th>Status</th>
@@ -66,13 +69,27 @@ export default function AppRequestsClient({ requests }: { requests: WindowsAppRe
                   </div>
                 </td>
                 <td>
-                  <span className="flex items-center gap-1.5">
-                    {r.email}
-                    <button type="button" className="icon-btn" onClick={() => copy(r.email)} title="Copy email" aria-label={`Copy ${r.email}`}>
-                      <Copy className="w-3 h-3" />
-                    </button>
-                  </span>
-                  <span className="block cell-sub">{r.phone ?? 'No phone'}</span>
+                  {r.whatsapp ? (
+                    <span className="flex items-center gap-1.5">
+                      <span className="cell-strong cell-mono">{showNumber(r.whatsapp)}</span>
+                      <button type="button" className="icon-btn" onClick={() => copy(r.whatsapp!)} title="Copy number" aria-label={`Copy ${r.whatsapp}`}>
+                        <Copy className="w-3 h-3" />
+                      </button>
+                      <a
+                        href={`https://wa.me/${r.whatsapp.replace(/^\+/, '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="icon-btn"
+                        title="Open WhatsApp chat"
+                        aria-label={`Open WhatsApp chat with ${r.whatsapp}`}
+                      >
+                        <MessageCircle className="w-3 h-3" />
+                      </a>
+                    </span>
+                  ) : (
+                    <span className="block text-red-400">No WhatsApp number</span>
+                  )}
+                  <span className="block cell-sub">{r.email}</span>
                 </td>
                 <td><span className="cell-mono cell-muted">{r.order_id.slice(0, 8).toUpperCase()}</span></td>
                 <td>

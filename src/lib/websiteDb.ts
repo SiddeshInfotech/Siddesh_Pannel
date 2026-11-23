@@ -1,3 +1,4 @@
+import 'server-only';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
 // ============================================================================
@@ -66,7 +67,9 @@ export async function websiteUserOverview(userId: string): Promise<WebsiteOvervi
 }
 
 export interface WindowsAppRequest {
-  user_id: string; email: string; full_name: string | null; phone: string | null; order_id: string;
+  user_id: string; email: string; full_name: string | null; phone: string | null;
+  /** Where to send the .exe on WhatsApp: the number the buyer gave, or their profile number. */
+  whatsapp: string | null; order_id: string;
   status: 'pending' | 'sent'; requested_at: string; sent_at: string | null; sent_by: string | null;
 }
 

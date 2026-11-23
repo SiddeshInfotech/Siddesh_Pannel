@@ -24,7 +24,7 @@ export default async function AppRequestsPage() {
         icon={MonitorDown}
         description={requests === null
           ? 'Website requests for the Windows app'
-          : open === 0 ? 'No requests waiting. Buyers are told they get the app within 24 hours.' : `${open} waiting. Send each buyer the Windows app (.exe) within 24 hours, then mark it sent.`}
+          : open === 0 ? 'No requests waiting. Buyers are told they get the app within 24 hours.' : `${open} waiting. Send each buyer the Windows app (.exe) on WhatsApp within 24 hours, then mark it sent.`}
       />
       <AppRequestsClient requests={requests} />
     </div>

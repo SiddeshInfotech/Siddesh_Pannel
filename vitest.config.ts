@@ -5,6 +5,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Next.js resolves this package to a build-time client-import error. Unit tests run
+      // entirely in Node, so map it to a harmless empty module without weakening production.
+      'server-only': path.resolve(__dirname, './src/test/server-only.ts'),
     },
   },
   test: {

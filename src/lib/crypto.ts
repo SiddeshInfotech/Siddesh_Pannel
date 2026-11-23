@@ -1,3 +1,4 @@
+import 'server-only';
 import { scrypt, randomBytes, timingSafeEqual, createHmac, createCipheriv, createDecipheriv, createHash } from 'crypto';
 import { promisify } from 'util';
 

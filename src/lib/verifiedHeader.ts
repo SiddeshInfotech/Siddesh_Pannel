@@ -1,3 +1,4 @@
+import 'server-only';
 // ============================================================================
 // "Session already verified" request header, from the proxy to the page render of the SAME request.
 //
