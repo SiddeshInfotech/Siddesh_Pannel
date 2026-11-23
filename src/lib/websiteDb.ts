@@ -65,6 +65,35 @@ export async function websiteUserOverview(userId: string): Promise<WebsiteOvervi
   return (data as WebsiteOverview | null) ?? null;
 }
 
+export interface WindowsAppRequest {
+  user_id: string; email: string; full_name: string | null; phone: string | null; order_id: string;
+  status: 'pending' | 'sent'; requested_at: string; sent_at: string | null; sent_by: string | null;
+}
+
+/** Website buyers' requests for the Windows app (.exe): open ones oldest first, then recently sent. Null if unavailable. */
+export async function websiteAppRequests(limit = 200): Promise<WindowsAppRequest[] | null> {
+  const db = websiteDb();
+  if (!db) return null;
+  const { data, error } = await db.rpc('panel_windows_app_requests', { p_limit: limit });
+  if (error) {
+    console.error('websiteAppRequests failed:', error.code);
+    return null;
+  }
+  return (data ?? []) as WindowsAppRequest[];
+}
+
+/** Marks a buyer's open request sent. 'done', 'already' (sent before or withdrawn) or 'failed'. */
+export async function markWebsiteAppSent(userId: string, adminEmail: string): Promise<'done' | 'already' | 'failed'> {
+  const db = websiteDb();
+  if (!db || !WEBSITE_UUID.test(userId)) return 'failed';
+  const { data, error } = await db.rpc('panel_mark_windows_app_sent', { p_user_id: userId, p_admin_email: adminEmail });
+  if (error) {
+    console.error('markWebsiteAppSent failed:', error.code);
+    return 'failed';
+  }
+  return data === true ? 'done' : 'already';
+}
+
 export async function websitePlans(): Promise<{ id: string; name: string }[]> {
   const db = websiteDb();
   if (!db) return [];

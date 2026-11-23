@@ -19,18 +19,22 @@ import {
   Sun,
   Moon,
   LogOut,
+  MonitorDown,
 } from 'lucide-react';
 
 type MenuItem = {
   label: string;
   icon: React.ElementType;
   path: string;
+  /** Shown only in LMS-Admin (data that lives on the LMS School website). */
+  lmsOnly?: boolean;
 };
 
 const MENU_ITEMS: MenuItem[] = [
   { label: 'Overview', icon: LayoutDashboard, path: '/' },
   { label: 'Accounts', icon: School, path: '/accounts' },
   { label: 'Payments', icon: CreditCard, path: '/payments' },
+  { label: 'Requests', icon: MonitorDown, path: '/app-requests', lmsOnly: true },
   { label: 'Keys', icon: Key, path: '/keys' },
   { label: 'Monitoring', icon: Activity, path: '/monitoring' },
   { label: 'Update', icon: DownloadCloud, path: '/update' },
@@ -90,7 +94,7 @@ export default function Sidebar() {
 
       {/* Navigation Links — icon on top, name below */}
       <nav className="flex-1 w-full px-0.5 py-1 flex flex-col gap-2 overflow-y-auto">
-        {MENU_ITEMS.map((item) => {
+        {MENU_ITEMS.filter((item) => !item.lmsOnly || panelSlug === 'lms-admin').map((item) => {
           const isActive = item.path === '/'
             ? pathname === '/'
             : pathname === item.path || pathname.startsWith(`${item.path}/`);
