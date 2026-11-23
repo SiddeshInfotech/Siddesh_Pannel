@@ -253,7 +253,9 @@ export async function proxy(req: NextRequest) {
   const urlPanel = panelFromSlug(urlSlug)!;
   // From here on `pathname` is the in-panel route ('/keys', '/api/auth/login', '/').
   pathname = pathname.slice(urlSlug.length + 1) || '/';
-  const panelHome = new URL(`/${urlSlug}`, req.url);
+  // Relative, so the browser stays on the domain it is on: behind www.thinksphere360.com's rewrite,
+  // req.url carries this app's own Vercel host instead.
+  const toPanelHome = () => new NextResponse(null, { status: 307, headers: { Location: `/${urlSlug}` } });
   const cookiePath = `/${urlSlug}`; // this panel's session cookie lives here (auth.ts sessionCookiePath)
 
   // Always allow public API routes (login, device endpoints) under either prefix.
@@ -335,7 +337,7 @@ export async function proxy(req: NextRequest) {
       console.error('[proxy] Access blocked: token is not a valid admin session.');
       return injectSecurityHeaders(reject(() => pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Unauthorized.' }, { status: 401 })
-        : NextResponse.redirect(panelHome)), true);
+        : toPanelHome()), true);
     }
 
     // ── Live-session check (admin allowlist + admin_sessions row; fail closed) ──
@@ -350,7 +352,7 @@ export async function proxy(req: NextRequest) {
       console.error('[proxy] Session revoked, expired, removed, or unverifiable.');
       return injectSecurityHeaders(reject(() => pathname.startsWith('/api/')
         ? NextResponse.json({ error: 'Session revoked or expired.' }, { status: 401 })
-        : NextResponse.redirect(panelHome)), true);
+        : toPanelHome()), true);
     }
 
     // ── Panel prefix must match the signed panel claim (defense in depth) ──
@@ -399,7 +401,7 @@ export const config = {
      * - _next/image (image optimization)
      * - favicon.ico, .png, .jpg, .svg etc
      */
-    '/((?!_next/static|_next/image|favicon.ico|rotarydhuleconnect|siddeshcomputers|.*\\.(?:png|jpg|jpeg|svg|ico|webp)).*)',
+    '/((?!_next/static|lms-admin-static/_next/static|_next/image|favicon.ico|rotarydhuleconnect|siddeshcomputers|.*\\.(?:png|jpg|jpeg|svg|ico|webp)).*)',
   ],
 };
 

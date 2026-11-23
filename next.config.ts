@@ -18,6 +18,10 @@ const PANEL = ':panel(lms-admin|lab-admin)';
 const nextConfig: NextConfig = {
   // Remove X-Powered-By: Next.js header — prevents tech stack fingerprinting
   poweredByHeader: false,
+  // www.thinksphere360.com is the ThinkSpher360 site, which forwards /lms-admin and /lms-admin-static
+  // here. Its own /_next belongs to that site, so this app's scripts and styles load from this prefix.
+  // Next serves /lms-admin-static/_next/* itself, so this app's own domain keeps working too.
+  assetPrefix: '/lms-admin-static',
   // Keep the dev-only Next.js badge off the sidebar's bottom-left buttons.
   devIndicators: { position: 'bottom-right' },
   // Multi-zone proxy. These MUST be `beforeFiles` so they run before this app's

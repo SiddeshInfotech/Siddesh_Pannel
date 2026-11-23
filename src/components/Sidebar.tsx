@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
+import siddeshLogo from './siddesh-logo-72.png';
 import Link from '@/components/PanelLink';
 import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
@@ -82,7 +83,9 @@ export default function Sidebar() {
     <aside className="app-sidebar bg-surface-hover border-r border-sidebar-border flex flex-col items-center h-screen fixed left-0 top-0 z-40">
       {/* Brand Logo */}
       <div className="pt-4 pb-3">
-        <Image src="/siddesh_logo.png" alt="Siddesh Logo" width={36} height={36} className="w-9 h-9 object-contain rounded-lg" />
+        {/* Imported (not /siddesh_logo.png) so it loads from /lms-admin-static and never needs /_next/image,
+            which on www.thinksphere360.com belongs to the ThinkSpher360 site. */}
+        <Image src={siddeshLogo} alt="Siddesh Logo" width={36} height={36} unoptimized className="w-9 h-9 object-contain rounded-lg" />
       </div>
 
       {/* Navigation Links — icon on top, name below */}
