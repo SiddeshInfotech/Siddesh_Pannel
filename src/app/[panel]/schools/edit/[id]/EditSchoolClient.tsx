@@ -103,8 +103,6 @@ export default function EditSchoolClient({ school }: EditSchoolClientProps) {
 
   return (
     <form onSubmit={handleSave} action="javascript:void(0)" className="space-y-8 max-w-6xl mx-auto">
-      {/* Spacer to maintain layout height */}
-      <div className="h-10"></div>
 
       {/* Header Bar */}
       <div className="flex justify-between items-center flex-wrap gap-4 border-b border-white/5 pb-6">

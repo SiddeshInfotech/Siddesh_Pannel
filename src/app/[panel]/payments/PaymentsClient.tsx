@@ -40,7 +40,10 @@ interface PaymentsClientProps {
 }
 
 import { useSearchParams } from 'next/navigation';
+import TableScroll from '@/components/TableScroll';
 
+import ScrollableTabs from '@/components/ScrollableTabs';
+import StatChips from '@/components/StatChips';
 export default function PaymentsClient({ initialPayments, schools, vendors, parents }: PaymentsClientProps) {
   const { toast } = useToast();
   const searchParams = useSearchParams();
@@ -214,24 +217,22 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto relative">
-      {/* Spacer to maintain layout height */}
-      <div className="h-10"></div>
 
       {/* Header & Filters Panel */}
       <div className="flex flex-col gap-3 pb-2">
-        <div className="flex justify-between items-center flex-wrap gap-4">
-          <h2 className="text-2xl font-bold text-foreground">Payments</h2>
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex justify-between items-center gap-4">
+          <h2 className="shrink-0 text-2xl font-bold text-foreground">Payments</h2>
+          <StatChips>
             <span className="stat-chip"><CreditCard className="w-3.5 h-3.5 text-accent-violet" /> All payments <span className="stat-chip-value">{payments.length}</span></span>
             <span className="stat-chip"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Paid <span className="stat-chip-value">{paidCount}</span></span>
             <span className="stat-chip"><XCircle className="w-3.5 h-3.5 text-rose-500" /> Unpaid <span className="stat-chip-value">{unpaidCount}</span></span>
             <span className="stat-chip"><Clock className="w-3.5 h-3.5 text-amber-500" /> Pending <span className="stat-chip-value">{pendingCount}</span></span>
-          </div>
+          </StatChips>
         </div>
 
         {/* Filter bar — underlined tabs with counts; search + Add Payment on the right. */}
-        <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border">
-          <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+        <div className="flex items-end justify-between gap-3 w-full border-b border-sidebar-border">
+          <ScrollableTabs className="-mb-[1px] flex-1">
             <button
               type="button"
               onClick={() => { setEntityTab('All'); setFilter('All'); }}
@@ -259,9 +260,9 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
                 {f} <span className="filter-tab-count">{tabCount(f)}</span>
               </button>
             ))}
-          </div>
-          <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
-            <div className="relative flex-1 xl:w-[260px]">
+          </ScrollableTabs>
+          <div className="flex items-center gap-2 shrink-0 mb-1">
+            <div className="relative w-40 sm:w-[260px]">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
               <input
                 type="text"
@@ -287,8 +288,8 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
       </div>
 
       {/* Payment Table Records */}
-      <GlassCard className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto px-[15px] py-2.5">
+      <GlassCard className="!p-0">
+        <TableScroll>
           <table className="data-table data-table-rich">
             <thead>
               <tr>
@@ -359,7 +360,7 @@ export default function PaymentsClient({ initialPayments, schools, vendors, pare
               )}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       </GlassCard>
 
       {/* Confirmation Modal */}

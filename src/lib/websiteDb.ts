@@ -1,5 +1,6 @@
 import 'server-only';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { isLeadStage, LEADS_PAGE_SIZE, type Lead, type LeadEvent, type LeadStage } from './leads';
 
 // ============================================================================
 // LMS School website (ThinkSpher360) — read and manage its users from LMS-Admin.
@@ -102,4 +103,75 @@ export async function websitePlans(): Promise<{ id: string; name: string }[]> {
   if (!db) return [];
   const { data } = await db.from('plans').select('id, name').eq('is_active', true).order('name').limit(500);
   return (data ?? []) as { id: string; name: string }[];
+}
+
+// ---- Leads: the website's contact-form enquiries ----
+
+/** One page of leads, newest first, with the total and per-stage counts. Null if the website is unavailable. */
+export async function websiteLeads(stage: LeadStage | null, page: number): Promise<{ leads: Lead[]; total: number; counts: Partial<Record<LeadStage, number>> } | null> {
+  const db = websiteDb();
+  if (!db) return null;
+  const [list, counts] = await Promise.all([
+    db.rpc('panel_contact_enquiries', { p_status: stage, p_limit: LEADS_PAGE_SIZE, p_offset: (page - 1) * LEADS_PAGE_SIZE }),
+    db.rpc('panel_contact_enquiry_counts'),
+  ]);
+  if (list.error || counts.error) {
+    console.error('websiteLeads failed:', list.error?.code ?? counts.error?.code);
+    return null;
+  }
+  const rows = (list.data ?? []) as (Lead & { total: number })[];
+  const byStage: Partial<Record<LeadStage, number>> = {};
+  for (const row of (counts.data ?? []) as { status: string; total: number }[]) if (isLeadStage(row.status)) byStage[row.status] = Number(row.total);
+  return { leads: rows, total: Number(rows[0]?.total ?? 0), counts: byStage };
+}
+
+/** Moves a lead to a stage. False if it failed or the lead is gone. */
+export async function setWebsiteLeadStage(id: string, stage: LeadStage, adminEmail: string): Promise<boolean> {
+  const db = websiteDb();
+  if (!db || !WEBSITE_UUID.test(id) || !isLeadStage(stage)) return false;
+  const { data, error } = await db.rpc('panel_set_enquiry_stage', { p_id: id, p_status: stage, p_admin_email: adminEmail });
+  if (error) {
+    console.error('setWebsiteLeadStage failed:', error.code);
+    return false;
+  }
+  return data === true;
+}
+
+/** Saves corrected lead details (already checked by cleanLeadEdit). False if it failed or the lead is gone. */
+export async function updateWebsiteLead(id: string, v: { name: string; email: string; phone: string | null; city: string | null; role: string | null; best_time: string | null; timeline: string | null; message: string }, adminEmail: string): Promise<boolean> {
+  const db = websiteDb();
+  if (!db || !WEBSITE_UUID.test(id)) return false;
+  const { data, error } = await db.rpc('panel_update_enquiry', {
+    p_id: id, p_name: v.name, p_email: v.email, p_phone: v.phone, p_city: v.city, p_role: v.role,
+    p_best_time: v.best_time, p_timeline: v.timeline, p_message: v.message, p_admin_email: adminEmail,
+  });
+  if (error) {
+    console.error('updateWebsiteLead failed:', error.code);
+    return false;
+  }
+  return data === true;
+}
+
+/** Deletes a lead and its timeline. False if it failed or the lead was already gone. */
+export async function deleteWebsiteLead(id: string): Promise<boolean> {
+  const db = websiteDb();
+  if (!db || !WEBSITE_UUID.test(id)) return false;
+  const { data, error } = await db.rpc('panel_delete_enquiry', { p_id: id });
+  if (error) {
+    console.error('deleteWebsiteLead failed:', error.code);
+    return false;
+  }
+  return data === true;
+}
+
+/** A lead's timeline, oldest first. Null if it couldn't be loaded. */
+export async function websiteLeadTimeline(id: string): Promise<LeadEvent[] | null> {
+  const db = websiteDb();
+  if (!db || !WEBSITE_UUID.test(id)) return null;
+  const { data, error } = await db.rpc('panel_enquiry_timeline', { p_id: id });
+  if (error) {
+    console.error('websiteLeadTimeline failed:', error.code);
+    return null;
+  }
+  return (data ?? []) as LeadEvent[];
 }

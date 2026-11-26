@@ -6,7 +6,6 @@ import React from 'react';
 export default function Loading() {
   return (
     <div className="space-y-4 max-w-7xl mx-auto w-full" aria-busy="true" aria-label="Loading">
-      <div className="h-10" />
 
       {/* Title + count chips */}
       <div className="flex justify-between items-center flex-wrap gap-4 pb-2">

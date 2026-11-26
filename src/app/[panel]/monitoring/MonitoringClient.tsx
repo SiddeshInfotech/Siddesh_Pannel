@@ -41,7 +41,10 @@ import { deactivateDevice } from './actions';
 import { useToast } from '@/components/Toast';
 import { productFilterOptionsFor, UNRESOLVED_PRODUCT_FILTER_VALUE, isProductId, productDisplayName } from '@/lib/productIdentity';
 import { tierStyle } from '@/lib/tierStyle';
+import TableScroll from '@/components/TableScroll';
 
+import ScrollableTabs from '@/components/ScrollableTabs';
+import StatChips from '@/components/StatChips';
 // Status column renders as an icon; the tooltip carries the word.
 const STATUS_ICON: Record<DeviceRow['status'], { Icon: React.ElementType; cls: string; label: string }> = {
   Active:   { Icon: CheckCircle2,     cls: 'bg-emerald-500/10 border-emerald-500/25 text-emerald-500', label: 'Active' },
@@ -389,22 +392,20 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto">
-      {/* Spacer to maintain layout height */}
-      <div className="h-10"></div>
 
       {/* Header & Filters — Payments style */}
       <div className="flex flex-col gap-3 pb-2">
-        <div className="flex justify-between items-center flex-wrap gap-4">
-          <h2 className="text-2xl font-bold text-foreground">Device Monitoring</h2>
-          <div className="flex items-center gap-2">
+        <div className="flex justify-between items-center gap-4">
+          <h2 className="shrink-0 text-2xl font-bold text-foreground">Device Monitoring</h2>
+          <StatChips>
             <span className="stat-chip"><Monitor className="w-3.5 h-3.5 text-accent-violet" /> Total devices <span className="stat-chip-value">{totalDevicesCount}</span></span>
             <span className="stat-chip"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Active <span className="stat-chip-value">{devicesList.filter(d => d.status === 'Active').length}</span></span>
             <span className="stat-chip"><Search className="w-3.5 h-3.5" /> Shown <span className="stat-chip-value">{filteredDevices.length}</span></span>
-          </div>
+          </StatChips>
         </div>
 
-        <div ref={filterBarRef} className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border mt-2">
-          <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+        <div ref={filterBarRef} className="flex items-end justify-between gap-3 w-full border-b border-sidebar-border mt-2">
+          <ScrollableTabs className="-mb-[1px] flex-1" onScroll={() => setIsProductMenuOpen(false)}>
             {(['All', 'Schools', 'Vendors', 'Users'] as const).map(t => (
               <button
                 key={t}
@@ -444,7 +445,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
                 onSelect={(v) => { setProductFilter(v); setPage(1); setIsProductMenuOpen(false); }}
               />
             </div>
-          </div>
+          </ScrollableTabs>
 
           <div className="relative w-full xl:w-[260px] mb-1">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
@@ -460,8 +461,8 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
       </div>
 
       {/* Main Table list */}
-      <GlassCard className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto px-[15px] py-2.5">
+      <GlassCard className="!p-0">
+        <TableScroll>
           <table className="data-table data-table-rich min-w-[1040px]">
             <thead>
               <tr className="border-b border-sidebar-border h-[44px]">
@@ -623,7 +624,7 @@ export default function MonitoringClient({ initialDevices, totalDevicesCount, pa
               )}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
 
         {/* Pagination — always shown alongside real rows (even a single page), so the
             control is visibly present rather than appearing only once a fleet grows past

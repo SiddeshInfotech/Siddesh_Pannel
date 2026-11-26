@@ -30,6 +30,7 @@
   --surface-hover: rgba(255, 255, 255, 0.04);
   --surface-raised: rgba(255, 255, 255, 0.03);
   --card-shadow: none;
+  --chip-solid: #141418; /* opaque chip fill, so stacked chips don't show through */
   --sidebar: #09090b;
   --sidebar-border: rgba(255, 255, 255, 0.15);
   --accent-violet: #8b5cf6;
@@ -61,6 +62,7 @@
   --surface-inset-border-width: 1px;
   --surface-raised: #ffffff;
   --surface-hover: #f4f4f5;
+  --chip-solid: #ffffff;
   --icon-surface: #ffffff;
   --icon-ring: #d4d4d8;           /* zinc-300 */
   --metric-group-bg: transparent;
@@ -399,12 +401,12 @@ body {
 /* Sidebar tree connectors: straight ├── branches, rounded ╰── on the last item */
 .sidebar-tree {
   --tree-line: var(--sidebar-border);
-  --tree-x: 14px;      /* distance from line to item */
+  --tree-x: 10px;      /* distance from line to item */
   --tree-radius: 8px;
   display: flex;
   flex-direction: column;
   padding-top: 4px;
-  padding-left: 12px;
+  padding-left: 10px;
 }
 .sidebar-tree-item {
   position: relative;
@@ -477,9 +479,25 @@ body {
 }
 
 /* Sidebar width — single source for the rail and the content offset beside it */
-:root { --sidebar-width: 60px; }
-.app-sidebar { width: var(--sidebar-width); }
-.app-content { margin-left: var(--sidebar-width); }
+/* Open (wide) by default; .sidebar-narrow is the collapsed icon rail. */
+:root { --sidebar-width: 164px; }
+html.sidebar-narrow { --sidebar-width: 60px; }
+.app-sidebar { width: var(--sidebar-width); transition: width 0.2s ease; }
+.app-content { margin-left: var(--sidebar-width); transition: margin-left 0.2s ease; }
+
+/* Wide sidebar — icon and name in one row, category titles on the left */
+.sidebar-row {
+  color: rgba(255, 255, 255, 0.55);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+.sidebar-row:hover { background-color: rgba(255, 255, 255, 0.05); color: rgba(255, 255, 255, 0.9); }
+.sidebar-row-active,
+.sidebar-row-active:hover { background-color: rgba(255, 255, 255, 0.08); color: #ffffff; }
+.sidebar-row-active .sidebar-row-icon { color: var(--accent-violet); }
+.light .sidebar-row { color: #64748b; }
+.light .sidebar-row:hover { background-color: rgba(0, 0, 0, 0.04); color: #334155; }
+.light .sidebar-row-active,
+.light .sidebar-row-active:hover { background-color: #ffffff; color: #0f172a; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
 
 /* Sidebar Rail — icon on top, name below; active item = white icon chip only */
 .sidebar-rail-item {
@@ -1113,6 +1131,57 @@ select option {
     color: var(--text-muted);
     font-variant-numeric: tabular-nums;
   }
+  /* StatChips row: fits normally; when too narrow the chips overlap like a stacked deck. */
+  .stat-chips {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .stat-chips[data-cramped='true'] {
+    justify-content: flex-start;
+    overflow: hidden;
+  }
+  .stat-chips > * {
+    position: relative;
+    flex-shrink: 0;
+    transition: margin-left 0.2s ease, transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .stat-chips[data-stacked='true'] > * {
+    background: var(--chip-solid);
+  }
+  .stat-chips[data-stacked='true'] > * + * {
+    box-shadow: -6px 0 12px -6px rgba(0, 0, 0, 0.35);
+  }
+  /* A covered chip lifts to the top on hover / keyboard focus so it can be read. */
+  .stat-chips[data-stacked='true'] > *:hover,
+  .stat-chips[data-stacked='true'] > *:focus-within,
+  .stat-chips[data-stacked='true'] > *:focus-visible {
+    z-index: 50 !important;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  }
+  /* ‹ › buttons on the edge of a ScrollableTabs strip that has more tabs behind it. */
+  .tabs-scroll-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    margin: 0 2px 4px;
+    border-radius: 9999px;
+    color: var(--text-muted);
+    background: var(--card);
+    border: 1px solid var(--card-border);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+  .tabs-scroll-btn:hover {
+    color: var(--text-strong);
+    border-color: var(--accent-violet);
+  }
 
   /* Range slider (Add School → Classrooms Limit): purple fill up to the value (--range-fill set
      inline), visible grey remainder, white thumb with a violet ring. */
@@ -1213,5 +1282,13 @@ input[type="date"]::-webkit-inner-spin-button {
 .cal-nav:hover,
 .cal-day:hover {
   background: var(--surface-hover);
+  color: var(--text-strong);
+}
+
+/* Sidebar category header = accordion toggle */
+.sidebar-group-toggle {
+  transition: color 0.15s ease;
+}
+.sidebar-group-toggle:hover {
   color: var(--text-strong);
 }

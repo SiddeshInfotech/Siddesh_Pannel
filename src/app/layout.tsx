@@ -41,7 +41,8 @@ export default async function RootLayout({
             {/* Content Wrapper */}
             <div className={`flex-1 ${sessionExists ? 'app-content' : ''} min-h-screen flex flex-col min-w-0`}>
               {/* Main Workspace */}
-              <main className="flex-1 pt-8 pb-8 pl-4 pr-4 overflow-y-auto">
+              {/* pt = sidebar brand (64px) + divider (1px) + 8px, so page titles start just under the sidebar divider, above HOME */}
+              <main className="flex-1 pt-[73px] pb-8 pl-4 pr-4 overflow-y-auto">
                 {sessionExists ? children : <div className="min-h-screen w-full bg-[#09090b]" />}
               </main>
             </div>

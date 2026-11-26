@@ -15,6 +15,7 @@ import { HEALTH_TAB_HELP, HELP } from '@/lib/diagnostics/help';
 import * as A from './actions';
 import { usePanelPath } from '@/lib/usePanelPath';
 
+import ScrollableTabs from '@/components/ScrollableTabs';
 // recharts is loaded only when a chart is drawn, not with the page.
 const ActivityChart = dynamic(() => import('./ActivityChart'), { ssr: false, loading: () => <div className="h-full rounded-lg bg-white/5 animate-pulse" /> });
 
@@ -83,7 +84,6 @@ export default function HealthClient({ products }: { products: { value: string; 
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30_000); return () => clearInterval(t); }, []);
   return (
     <div className="space-y-4 max-w-7xl mx-auto">
-      <div className="h-10" />
       <div className="flex justify-between items-center flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-foreground flex items-center gap-2"><HeartPulse className="w-6 h-6" /> Operations Center</h2>
         <div className="flex flex-wrap gap-2 text-xs w-full sm:w-auto">
@@ -91,9 +91,11 @@ export default function HealthClient({ products }: { products: { value: string; 
         </div>
       </div>
       {/* items-end: tabs sit on the gray line (active = purple underline on it) even though the refresh button is taller. */}
-      <div className="flex flex-wrap items-end border-b border-sidebar-border">
-        {TABS.map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`filter-tab ${tab === k ? 'filter-tab-active' : ''}`}>{l}</button>)}
-        <div className="ml-auto flex items-center gap-2 text-[11px] text-zinc-500 pb-1.5 pl-2">
+      <div className="flex items-end border-b border-sidebar-border">
+        <ScrollableTabs className="-mb-[1px] flex-1">
+          {TABS.map(([k, l]) => <button key={k} type="button" onClick={() => setTab(k)} className={`filter-tab ${tab === k ? 'filter-tab-active' : ''}`}>{l}</button>)}
+        </ScrollableTabs>
+        <div className="ml-auto shrink-0 flex items-center gap-2 text-[11px] text-zinc-500 pb-1.5 pl-2">
           {tab === 'overview' && updatedAt && <span>Updated {ago(updatedAt)} · auto 30 s</span>}
           <button type="button" className="icon-btn" title="Refresh" onClick={() => setRefresh((n) => n + 1)}><RefreshCw className="w-3.5 h-3.5" /></button>
         </div>
@@ -535,12 +537,12 @@ function DeviceLogs({ dev, onClose }: { dev: any; onClose: () => void }) {
         </div>
         <button type="button" className="icon-btn" title="Close" onClick={onClose}><X className="w-4 h-4" /></button>
       </div>
-      <div className="flex gap-1 flex-wrap items-center">
+      <ScrollableTabs>
         {CATS.map((c) => (
           <button key={c} className={`filter-tab ${category === c ? 'filter-tab-active' : ''}`} onClick={() => setCategory(c)}>
             {c ? `${human(c)}${data?.byCategory?.[c] ? ` (${data.byCategory[c]})` : ''}` : 'All'}</button>))}
         <div className="ml-auto"><SearchBox value={text} onChange={setText} placeholder="Search logs…" w="w-56" /></div>
-      </div>
+      </ScrollableTabs>
       {err ? <Err e={err} /> : !data ? <p className="text-zinc-500 py-6 text-center">Loading…</p> : (
         <>
           <Timeline entries={entries} empty={q || category ? 'No logs match.' : 'This device has not reported anything yet.'} />

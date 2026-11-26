@@ -12,11 +12,9 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto">
-      {/* Spacer to maintain layout height */}
-      <div className="h-10" />
 
-      <div className="flex justify-between items-center flex-wrap gap-4 pb-2">
-        <h2 className="text-2xl font-bold text-foreground">Overview</h2>
+      <div className="flex justify-between items-center gap-4 pb-2">
+        <h2 className="shrink-0 text-2xl font-bold text-foreground">Overview</h2>
         {/* Metric chips stream in via Suspense */}
         <Suspense fallback={<MetricsSkeleton />}>
           <DashboardMetrics />

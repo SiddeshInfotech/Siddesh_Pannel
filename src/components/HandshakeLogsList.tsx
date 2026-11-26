@@ -20,6 +20,7 @@ import {
   Check,
   X,
 } from 'lucide-react';
+import TableScroll from '@/components/TableScroll';
 
 interface HandshakeLogItem {
   id: string;
@@ -108,7 +109,7 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
 
   return (
     <>
-      <div className="overflow-x-auto px-[15px] py-2.5">
+      <TableScroll>
       <table className="data-table data-table-rich min-w-[860px]">
         <thead>
           <tr>
@@ -167,7 +168,7 @@ export default function HandshakeLogsList({ logs }: HandshakeLogsListProps) {
           )}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
 
     {/* Modal Overlay */}
     {selectedLog && (

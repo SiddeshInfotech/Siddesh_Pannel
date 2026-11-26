@@ -6,6 +6,7 @@ import { adminDb } from '@/lib/panelTables';
 import { supabaseAdmin } from '@/lib/supabase';
 import { fetchAllPages } from '../update/telemetry';
 import { websiteUsersByEmail } from '@/lib/websiteDb';
+import StatChips from '@/components/StatChips';
 export const revalidate = 0;
 export const dynamic = 'force-dynamic';
 
@@ -157,17 +158,15 @@ export default async function AccountsPage(props: { searchParams: Promise<{ [key
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto">
-      {/* Spacer to maintain layout height */}
-      <div className="h-10" />
 
       <div className="space-y-4">
-        <div className="flex justify-between items-center flex-wrap gap-4 pb-2">
-          <h2 className="text-2xl font-bold text-foreground">Accounts</h2>
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex justify-between items-center gap-4 pb-2">
+          <h2 className="shrink-0 text-2xl font-bold text-foreground">Accounts</h2>
+          <StatChips>
             <span className="stat-chip"><Building2 className="w-3.5 h-3.5 text-accent-violet" /> Vendors <span className="stat-chip-value">{totalVendors}</span></span>
             <span className="stat-chip"><School className="w-3.5 h-3.5 text-sky-500" /> Schools <span className="stat-chip-value">{totalSchools}</span></span>
             <span className="stat-chip"><Users className="w-3.5 h-3.5 text-emerald-500" /> Parents <span className="stat-chip-value">{totalParents}</span></span>
-          </div>
+          </StatChips>
         </div>
 
       <DataTabs

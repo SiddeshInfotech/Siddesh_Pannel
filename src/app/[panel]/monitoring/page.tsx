@@ -70,6 +70,22 @@ async function fetchTermsAcceptances(fingerprints: string[]): Promise<Map<string
   return map;
 }
 
+// Website sign-up consent for Users (parents.consent_version / consent_accepted_at, parents-consent.sql),
+// keyed by parents.id and shaped like a terms_acceptances row. Used when the device has no record of
+// its own. Best-effort + isolated: until that SQL runs PostgREST 400s and these devices show "Not recorded".
+async function fetchParentConsents(parentIds: string[]): Promise<Map<string, DbRow>> {
+  const map = new Map<string, DbRow>();
+  if (parentIds.length === 0) return map;
+  const { data, error } = await (await adminDb())
+    .from('parents')
+    .select('id, consent_version, consent_accepted_at')
+    .in('id', parentIds)
+    .not('consent_version', 'is', null);
+  if (error) return map;
+  for (const row of data ?? []) map.set(row.id, { terms_version: row.consent_version, accepted_at: row.consent_accepted_at });
+  return map;
+}
+
 // Operator-chosen device class per key (scripts/add_interactive_panel.sql). Best-effort + isolated:
 // until that migration runs PostgREST 400s here and every device just shows as Standard.
 async function fetchDeviceClasses(keyIds: string[]): Promise<Map<string, string>> {
@@ -157,16 +173,20 @@ async function getDevicesData() {
     .map((k: DbRow) => k.device_fingerprint)
     .filter((f: unknown): f is string => typeof f === 'string' && !!f);
   const keyIds = ((keys ?? []) as unknown as Array<{ id: string }>).map((k) => k.id).filter((id) => !!id);
+  const parentIds = [...new Set((keys ?? []).map((k: DbRow) => k.parent_id).filter((id: unknown): id is string => typeof id === 'string' && !!id))];
   // Independent lookups: run them in parallel, not one after another.
-  const [termsByFp, tamperById, deviceClassById, attestationIssueByFp] = await Promise.all([
+  const [termsByFp, tamperById, deviceClassById, attestationIssueByFp, consentByParent] = await Promise.all([
     fetchTermsAcceptances(fingerprints),
     fetchTamperFlags(keyIds),
     fetchDeviceClasses(keyIds),
     fetchAttestationIssues(fingerprints),
+    fetchParentConsents(parentIds),
   ]);
 
   return (keys ?? []).map((k: DbRow) => {
-    const terms = k.device_fingerprint ? termsByFp.get(k.device_fingerprint) : undefined;
+    // The device's own consent first; for a User's device, else the consent given at website sign-up.
+    const terms = (k.device_fingerprint ? termsByFp.get(k.device_fingerprint) : undefined)
+      ?? (k.parent_id ? consentByParent.get(k.parent_id) : undefined);
     const tamper = tamperById.get(k.id);
     const attestationIssue = k.device_fingerprint ? attestationIssueByFp.get(k.device_fingerprint) ?? null : null;
     // Calculate remaining time

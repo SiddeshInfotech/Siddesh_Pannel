@@ -53,6 +53,8 @@ function productWithDeviceClass(productId: string | null | undefined, deviceClas
   return deviceClass === DEVICE_CLASS_MANAGED_PANEL ? `${product} · ${deviceClassLabel(deviceClass)}` : product;
 }
 import type { BatchPdfInput } from '@/lib/keysPdf';
+import TableScroll from '@/components/TableScroll';
+import StatChips from '@/components/StatChips';
 // jsPDF is loaded only when "PDF" is clicked, not with the keys page.
 const downloadActivationKeysPdf = (input: BatchPdfInput) =>
   import('@/lib/keysPdf').then((m) => m.downloadActivationKeysPdf(input));
@@ -603,23 +605,22 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto relative">
-      <div className="h-10"></div>
 
       {/* Header — title + count chips */}
       <div className="flex flex-col gap-3 pb-2">
-        <div className="flex justify-between items-center flex-wrap gap-4">
-          <h2 className="text-2xl font-bold text-foreground">Activation Keys</h2>
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex justify-between items-center gap-4">
+          <h2 className="shrink-0 text-2xl font-bold text-foreground">Activation Keys</h2>
+          <StatChips>
             <span className="stat-chip"><Key className="w-3.5 h-3.5 text-accent-violet" /> All keys <span className="stat-chip-value">{keyList.length}</span></span>
             <span className="stat-chip"><CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> Active <span className="stat-chip-value">{keyList.filter(k => keyMatchesStatus(k, 'Active')).length}</span></span>
             <span className="stat-chip"><CalendarX className="w-3.5 h-3.5 text-rose-500" /> Expired <span className="stat-chip-value">{keyList.filter(k => keyMatchesStatus(k, 'Expired')).length}</span></span>
             <span className="stat-chip"><Ban className="w-3.5 h-3.5 text-zinc-500" /> Revoked <span className="stat-chip-value">{keyList.filter(k => keyMatchesStatus(k, 'Revoked')).length}</span></span>
-          </div>
+          </StatChips>
         </div>
 
         {/* Filter bar — underlined tabs with counts (Product Types last); search, date, Create Key on the right. */}
-        <div ref={filterBarRef} className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border">
-          <ScrollableTabs className="gap-0 -mb-[1px] w-full xl:w-auto xl:flex-1" onScroll={() => setIsProductMenuOpen(false)}>
+        <div ref={filterBarRef} className="flex items-end justify-between gap-3 w-full border-b border-sidebar-border">
+          <ScrollableTabs className="-mb-[1px] flex-1" onScroll={() => setIsProductMenuOpen(false)}>
             <button type="button" onClick={() => { setFilterEntityType('all'); setFilterSchoolId('all'); setStatusFilter('All'); setFilterProductId('all'); }}
               className={`filter-tab ${filterEntityType === 'all' && statusFilter === 'All' && filterProductId === 'all' ? 'filter-tab-active' : ''}`}>
               All <span className="filter-tab-count">{searchedKeys.length}</span>
@@ -672,8 +673,8 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
             </div>
           </ScrollableTabs>
 
-          <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
-            <div className="relative flex-1 xl:w-[240px]">
+          <div className="flex items-center gap-2 shrink-0 mb-1">
+            <div className="relative w-40 sm:w-[240px]">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
               <input
                 type="text"
@@ -703,8 +704,8 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
       </div>
 
       {/* Keys Table — Payments style */}
-      <GlassCard className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto px-[15px] py-2.5">
+      <GlassCard className="!p-0">
+        <TableScroll>
           <table className="data-table data-table-rich">
             <thead>
               <tr>
@@ -743,7 +744,7 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
               )}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
         
         {/* Pagination Controls */}
         {totalPages > 1 && (
@@ -977,7 +978,7 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
                 </div>
               </div>
 
-              <div className="overflow-x-auto px-[15px] py-2.5">
+              <TableScroll>
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-sidebar-border h-[44px]">
@@ -1000,7 +1001,7 @@ export default function KeysClient({ schools, keys, vendors, parents, panel }: K
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </TableScroll>
 
               {generatedKeys.length > resultsVisibleCount && (
                 <div className="flex items-center justify-between gap-3 pt-2">

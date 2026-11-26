@@ -235,7 +235,6 @@ export default function EditVendorClient({
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
-      <div className="h-10"></div>
 
       {/* Header */}
       <div className="flex justify-between items-center flex-wrap gap-4 border-b border-white/5 pb-6">

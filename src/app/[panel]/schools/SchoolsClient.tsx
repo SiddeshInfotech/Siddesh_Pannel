@@ -67,8 +67,6 @@ export default function SchoolsClient({ initialSchools }: SchoolsClientProps) {
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto relative">
-      {/* Spacer to maintain layout height */}
-      <div className="h-10"></div>
 
       {/* Header Panel */}
       <div className="flex justify-between items-center flex-wrap gap-4">

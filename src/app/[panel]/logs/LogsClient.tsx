@@ -14,6 +14,7 @@ import InfoTip from '@/components/InfoTip';
 import { HELP } from '@/lib/diagnostics/help';
 import * as A from './actions';
 
+import ScrollableTabs from '@/components/ScrollableTabs';
 /* eslint-disable @typescript-eslint/no-explicit-any -- rows from dynamic selects */
 
 const TABS = [['crashes', 'Crashes'], ['bugs', 'Bug Reports']] as const;
@@ -53,18 +54,17 @@ export default function LogsClient() {
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto">
-      <div className="h-10" />
       <div className="flex justify-between items-center flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-foreground flex items-center gap-2"><ScrollText className="w-6 h-6" /> Logs &amp; Diagnostics</h2>
         <Chip>Role <span className="stat-chip-value">{me.role.replace('_', ' ')}</span>{me.scoped ? ' · school-scoped' : ''}</Chip>
       </div>
       {/* items-end: the tabs sit on the gray line (active = purple underline on it), even though the filters are taller. */}
-      <div className="flex items-end justify-between gap-2 flex-wrap border-b border-sidebar-border">
-        <div className="flex items-end self-end">
+      <div className="flex items-end justify-between gap-2 border-b border-sidebar-border">
+        <ScrollableTabs className="self-end flex-1">
           {TABS.map(([k, label]) => (
             <button key={k} type="button" onClick={() => setTab(k)} className={`filter-tab ${tab === k ? 'filter-tab-active' : ''}`}>{label}</button>
           ))}
-        </div>
+        </ScrollableTabs>
         <IssueFilterBar showKind={tab === 'bugs'} f={filters[tab]} onChange={(f) => setFilters((o) => ({ ...o, [tab]: f }))} />
       </div>
 

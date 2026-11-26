@@ -21,6 +21,7 @@ import StatusBadge, { StatusType } from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
 import { deleteParentAction } from './actions';
 import AccountKeysModal, { KeyCountButton, type KeysTarget } from './AccountKeysModal';
+import TableScroll from '@/components/TableScroll';
 
 interface Parent {
     dbId: string;
@@ -146,8 +147,8 @@ export default function ParentsClient({
                     </button>
                 </div>
             </div>
-            <GlassCard className="overflow-hidden !p-0">
-                <div className="overflow-x-auto px-[15px] py-2.5">
+            <GlassCard className="!p-0">
+                <TableScroll>
                     <table className="data-table data-table-rich">
                         <thead>
                             <tr>
@@ -210,7 +211,7 @@ export default function ParentsClient({
                             )}
                         </tbody>
                     </table>
-                </div>
+                </TableScroll>
             </GlassCard>
 
             {/* Custom Confirm Dialog (same logic as VendorsClient) */}

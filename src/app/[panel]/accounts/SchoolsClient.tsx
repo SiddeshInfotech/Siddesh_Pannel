@@ -20,6 +20,7 @@ import NewSchoolForm from '@/components/forms/NewSchoolForm';
 import { deleteSchoolAction } from './actions';
 import AccountKeysModal, { KeyCountButton, type KeysTarget } from './AccountKeysModal';
 import { useToast } from '@/components/Toast';
+import TableScroll from '@/components/TableScroll';
 
 interface SchoolRow {
   dbId: string;
@@ -113,8 +114,8 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
                     </button>
                 </div>
             </div>
-      <GlassCard className="overflow-hidden !p-0">
-        <div className="overflow-x-auto px-[15px] py-2.5">
+      <GlassCard className="!p-0">
+        <TableScroll>
           <table className="data-table data-table-rich">
             <thead>
               <tr>
@@ -197,7 +198,7 @@ export default function SchoolsClient({ initialSchools, tabsNode }: SchoolsClien
               })}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       </GlassCard>
 
       {/* Confirmation Modal */}

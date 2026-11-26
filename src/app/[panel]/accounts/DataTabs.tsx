@@ -8,6 +8,7 @@ import SchoolsClient from './SchoolsClient';
 import VendorsClient from './VendorsClient';
 import ParentsClient from './ParentsClient';
 
+import ScrollableTabs from '@/components/ScrollableTabs';
 interface DataTabsProps {
   initialSchools: any /* eslint-disable-line @typescript-eslint/no-explicit-any */[];
   initialVendors: any /* eslint-disable-line @typescript-eslint/no-explicit-any */[];
@@ -37,7 +38,7 @@ export default function DataTabs({
 
   // Same underlined tabs as Keys / Monitoring / Update. Sits on the filter bar's bottom line.
   const tabsNode = (
-    <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+    <ScrollableTabs className="-mb-[1px] flex-1">
       {tabs.map((t) => (
         <button
           key={t.key}
@@ -49,7 +50,7 @@ export default function DataTabs({
           <span className="filter-tab-count">{t.count}</span>
         </button>
       ))}
-    </div>
+    </ScrollableTabs>
   );
 
   return (

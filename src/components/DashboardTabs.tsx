@@ -6,6 +6,7 @@ import GlassCard from './GlassCard';
 import HandshakeLogsList from './HandshakeLogsList';
 import { getHandshakeLogs } from '@/app/[panel]/actions';
 
+import ScrollableTabs from '@/components/ScrollableTabs';
 export default function DashboardTabs() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [logs, setLogs] = useState<any[]>([]);
@@ -54,17 +55,17 @@ export default function DashboardTabs() {
   return (
     <div className="space-y-4">
       {/* Filter bar — same underlined-tab bar as the other pages; search on the right. */}
-      <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border">
-        <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+      <div className="flex items-end justify-between gap-3 w-full border-b border-sidebar-border">
+        <ScrollableTabs className="-mb-[1px] flex-1">
           <span className="filter-tab filter-tab-active !cursor-default">
             <Terminal className="w-3.5 h-3.5" />
             Handshake audit logs
             <span className="filter-tab-count">{totalLogsCount}</span>
           </span>
-        </div>
-        <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
+        </ScrollableTabs>
+        <div className="flex items-center gap-2 shrink-0 mb-1">
           {isPending && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-violet shrink-0" />}
-          <div className="relative flex-1 xl:w-[260px]">
+          <div className="relative w-40 sm:w-[260px]">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
             <input
               type="text"
@@ -77,7 +78,7 @@ export default function DashboardTabs() {
         </div>
       </div>
 
-      <GlassCard className="!p-0 overflow-hidden">
+      <GlassCard className="!p-0">
         <HandshakeLogsList logs={logs} />
 
         {/* Pagination Controls */}

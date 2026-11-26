@@ -13,7 +13,10 @@ import { productFilterOptionsFor, UNRESOLVED_PRODUCT_FILTER_VALUE, productDispla
 import { tierStyle } from '@/lib/tierStyle';
 import { getKeyTimeline } from './actions';
 import { IST, SECURITY_EVENT_TYPES, humanDuration, type Device, type Ev, type KeyState } from './shared';
+import TableScroll from '@/components/TableScroll';
 
+import ScrollableTabs from '@/components/ScrollableTabs';
+import StatChips from '@/components/StatChips';
 // ── Key status + connection badges ──────────────────────────────────────────────────
 const KEY_STATE: Record<KeyState, { label: string; cls: string; help: string }> = {
   active: {
@@ -260,13 +263,11 @@ export default function UpdateClient({
 
   return (
     <div className="space-y-4 max-w-7xl mx-auto text-foreground">
-      {/* Spacer to maintain layout height */}
-      <div className="h-10"></div>
 
       <div className="flex flex-col gap-3 pb-2">
-        <div className="flex justify-between items-center flex-wrap gap-4">
-          <h2 className="text-2xl font-bold text-foreground">Update &amp; Online Sync</h2>
-          <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex justify-between items-center gap-4">
+          <h2 className="shrink-0 text-2xl font-bold text-foreground">Update &amp; Online Sync</h2>
+          <StatChips>
             <span className="stat-chip"><Server className="w-3.5 h-3.5 text-accent-violet" /> All keys <span className="stat-chip-value">{counts.all}</span></span>
             {/* Devices, not key rows: one machine online is one, however many keys it has held. */}
             <span className="stat-chip"><span className="live-dot" /> Online now <span className="stat-chip-value">{onlineCount}</span></span>
@@ -281,12 +282,12 @@ export default function UpdateClient({
               <ShieldAlert className="w-3.5 h-3.5" /> Security alerts
               <span className={`stat-chip-value ${securityAlertCount > 0 ? '!text-rose-500' : ''}`}>{securityAlertCount}</span>
             </button>
-          </div>
+          </StatChips>
         </div>
 
         {/* Filter bar — same underlined tabs as Keys / Monitoring; search + legend on the right. */}
-        <div ref={filterBarRef} className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border mt-2">
-          <div className="flex items-center gap-0 flex-wrap -mb-[1px]">
+        <div ref={filterBarRef} className="flex items-end justify-between gap-3 w-full border-b border-sidebar-border mt-2">
+          <ScrollableTabs className="-mb-[1px] flex-1" onScroll={() => setIsProductMenuOpen(false)}>
             {statusTabs.map((t) => (
               <button
                 key={t.value}
@@ -327,10 +328,10 @@ export default function UpdateClient({
                 onSelect={(v) => { setProductFilter(v); setStatusFilter('all'); setPage(1); setIsProductMenuOpen(false); }}
               />
             </div>
-          </div>
+          </ScrollableTabs>
 
-          <div className="flex items-center gap-2 w-full xl:w-auto mb-1">
-            <div className="relative flex-1 xl:w-[260px]">
+          <div className="flex items-center gap-2 shrink-0 mb-1">
+            <div className="relative w-40 sm:w-[260px]">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500 pointer-events-none" />
               <input
                 type="text"
@@ -520,8 +521,8 @@ export default function UpdateClient({
         </FormModal>
       )}
 
-      <GlassCard className="!p-0 overflow-hidden">
-        <div className="overflow-x-auto px-[15px] py-2.5">
+      <GlassCard className="!p-0">
+        <TableScroll>
           <table className="data-table data-table-rich min-w-[1100px]">
             <thead>
               <tr>
@@ -636,7 +637,7 @@ export default function UpdateClient({
               })}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
 
         {filtered.length > 0 && (
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 border-t border-white/5 bg-white/[0.02]">
