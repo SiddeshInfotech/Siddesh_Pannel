@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState, useTransition, useCallback } from 'react';
-import Link from '@/components/PanelLink';
 import { useRouter } from 'next/navigation';
 import FormModal from '@/components/FormModal';
 import NewParentForm from '@/components/forms/NewParentForm';
@@ -19,7 +18,7 @@ import GlassCard from '@/components/GlassCard';
 import EntityAvatar from '@/components/EntityAvatar';
 import StatusBadge, { StatusType } from '@/components/StatusBadge';
 import { useToast } from '@/components/Toast';
-import { deleteParentAction } from './actions';
+import { deleteParentAction, getParentForEdit, type ParentEditData } from './actions';
 import AccountKeysModal, { KeyCountButton, type KeysTarget } from './AccountKeysModal';
 import TableScroll from '@/components/TableScroll';
 
@@ -66,6 +65,22 @@ export default function ParentsClient({
     const [isPending, startTransition] = useTransition();
     const [showConfirmModal, setShowConfirmModal] = useState(false);
     const [parentToDelete, setParentToDelete] = useState<Parent | null>(null);
+    const [editParent, setEditParent] = useState<ParentEditData | null>(null);
+    const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
+    const closeEdit = useCallback(() => setEditParent(null), []);
+    // Loads the saved values from the server, so the pop-up never starts from a stale row.
+    const openEdit = async (id: string) => {
+        setLoadingEditId(id);
+        try {
+            const p = await getParentForEdit(id);
+            if (p) setEditParent(p);
+            else toast('Could not load this parent. Please refresh and try again.', 'error');
+        } catch {
+            toast('Could not load this parent. Please refresh and try again.', 'error');
+        } finally {
+            setLoadingEditId(null);
+        }
+    };
 
     const filteredParents = useMemo(() => {
         const pool = onlyWebsite ? parents.filter((p) => p.websiteUserId) : parents;
@@ -105,6 +120,7 @@ export default function ParentsClient({
             toast(`Parent "${targetName}" deleted successfully.`, 'success');
             setShowConfirmModal(false);
             setParentToDelete(null);
+            router.refresh(); // counts in the header chips
         });
     };
 
@@ -113,6 +129,16 @@ export default function ParentsClient({
             <AccountKeysModal target={keysTarget} onClose={() => setKeysTarget(null)} />
             <FormModal open={showAdd} onClose={closeAdd}>
                 <NewParentForm onClose={closeAdd} onSaved={() => { closeAdd(); router.refresh(); }} />
+            </FormModal>
+            <FormModal open={!!editParent} onClose={closeEdit}>
+                {editParent && (
+                    <NewParentForm
+                        key={editParent.dbId}
+                        edit={editParent}
+                        onClose={closeEdit}
+                        onSaved={() => { closeEdit(); router.refresh(); }}
+                    />
+                )}
             </FormModal>
             <div className="flex flex-col xl:flex-row xl:items-end justify-between gap-3 w-full border-b border-sidebar-border">
                 {tabsNode}
@@ -187,11 +213,17 @@ export default function ParentsClient({
                                     <td className="num"><KeyCountButton count={parent.keyCount} onClick={() => showKeys(parent)} /></td>
                                     <td className="num">
                                         <div className="flex items-center justify-end gap-2">
-                                            {/* We can add an edit page later: href={`/parents/edit/${parent.dbId}`} */}
-                                            <Link href={'#'} className="icon-btn" title="Edit Parent">
-                                                <Pencil className="w-3.5 h-3.5" />
-                                            </Link>
                                             <button
+                                                type="button"
+                                                onClick={() => openEdit(parent.dbId)}
+                                                disabled={loadingEditId === parent.dbId}
+                                                className="icon-btn"
+                                                title="Edit Parent"
+                                            >
+                                                <Pencil className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button
+                                                type="button"
                                                 onClick={() => confirmDelete(parent)}
                                                 className="icon-btn icon-btn-danger"
                                                 title="Delete Parent"
@@ -234,12 +266,20 @@ export default function ParentsClient({
                             <p className="text-sm text-zinc-300">
                                 Are you sure you want to delete <span className="font-bold text-white">{parentToDelete?.parentName}</span>?
                             </p>
-                            <p className="text-xs text-zinc-500">
-                                This action cannot be undone. All data associated with this parent will be permanently removed.
+                            <p className="text-xs text-zinc-400">
+                                This permanently removes {parentToDelete?.parentId || 'this parent'}, their licence keys, payment records and PC registrations.
                             </p>
+                            {parentToDelete?.websiteUserId && (
+                                <p className="text-xs text-sky-400">
+                                    Their LMS School website account goes too: login, class access, progress, orders and payments, and Windows PCs.
+                                </p>
+                            )}
+                            <p className="text-xs text-zinc-500">This cannot be undone.</p>
                             <div className="flex gap-3 pt-2">
                                 <button
+                                    type="button"
                                     onClick={() => setShowConfirmModal(false)}
+                                    disabled={isPending}
                                     className="flex-1 py-2.5 bg-white/5 hover:bg-white/10 text-white text-sm font-semibold rounded-xl transition-colors cursor-pointer"
                                 >
                                     Cancel

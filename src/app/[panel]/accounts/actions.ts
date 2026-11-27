@@ -9,6 +9,9 @@ import { ActionResult, GENERIC_ERROR, fail, ok } from '@/lib/actionResult';
 import { adminDb } from '@/lib/panelTables';
 import { invalidateEntityLists } from '@/lib/entityLists';
 import { chunk, fetchAllPages, humanDuration } from '../update/telemetry';
+import { supabaseAdmin } from '@/lib/supabase';
+import { deleteWebsiteUser, updateWebsiteProfile, websiteUserIdByEmail } from '@/lib/websiteDb';
+import { deleteParentRecords, parseParentEdit, UUID as PARENT_UUID } from '@/lib/parentAccount';
 
 const UpdateSchoolSchema = z.object({
   name: z.string().trim().min(1, 'School name is required.').max(120, 'School name is too long.'),
@@ -306,35 +309,153 @@ export async function updateVendorAction(
   }
 }
 
+// ── Parents: Edit and Delete ─────────────────────────────────────────────────────────────
+// A parent can also be an LMS School website account (same email, LMS-Admin only). Edit then
+// saves the name and mobile number to the website profile too; Delete removes the website
+// account with everything linked to it first, then the parent's panel records.
+
+const PARENT_EDIT_COLUMNS = 'id, parent_id, parent_name, kid_name, email, phone_number, city, state, grade, status';
+
+/** The website account behind a parent, or null. 'unavailable' when LMS-Admin can't reach the website. */
+async function parentWebsiteUser(panel: string, email: unknown): Promise<string | null | 'unavailable'> {
+  if (panel !== 'lms' || typeof email !== 'string') return null;
+  return websiteUserIdByEmail(email);
+}
+
+/** One parent, shaped for the Edit pop-up (same fields as the Add form). Null if it can't be loaded. */
+export async function getParentForEdit(id: string) {
+  const session = await getAdminSession();
+  if (!session || typeof id !== 'string' || !PARENT_UUID.test(id)) return null;
+  const db = await adminDb();
+  const { data: p, error } = await db.from('parents').select(PARENT_EDIT_COLUMNS).eq('id', id).maybeSingle();
+  if (error || !p) return null;
+  const websiteUser = await parentWebsiteUser(db.panel, p.email);
+  return {
+    dbId: p.id as string,
+    parentId: (p.parent_id as string | null) ?? '',
+    /** Signs in to the LMS School website with this email, so the email can't be changed here. */
+    websiteLinked: typeof websiteUser === 'string' && websiteUser !== 'unavailable',
+    /** The website didn't answer: saving will be refused, so the pop-up says so up front. */
+    websiteUnavailable: websiteUser === 'unavailable',
+    parentName: (p.parent_name as string | null) ?? '',
+    kidName: (p.kid_name as string | null) ?? '',
+    email: (p.email as string | null) ?? '',
+    phoneNumber: (p.phone_number as string | null) ?? '',
+    grade: (p.grade as string | null) ?? '',
+    status: (p.status === 'Inactive' ? 'Inactive' : 'Active') as 'Active' | 'Inactive',
+    city: (p.city as string | null) ?? '',
+    state: (p.state as string | null) ?? '',
+  };
+}
+
+export type ParentEditData = NonNullable<Awaited<ReturnType<typeof getParentForEdit>>>;
+
+export async function updateParentAction(id: string, input: unknown): Promise<ActionResult> {
+  const session = await getAdminSession();
+  if (!session) return fail('Unauthorized. Please sign in again.');
+  if (typeof id !== 'string' || !PARENT_UUID.test(id) || typeof input !== 'object' || input === null) return fail(GENERIC_ERROR);
+
+  try {
+    const db = await adminDb();
+    const { data: current, error: readError } = await db.from('parents').select('id, email').eq('id', id).maybeSingle();
+    if (readError) {
+      logger.error({ event: 'UPDATE_PARENT_READ_ERROR', parentDbId: id, code: readError.code });
+      return fail(GENERIC_ERROR);
+    }
+    if (!current) return fail('This parent no longer exists. Refresh the page.');
+
+    const websiteUser = await parentWebsiteUser(db.panel, current.email);
+    if (websiteUser === 'unavailable') return fail('The LMS School website could not be reached, so nothing was saved. Please try again.');
+
+    const parsed = parseParentEdit(input, { websiteLinked: !!websiteUser });
+    if (!parsed.ok) return fail(parsed.error);
+    const v = parsed.data;
+    if (websiteUser && v.email !== String(current.email ?? '').trim().toLowerCase()) {
+      return fail('This parent signs in to the LMS School website with this email, so it can\'t be changed here.');
+    }
+
+    if (websiteUser) {
+      const saved = await updateWebsiteProfile(websiteUser, v.parentName, `+91${v.phoneNumber}`);
+      if (saved === 'invalid_name') return fail('Enter a valid Parent Name (up to 100 characters).');
+      if (saved === 'invalid_phone') return fail('Enter a valid Indian mobile number (starting 6–9).');
+      if (saved === 'failed') return fail('The LMS School website could not be updated, so nothing was saved. Please try again.');
+      // 'gone': the website account was deleted meanwhile; the panel record is still saved below.
+    }
+
+    const { error } = await db.from('parents').update({
+      parent_name: sanitize(v.parentName),
+      kid_name: sanitize(v.kidName),
+      email: sanitize(v.email),
+      phone_number: v.phoneNumber,
+      grade: sanitize(v.grade),
+      status: v.status,
+      city: sanitize(v.city),
+      state: sanitize(v.state),
+      updated_at: new Date().toISOString(),
+    }).eq('id', id);
+
+    if (error) {
+      logger.error({ event: 'UPDATE_PARENT_DB_ERROR', parentDbId: id, code: error.code });
+      if (error.code === '23505') return fail('Another parent already uses this email address.');
+      return fail(GENERIC_ERROR);
+    }
+
+    logger.info({ event: 'PARENT_UPDATED', parentDbId: id, websiteUser: !!websiteUser, adminEmail: session.email });
+    revalidatePath('/[panel]/accounts', 'page');
+    invalidateEntityLists(db.panel); // picker lists (src/lib/entityLists.ts)
+    return ok(undefined);
+  } catch (err: unknown) {
+    logger.error({ event: 'UPDATE_PARENT_CRITICAL_ERROR', parentDbId: id }, err);
+    return fail(GENERIC_ERROR);
+  }
+}
+
 export async function deleteParentAction(id: string): Promise<ActionResult> {
   const session = await getAdminSession();
   if (!session) return fail('Unauthorized. Please sign in again.');
-  if (typeof id !== 'string' || id.length === 0) return fail(GENERIC_ERROR);
+  if (typeof id !== 'string' || !PARENT_UUID.test(id)) return fail(GENERIC_ERROR);
 
   try {
-    // Manually cascade delete dependent records
-    await (await adminDb()).from('activation_keys').delete().eq('parent_id', id);
-    await (await adminDb()).from('payments').delete().eq('parent_id', id);
-
-    const { error } = await (await adminDb())
-      .from('parents')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
-      logger.error({ event: 'DELETE_PARENT_ERROR', parentDbId: id }, error);
-      return fail(error.message || GENERIC_ERROR);
+    const db = await adminDb();
+    const { data: parent, error: readError } = await db.from('parents').select('id, email').eq('id', id).maybeSingle();
+    if (readError) {
+      logger.error({ event: 'DELETE_PARENT_READ_ERROR', parentDbId: id, code: readError.code });
+      return fail(GENERIC_ERROR);
+    }
+    if (!parent) {
+      revalidatePath('/[panel]/accounts', 'page');
+      return ok(undefined); // already deleted
     }
 
-    logger.info({ event: 'PARENT_DELETED', parentDbId: id, adminEmail: session.email });
+    // The website account first: if anything below fails, Delete can simply be pressed again.
+    const websiteUser = await parentWebsiteUser(db.panel, parent.email);
+    if (websiteUser === 'unavailable') return fail('The LMS School website could not be reached, so nothing was deleted. Please try again.');
+    let website: 'deleted' | 'gone' | 'none' = 'none';
+    if (websiteUser) {
+      const removed = await deleteWebsiteUser(websiteUser);
+      if (removed === 'staff') return fail('This email is a school staff login on the LMS School website, so it can\'t be deleted here. Nothing was deleted.');
+      if (removed === 'failed') return fail('The LMS School website account could not be deleted, so nothing was deleted. Please try again.');
+      website = removed;
+    }
+
+    const result = await deleteParentRecords(db, id, db.panel === 'lms' ? supabaseAdmin : null);
+    if (!result.ok) {
+      logger.error({ event: 'DELETE_PARENT_ERROR', parentDbId: id, step: result.step, message: result.message, website });
+      return fail(website === 'deleted'
+        ? 'The website account was deleted, but some panel records could not be removed. Press Delete again to finish.'
+        : 'Some records could not be removed. Press Delete again to finish.');
+    }
+
+    logger.info({ event: 'PARENT_DELETED', parentDbId: id, website, ...result.summary, adminEmail: session.email });
     revalidatePath('/[panel]/accounts', 'page');
-    invalidateEntityLists((await adminDb()).panel); // picker lists (src/lib/entityLists.ts)
+    invalidateEntityLists(db.panel); // picker lists (src/lib/entityLists.ts)
     return ok(undefined);
   } catch (err: unknown) {
     logger.error({ event: 'DELETE_PARENT_CRITICAL_ERROR', parentDbId: id }, err);
     return fail(GENERIC_ERROR);
   }
 }
+
 /** One vendor, shaped for the Edit Vendor pop-up (same fields as the Add form). */
 export async function getVendorForEdit(id: string) {
   const session = await getAdminSession();

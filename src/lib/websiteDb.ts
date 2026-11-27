@@ -45,6 +45,54 @@ export async function websiteUsersByEmail(emails: string[]): Promise<Map<string,
   return found;
 }
 
+/**
+ * The website account for one email: its user id, null when there is none, or 'unavailable' when
+ * the website isn't configured or didn't answer (so a caller never mistakes an outage for "no account").
+ */
+export async function websiteUserIdByEmail(email: string): Promise<string | null | 'unavailable'> {
+  const db = websiteDb();
+  if (!db) return 'unavailable';
+  const wanted = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  if (!wanted.includes('@')) return null;
+  const { data, error } = await db.rpc('panel_users_by_email', { p_emails: [wanted] });
+  if (error) {
+    console.error('websiteUserIdByEmail failed:', error.code);
+    return 'unavailable';
+  }
+  const row = ((data ?? []) as { user_id: string; email: string }[]).find((r) => r.email === wanted);
+  return row?.user_id ?? null;
+}
+
+/** Saves a website account's name and WhatsApp number (+91…). A new number is verified again at the next login. */
+export async function updateWebsiteProfile(userId: string, fullName: string, phoneE164: string): Promise<'done' | 'invalid_name' | 'invalid_phone' | 'gone' | 'failed'> {
+  const db = websiteDb();
+  if (!db || !WEBSITE_UUID.test(userId)) return 'failed';
+  const { error } = await db.rpc('panel_update_profile', { p_user_id: userId, p_full_name: fullName, p_phone: phoneE164 });
+  if (!error) return 'done';
+  const reason = /invalid_name|invalid_phone|user_not_found/.exec(error.message ?? '')?.[0];
+  if (reason === 'invalid_name' || reason === 'invalid_phone') return reason;
+  if (reason === 'user_not_found') return 'gone';
+  console.error('updateWebsiteProfile failed:', error.code);
+  return 'failed';
+}
+
+/**
+ * Deletes a website account and everything linked to it, payment records included, in one
+ * transaction (website migration 20261127000000_panel_delete_user.sql). 'gone' if it no longer
+ * exists; 'staff' if it is a school staff login, which this never deletes.
+ */
+export async function deleteWebsiteUser(userId: string): Promise<'deleted' | 'gone' | 'staff' | 'failed'> {
+  const db = websiteDb();
+  if (!db || !WEBSITE_UUID.test(userId)) return 'failed';
+  const { data, error } = await db.rpc('panel_delete_user', { p_user_id: userId });
+  if (error) {
+    if ((error.message ?? '').includes('staff_account')) return 'staff';
+    console.error('deleteWebsiteUser failed:', error.code);
+    return 'failed';
+  }
+  return data === true ? 'deleted' : 'gone';
+}
+
 export interface WebsiteOverview {
   account: {
     id: string; email: string; created_at: string; last_sign_in_at: string | null; blocked: boolean;

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '@/components/Toast';
 import { createParent } from '@/app/[panel]/parents/new/actions';
+import { updateParentAction, type ParentEditData } from '@/app/[panel]/accounts/actions';
 import CustomSelect from '@/components/CustomSelect';
 import FormHeader, { FORM_INPUT_CLASS, FORM_GRID_CLASS, FORM_SAVE_BUTTON_CLASS } from './FormHeader';
 import { MAHARASHTRA_DISTRICTS, MAHARASHTRA_STATE } from '@/lib/constants';
@@ -17,26 +18,34 @@ export interface NewParentFormProps {
   onClose?: () => void;
   /** Called after a successful save in the pop-up (e.g. close it and refresh the list). */
   onSaved?: () => void;
+  /** Edit this parent instead of adding one: the fields start with its saved values. */
+  edit?: ParentEditData;
 }
 
-export default function NewParentForm({ onClose, onSaved }: NewParentFormProps = {}) {
+const GRADE_OPTIONS = Array.from({ length: 12 }, (_, i) => ({ label: `Standard ${i + 1}`, value: String(i + 1) }));
+
+export default function NewParentForm({ onClose, onSaved, edit }: NewParentFormProps = {}) {
   const inModal = !!onClose;
+  // The website saves a buyer's class as "Grade 3" or "1 to 4": keep it selectable as it is.
+  const gradeOptions = edit?.grade && !GRADE_OPTIONS.some((o) => o.value === edit.grade)
+    ? [{ label: edit.grade, value: edit.grade }, ...GRADE_OPTIONS]
+    : GRADE_OPTIONS;
   const { toast } = useToast();
   const router = usePanelRouter();
   const [isPending, startTransition] = useTransition();
 
   // Form states
   // 1. Basic Parent & Kid Information
-  const [parentName, setParentName] = useState('');
-  const [kidName, setKidName] = useState('');
-  const [email, setEmail] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [status, setStatus] = useState<'Active' | 'Inactive'>('Active');
-  const [grade, setGrade] = useState('');
+  const [parentName, setParentName] = useState(edit?.parentName ?? '');
+  const [kidName, setKidName] = useState(edit?.kidName ?? '');
+  const [email, setEmail] = useState(edit?.email ?? '');
+  const [phoneNumber, setPhoneNumber] = useState(edit?.phoneNumber ?? '');
+  const [status, setStatus] = useState<'Active' | 'Inactive'>(edit?.status ?? 'Active');
+  const [grade, setGrade] = useState(edit?.grade ?? '');
 
   // 2. Location
-  const [city, setCity] = useState('');
-  const [state, setState] = useState('Maharashtra');
+  const [city, setCity] = useState(edit ? edit.city : '');
+  const [state, setState] = useState(edit ? edit.state : 'Maharashtra');
 
   const handleSave = () => {
     // Validations
@@ -48,29 +57,22 @@ export default function NewParentForm({ onClose, onSaved }: NewParentFormProps =
       toast('Please provide valid Contact Details (Email & Phone).', 'error');
       return;
     }
-    if (!grade) {
+    // A website sign-up has no grade until the first purchase, so an edit may leave it empty.
+    if (!grade && !edit) {
       toast('Please select a Grade/Standard.', 'error');
       return;
     }
 
     startTransition(async () => {
-      const res = await createParent({
-        parentName,
-        kidName,
-        email,
-        phoneNumber,
-        status,
-        grade,
-        city,
-        state
-      });
+      const values = { parentName, kidName, email, phoneNumber, status, grade, city, state };
+      const res = edit ? await updateParentAction(edit.dbId, values) : await createParent(values);
 
       if (!res.ok) {
         toast(res.error, 'error');
         return;
       }
 
-      toast(`Parent account for "${parentName}" created successfully!`, 'success');
+      toast(edit ? `Saved changes to "${parentName.trim()}".` : `Parent account for "${parentName}" created successfully!`, 'success');
       if (onSaved) { onSaved(); return; }
       setTimeout(() => {
         router.push('/accounts'); // Accounts page lists the parents
@@ -83,13 +85,24 @@ export default function NewParentForm({ onClose, onSaved }: NewParentFormProps =
       {!inModal && <div className="h-10"></div>}
 
       <FormHeader
-        title="Add Individual User"
+        title={edit ? `Edit Individual User${edit.parentId ? ` · ${edit.parentId}` : ''}` : 'Add Individual User'}
         inModal={inModal}
         onClose={onClose}
         cancelHref="/accounts"
         backHref="/"
         backLabel="Back to Dashboard"
       />
+
+      {edit?.websiteLinked && (
+        <p className="text-xs text-sky-400">
+          LMS School website account: the name and mobile number are saved to the website too. The sign-in email can only be changed on the website.
+        </p>
+      )}
+      {edit?.websiteUnavailable && (
+        <p className="text-xs text-amber-400">
+          The LMS School website could not be reached, so changes can&apos;t be saved right now. Close this and try again shortly.
+        </p>
+      )}
 
       {/* Form (single page, full width) */}
       <div>
@@ -103,6 +116,7 @@ export default function NewParentForm({ onClose, onSaved }: NewParentFormProps =
                     <input 
                       type="text" 
                       placeholder="e.g. Ramesh Kumar" 
+                      maxLength={edit?.websiteLinked ? 100 : 150}
                       value={parentName} 
                       onChange={e => setParentName(e.target.value)}
                       className={FORM_INPUT_CLASS}
@@ -115,6 +129,7 @@ export default function NewParentForm({ onClose, onSaved }: NewParentFormProps =
                     <input 
                       type="text" 
                       placeholder="e.g. Aryan Kumar" 
+                      maxLength={150}
                       value={kidName} 
                       onChange={e => setKidName(e.target.value)}
                       className={FORM_INPUT_CLASS}
@@ -129,7 +144,10 @@ export default function NewParentForm({ onClose, onSaved }: NewParentFormProps =
                       placeholder="e.g. ramesh@example.com" 
                       value={email} 
                       onChange={e => setEmail(e.target.value)}
-                      className={FORM_INPUT_CLASS}
+                      maxLength={254}
+                      readOnly={edit?.websiteLinked}
+                      title={edit?.websiteLinked ? 'Website sign-in email: change it on the website' : undefined}
+                      className={`${FORM_INPUT_CLASS} ${edit?.websiteLinked ? 'opacity-60 cursor-not-allowed' : ''}`}
                     />
                   </div>
 
@@ -139,6 +157,8 @@ export default function NewParentForm({ onClose, onSaved }: NewParentFormProps =
                     <input 
                       type="text" 
                       placeholder="e.g. 9876543210" 
+                      inputMode="numeric"
+                      maxLength={20}
                       value={phoneNumber} 
                       onChange={e => setPhoneNumber(e.target.value)}
                       className={FORM_INPUT_CLASS}
@@ -151,20 +171,7 @@ export default function NewParentForm({ onClose, onSaved }: NewParentFormProps =
                     <CustomSelect size="sm" 
                       value={grade}
                       onChange={setGrade}
-                      options={[
-                        { label: 'Standard 1', value: '1' },
-                        { label: 'Standard 2', value: '2' },
-                        { label: 'Standard 3', value: '3' },
-                        { label: 'Standard 4', value: '4' },
-                        { label: 'Standard 5', value: '5' },
-                        { label: 'Standard 6', value: '6' },
-                        { label: 'Standard 7', value: '7' },
-                        { label: 'Standard 8', value: '8' },
-                        { label: 'Standard 9', value: '9' },
-                        { label: 'Standard 10', value: '10' },
-                        { label: 'Standard 11', value: '11' },
-                        { label: 'Standard 12', value: '12' }
-                      ]}
+                      options={gradeOptions}
                       placeholder="Select Grade"
                     />
                   </div>
@@ -209,10 +216,10 @@ export default function NewParentForm({ onClose, onSaved }: NewParentFormProps =
                 <div className="flex justify-end pt-6 border-t border-white/5">
                   <button
                     onClick={handleSave}
-                    disabled={isPending}
+                    disabled={isPending || !!edit?.websiteUnavailable}
                     className={FORM_SAVE_BUTTON_CLASS}
                   >
-                    {isPending ? 'Saving...' : 'Register Parent'}
+                    {isPending ? 'Saving...' : edit ? 'Save Changes' : 'Register Parent'}
                     <Check className="w-4 h-4" />
                   </button>
                 </div>
